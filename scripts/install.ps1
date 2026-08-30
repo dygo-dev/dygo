@@ -3,6 +3,7 @@ $ErrorActionPreference = "Stop"
 $Repo = "hapyco/dygo"
 $Version = if ($env:DYGO_VERSION) { $env:DYGO_VERSION } else { "latest" }
 $InstallDir = if ($env:DYGO_INSTALL_DIR) { $env:DYGO_INSTALL_DIR } else { Join-Path $HOME ".dygo\bin" }
+$DownloadBaseURL = if ($env:DYGO_DOWNLOAD_BASE_URL) { $env:DYGO_DOWNLOAD_BASE_URL } else { $null }
 
 $ArchName = [System.Runtime.InteropServices.RuntimeInformation]::ProcessArchitecture.ToString().ToLowerInvariant()
 switch ($ArchName) {
@@ -12,16 +13,25 @@ switch ($ArchName) {
 }
 
 if ($Version -eq "latest") {
-  $Latest = Invoke-RestMethod -Uri "https://api.github.com/repos/$Repo/releases/latest"
+  $Headers = @{ Accept = "application/vnd.github+json"; "User-Agent" = "dygo-installer" }
+  $Latest = Invoke-RestMethod -Uri "https://api.github.com/repos/$Repo/releases/latest" -Headers $Headers
   $Version = $Latest.tag_name
 }
 if (-not $Version) {
   throw "could not resolve dygo version"
 }
+if (-not $Version.StartsWith("v")) {
+  $Version = "v$Version"
+}
+if ($Version -notmatch '^v(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)(-[0-9A-Za-z]+([.-][0-9A-Za-z]+)*)?$') {
+  throw "invalid dygo version: $Version"
+}
 
 $Asset = "dygo_${Version}_windows_${GoArch}.zip"
-$BaseURL = "https://github.com/$Repo/releases/download/$Version"
+$BaseURL = if ($DownloadBaseURL) { $DownloadBaseURL } else { "https://github.com/$Repo/releases/download/$Version" }
 $TempDir = Join-Path ([System.IO.Path]::GetTempPath()) ("dygo-install-" + [System.Guid]::NewGuid())
+$StagedBinary = $null
+$BackupBinary = $null
 New-Item -ItemType Directory -Path $TempDir | Out-Null
 
 try {
@@ -40,9 +50,29 @@ try {
   }
 
   Expand-Archive -Path $ArchivePath -DestinationPath $TempDir -Force
+  $ExtractedBinary = Join-Path $TempDir "dygo.exe"
+  if (-not (Test-Path -Path $ExtractedBinary -PathType Leaf)) {
+    throw "release archive does not contain dygo.exe"
+  }
+  $ReportedVersion = (& $ExtractedBinary version | Out-String).Trim()
+  if ($ReportedVersion -ne "dygo $Version") {
+    throw "downloaded binary version does not match $Version"
+  }
+
   New-Item -ItemType Directory -Path $InstallDir -Force | Out-Null
   $BinaryPath = Join-Path $InstallDir "dygo.exe"
-  Copy-Item -Path (Join-Path $TempDir "dygo.exe") -Destination $BinaryPath -Force
+  $StagedBinary = Join-Path $InstallDir (".dygo-install-" + [System.Guid]::NewGuid() + ".exe")
+  Copy-Item -Path $ExtractedBinary -Destination $StagedBinary -Force
+  if (Test-Path -Path $BinaryPath -PathType Leaf) {
+    $BackupBinary = Join-Path $InstallDir (".dygo-backup-" + [System.Guid]::NewGuid() + ".exe")
+    [System.IO.File]::Replace($StagedBinary, $BinaryPath, $BackupBinary, $true)
+    Remove-Item -Path $BackupBinary -Force
+    $BackupBinary = $null
+  }
+  else {
+    [System.IO.File]::Move($StagedBinary, $BinaryPath)
+  }
+  $StagedBinary = $null
 
   Write-Host "dygo $Version installed to $BinaryPath"
   if (($env:PATH -split ";") -notcontains $InstallDir) {
@@ -51,4 +81,10 @@ try {
 }
 finally {
   Remove-Item -Path $TempDir -Recurse -Force -ErrorAction SilentlyContinue
+  if ($StagedBinary) {
+    Remove-Item -Path $StagedBinary -Force -ErrorAction SilentlyContinue
+  }
+  if ($BackupBinary) {
+    Remove-Item -Path $BackupBinary -Force -ErrorAction SilentlyContinue
+  }
 }

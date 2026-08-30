@@ -48,6 +48,7 @@ Use this index to find the right document for the task. The docs are kept in the
 
 ## Maintainers
 
+- [Release Process](releasing.md) explains local release checks, tag creation, GitHub release publication, artifacts, and installers.
 - [Directory Shape](dir.md) documents the generated project layout, deployed runtime layout, and framework repository layout.
 - [Maintainer Notes](notes.md) records repo-maintenance notes that are useful to keep versioned but are not framework reference material.
 - [Roadmap](todo.md) tracks local issue status for the dygo repository.

@@ -14,16 +14,16 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - name: Checkout
-        uses: actions/checkout@v4
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
 
       - name: Set up Go
-        uses: actions/setup-go@v5
+        uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7.0.0
         with:
           go-version: "1.26.2"
           cache: true
 
       - name: Set up Node
-        uses: actions/setup-node@v4
+        uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
         with:
           node-version: "24"
           cache: npm
@@ -47,24 +47,87 @@ jobs:
           npm test
           npm run build
 
-      - name: Smoke test released project generator
-        shell: bash
+      - name: Test release scripts and installer
         run: |
-          set -euo pipefail
-          smoke_root="$(mktemp -d)"
-          trap 'rm -rf "$smoke_root"' EXIT
-          go build -ldflags "-s -w -X github.com/hapyco/dygo/internal/cli.version=v0.0.0-ci" -o "$smoke_root/dygo" ./cmd/dygo
-          test "$("$smoke_root/dygo" version)" = "dygo v0.0.0-ci"
-          (
-            cd "$smoke_root"
-            "$smoke_root/dygo" new smoke-app --skip-tidy
-          )
-          test -f "$smoke_root/smoke-app/.dygo/apps/core/app.yml"
-          test ! -e "$smoke_root/smoke-app/.dygo/apps/core/entities/user/fixtures.yml"
-          test "$(cd "$smoke_root/smoke-app" && "$smoke_root/dygo" hook sync --dry-run)" = "runner: cmd/dygo/main.go (unchanged)"
-          (
-            cd "$smoke_root/smoke-app"
-            git init -q
-            ! git check-ignore .dygo/apps/core/app.yml
-            git check-ignore .dygo/apps/studio/ui/dist/index.html
-          )
+          bash -n scripts/*.sh
+          pwsh -NoProfile -Command '$tokens = $null; $errors = $null; [System.Management.Automation.Language.Parser]::ParseFile("scripts/install.ps1", [ref]$tokens, [ref]$errors) > $null; if ($errors.Count) { $errors | ForEach-Object { Write-Error $_ }; exit 1 }'
+          scripts/test-install.sh
+
+      - name: Build and smoke release assets
+        run: |
+          scripts/build-release.sh v0.0.0-ci dist
+          scripts/smoke-release.sh v0.0.0-ci dist
+
+  verify-windows-installer:
+    runs-on: windows-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+
+      - name: Set up Go
+        uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7.0.0
+        with:
+          go-version: "1.26.2"
+          cache: true
+
+      - name: Test PowerShell installer
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = "Stop"
+          $Version = "v0.0.0-ci"
+          $TestRoot = Join-Path $env:RUNNER_TEMP "dygo-installer-test"
+          $ReleaseDir = Join-Path $TestRoot "release"
+          $InstallDir = Join-Path $TestRoot "install"
+          $Asset = "dygo_${Version}_windows_amd64.zip"
+          New-Item -ItemType Directory -Path $ReleaseDir -Force | Out-Null
+
+          go build -trimpath -ldflags "-s -w -X github.com/hapyco/dygo/internal/cli.version=$Version" -o (Join-Path $ReleaseDir "dygo.exe") ./cmd/dygo
+          Compress-Archive -Path (Join-Path $ReleaseDir "dygo.exe") -DestinationPath (Join-Path $ReleaseDir $Asset)
+          Remove-Item (Join-Path $ReleaseDir "dygo.exe")
+          $Hash = (Get-FileHash -Algorithm SHA256 (Join-Path $ReleaseDir $Asset)).Hash.ToLowerInvariant()
+          "$Hash  $Asset" | Set-Content -Path (Join-Path $ReleaseDir "checksums.txt") -Encoding ascii
+
+          $Listener = [System.Net.Sockets.TcpListener]::new([System.Net.IPAddress]::Loopback, 0)
+          $Listener.Start()
+          $Port = ([System.Net.IPEndPoint]$Listener.LocalEndpoint).Port
+          $Listener.Stop()
+          $Server = Start-Process python -ArgumentList @("-m", "http.server", "$Port", "--bind", "127.0.0.1", "--directory", $ReleaseDir) -PassThru
+          try {
+            $env:DYGO_VERSION = $Version
+            $env:DYGO_INSTALL_DIR = $InstallDir
+            $env:DYGO_DOWNLOAD_BASE_URL = "http://127.0.0.1:$Port"
+            for ($Attempt = 0; $Attempt -lt 20; $Attempt++) {
+              try {
+                Invoke-WebRequest -Uri "$env:DYGO_DOWNLOAD_BASE_URL/checksums.txt" -OutFile (Join-Path $TestRoot "probe.txt")
+                break
+              }
+              catch {
+                if ($Attempt -eq 19) { throw }
+                Start-Sleep -Milliseconds 250
+              }
+            }
+
+            & ./scripts/install.ps1
+            if ((& (Join-Path $InstallDir "dygo.exe") version) -ne "dygo $Version") {
+              throw "installed Windows binary version is incorrect"
+            }
+
+            Add-Content -Path (Join-Path $ReleaseDir $Asset) -Value "corrupt" -NoNewline
+            $Rejected = $false
+            try {
+              $env:DYGO_INSTALL_DIR = Join-Path $TestRoot "corrupt-install"
+              & ./scripts/install.ps1
+            }
+            catch {
+              $Rejected = $true
+            }
+            if (-not $Rejected) {
+              throw "PowerShell installer accepted a corrupted archive"
+            }
+          }
+          finally {
+            Remove-Item Env:DYGO_VERSION -ErrorAction SilentlyContinue
+            Remove-Item Env:DYGO_INSTALL_DIR -ErrorAction SilentlyContinue
+            Remove-Item Env:DYGO_DOWNLOAD_BASE_URL -ErrorAction SilentlyContinue
+            Stop-Process -Id $Server.Id -Force -ErrorAction SilentlyContinue
+          }

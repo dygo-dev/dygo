@@ -4,6 +4,18 @@ set -eu
 repo="hapyco/dygo"
 version="${DYGO_VERSION:-latest}"
 install_dir="${DYGO_INSTALL_DIR:-$HOME/.dygo/bin}"
+download_base_url="${DYGO_DOWNLOAD_BASE_URL:-}"
+
+require_command() {
+  if ! command -v "$1" >/dev/null 2>&1; then
+    echo "required command is unavailable: $1" >&2
+    exit 1
+  fi
+}
+
+for command in awk curl grep head install mktemp sed tar; do
+  require_command "$command"
+done
 
 os="$(uname -s | tr '[:upper:]' '[:lower:]')"
 arch="$(uname -m)"
@@ -19,33 +31,46 @@ case "$arch" in
 esac
 
 if [ "$version" = "latest" ]; then
-  version="$(curl -fsSL "https://api.github.com/repos/$repo/releases/latest" | sed -n 's/.*"tag_name"[[:space:]]*:[[:space:]]*"\([^"]*\)".*/\1/p' | head -n 1)"
+  version="$(curl -fsSL -H "Accept: application/vnd.github+json" -H "User-Agent: dygo-installer" "https://api.github.com/repos/$repo/releases/latest" | sed -n 's/.*"tag_name"[[:space:]]*:[[:space:]]*"\([^"]*\)".*/\1/p' | head -n 1)"
+elif [ "${version#v}" = "$version" ]; then
+  version="v$version"
 fi
 if [ -z "$version" ]; then
   echo "could not resolve dygo version" >&2
   exit 1
 fi
+if ! printf '%s\n' "$version" | grep -Eq '^v(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)(-[0-9A-Za-z]+([.-][0-9A-Za-z]+)*)?$'; then
+  echo "invalid dygo version: $version" >&2
+  exit 1
+fi
 
 asset="dygo_${version}_${goos}_${goarch}.tar.gz"
-base_url="https://github.com/$repo/releases/download/$version"
+base_url="${download_base_url:-https://github.com/$repo/releases/download/$version}"
 tmp_dir="$(mktemp -d)"
+staged_binary=""
 cleanup() {
   rm -rf "$tmp_dir"
+  if [ -n "$staged_binary" ]; then
+    rm -f "$staged_binary"
+  fi
 }
 trap cleanup EXIT INT TERM
 
 curl -fsSL "$base_url/$asset" -o "$tmp_dir/$asset"
 curl -fsSL "$base_url/checksums.txt" -o "$tmp_dir/checksums.txt"
 
-expected="$(awk -v file="$asset" '$2 == file { print $1 }' "$tmp_dir/checksums.txt")"
+expected="$(awk -v file="$asset" '$2 == file || $2 == "*" file { print $1 }' "$tmp_dir/checksums.txt")"
 if [ -z "$expected" ]; then
   echo "checksums.txt does not contain $asset" >&2
   exit 1
 fi
 if command -v sha256sum >/dev/null 2>&1; then
   actual="$(sha256sum "$tmp_dir/$asset" | awk '{ print $1 }')"
-else
+elif command -v shasum >/dev/null 2>&1; then
   actual="$(shasum -a 256 "$tmp_dir/$asset" | awk '{ print $1 }')"
+else
+  echo "required checksum command is unavailable: sha256sum or shasum" >&2
+  exit 1
 fi
 if [ "$actual" != "$expected" ]; then
   echo "checksum mismatch for $asset" >&2
@@ -53,8 +78,21 @@ if [ "$actual" != "$expected" ]; then
 fi
 
 tar -xzf "$tmp_dir/$asset" -C "$tmp_dir"
+if [ ! -f "$tmp_dir/dygo" ]; then
+  echo "release archive does not contain dygo" >&2
+  exit 1
+fi
+chmod 0755 "$tmp_dir/dygo"
+if [ "$("$tmp_dir/dygo" version)" != "dygo $version" ]; then
+  echo "downloaded binary version does not match $version" >&2
+  exit 1
+fi
+
 mkdir -p "$install_dir"
-install "$tmp_dir/dygo" "$install_dir/dygo"
+staged_binary="$install_dir/.dygo-install-$$"
+install -m 0755 "$tmp_dir/dygo" "$staged_binary"
+mv -f "$staged_binary" "$install_dir/dygo"
+staged_binary=""
 
 echo "dygo $version installed to $install_dir/dygo"
 case ":$PATH:" in

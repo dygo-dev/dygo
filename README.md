@@ -6,6 +6,8 @@
 [![Contributions](https://img.shields.io/badge/contributions-paused-lightgrey)](CONTRIBUTING.md)
 [![Issues](https://img.shields.io/badge/issues-GitHub-2ea44f)](https://github.com/hapyco/dygo/issues)
 
+Website: [dygo.dev](https://dygo.dev)
+
 dygo is a source-available Go framework for building serious business software.
 
 It gives business apps a conventional platform foundation: metadata-driven PostgreSQL schema, encrypted configuration, session auth, permissions, generic Record APIs, Record hooks, durable Jobs, recurring Schedules, and a first-party Studio UI.
@@ -22,12 +24,6 @@ Install dygo:
 
 ```sh
 curl -fsSL https://dygo.dev/install | sh
-```
-
-Until `dygo.dev/install` is wired, use the repository-hosted installer:
-
-```sh
-curl -fsSL https://raw.githubusercontent.com/hapyco/dygo/main/scripts/install.sh | sh
 ```
 
 Create and run a project:

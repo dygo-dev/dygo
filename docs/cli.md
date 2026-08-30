@@ -213,13 +213,6 @@ curl -fsSL https://dygo.dev/install | sh
 dygo upgrade
 ```
 
-Until `dygo.dev/install` is wired:
-
-```sh
-curl -fsSL https://raw.githubusercontent.com/hapyco/dygo/main/scripts/install.sh | sh
-dygo upgrade
-```
-
 ## Environment Safety Rule
 
 - `--env` defaults to `development`.
