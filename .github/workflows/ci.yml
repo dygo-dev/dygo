@@ -36,18 +36,18 @@ jobs:
           git diff --exit-code -- internal/frameworkapp/bundled/core
           git diff --exit-code -- internal/studio/bundled-app
 
-      - name: Test Go
-        run: go test ./...
-
-      - name: Vet Go
-        run: go vet ./...
-
       - name: Test and build Studio
         working-directory: apps/studio/ui
         run: |
           npm ci
           npm test
-          npm run build
+          npm run build:embed
+
+      - name: Test Go
+        run: go test ./...
+
+      - name: Vet Go
+        run: go vet ./...
 
       - name: Test release scripts and installer
         run: |
