@@ -188,7 +188,9 @@ If the answer is unclear, choose the simpler and more explicit design.
 
 ## Project Skills
 
-For Go CLI work, use `.agents/skills/go-cli-cobra-viper/SKILL.md`. It captures dygo's Cobra command patterns, when to introduce Viper-style config precedence, CLI output rules, and test expectations.
+First-party dygo skills live under `.agents/skills/`. Use the narrowest skill that matches the task.
+
+For framework CLI development, use `.agents/skills/dygo-cli-development/SKILL.md`. The `dygo-cli` name is reserved for the future business-operator skill.
 
 ## Tone of the Codebase
 
