@@ -64,22 +64,22 @@ records:
 
 dygo infers the target Entity from Field metadata and resolves the linked Record through that target's own unique match fields.
 
-## Core Bootstrap Fixtures
+## Core Bootstrap Data
 
-Until the access metadata loader exists, Core still ships default roles and permissions as fixture files. That is a bootstrap bridge, not the long-term authoring model.
-
-Core ships the first default roles:
+Core roles and permissions are authored through access metadata:
 
 - `studio-member`: baseline role for users who can sign in to Studio and read structural metadata needed by the shell.
 - `system-manager`: operational role for managing users, roles, role assignments, and permissions.
 
+Core does not ship an Administrator fixture or a shared password. Run `dygo setup` after `dygo db prepare` to create the first Administrator with an operator-selected password.
+
 Administrator remains a `user` flag, not a role. It is the only v1 bypass. `system-manager` still goes through the permission engine.
 
-Core fixtures intentionally do not grant generic `session` Record access yet. Session management needs a dedicated surface that does not expose token digest fields through normal Record reads.
+Core access metadata intentionally does not grant generic `session` Record access yet. Session management needs a dedicated surface that does not expose token digest fields through normal Record reads.
 
-Core fixtures also do not grant `studio-member` generic `activity` Record access. Activity rows can include snapshots and field diffs, so normal users should read them through scoped per-Record Activity APIs. `system-manager` receives read-only activity access for operational inspection.
+Core access metadata also does not grant `studio-member` generic `activity` Record access. Activity rows can include snapshots and field diffs, so normal users should read them through scoped per-Record Activity APIs. `system-manager` receives read-only activity access for operational inspection.
 
-The target model moves these Core role and permission definitions to:
+Core role and permission definitions live in:
 
 ```txt
 apps/core/access/_roles.yml
@@ -97,7 +97,7 @@ Target policy:
 | Ordinary business and reference Entities | allowed | App-owned seed data is the main fixture use case. |
 | `core/role` | denied | Role authoring belongs in `access/_roles.yml`. |
 | `core/permission` | denied | Entity grants belong in `access/<entity>.access.yml`. |
-| `core/user`, `core/user-role`, `core/configuration` | allowed for now | Accounts, assignments, and global defaults can be explicit environment/demo setup data until Studio/admin tooling owns them. |
+| `core/user`, `core/user-role`, `core/configuration` | allowed for now | Apps can author explicit environment or demo data, but Core does not ship a default Administrator credential. |
 | Collection Entities | denied as standalone fixtures | Parent Entity fixtures own collection row data. |
 
 Denied fixture files should fail with an error that names the correct authoring source.

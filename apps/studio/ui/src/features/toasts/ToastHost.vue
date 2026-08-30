@@ -17,7 +17,7 @@ function labelForType(type: StudioToastType): string {
 </script>
 
 <template>
-  <div v-if="visibleToasts.length" class="studio-toast-host" aria-live="polite" aria-atomic="false">
+  <div class="studio-toast-host" aria-live="polite" aria-atomic="false">
     <article
       v-for="toast in visibleToasts"
       :key="toast.id"

@@ -1,0 +1,45 @@
+label: Session
+description: Login session metadata.
+icon: clock
+is-system: true
+name:
+  strategy: random
+fields:
+  - name: user
+    label: User
+    type: link
+    required: true
+    index: true
+    options:
+      entity: user
+
+  - name: token-digest
+    label: Token Digest
+    type: text
+    required: true
+    unique: true
+
+  - name: status
+    label: Status
+    type: select
+    required: true
+    index: true
+    default: active
+    options:
+      values:
+        - active
+        - expired
+        - revoked
+
+  - name: started-at
+    label: Started At
+    type: datetime
+    required: true
+
+  - name: expires-at
+    label: Expires At
+    type: datetime
+
+  - name: last-seen-at
+    label: Last Seen At
+    type: datetime

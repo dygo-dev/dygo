@@ -47,6 +47,12 @@ func TestUpgradeProjectUpdatesGoModAndGeneratedRunner(t *testing.T) {
 	if !result.StudioUpdated || result.StudioSource != "configured Studio assets" {
 		t.Fatalf("UpgradeProject() result = %+v, want Studio cache update", result)
 	}
+	if !result.CoreUpdated || result.CoreSource != "bundled Core App" {
+		t.Fatalf("UpgradeProject() result = %+v, want bundled Core App update", result)
+	}
+	if _, err := os.Stat(filepath.Join(root, ".dygo", "apps", "core", "app.yml")); err != nil {
+		t.Fatalf("Stat(upgraded Core App) error = %v", err)
+	}
 	studioIndex := readUpgradeTestFile(t, filepath.Join(root, ".dygo", "apps", "studio", "ui", "dist", "index.html"))
 	if !strings.Contains(studioIndex, "studio v1.2.3") {
 		t.Fatalf("Studio index = %q, want upgraded Studio cache", studioIndex)

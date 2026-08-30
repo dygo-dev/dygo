@@ -104,9 +104,9 @@ Framework repo `apps/` contains first-party apps shipped by dygo.
 
 Generated project `apps/` contains business apps owned by the project.
 
-Generated project `.dygo/apps/` contains framework-managed cached apps.
+Generated project `.dygo/apps/` contains framework-managed apps. Commit `.dygo/apps/core` so a fresh checkout has the required Core metadata. Keep Studio build assets as local cache data.
 
-Generated project `.dygo/` contains runtime-generated local state, cached apps, logs, temp files, and local secret keys.
+The rest of generated project `.dygo/` contains ignored runtime state, Studio cache data, logs, temp files, and local secret keys.
 
 ## Hierarchy
 

@@ -1,0 +1,65 @@
+label: Entity
+description: Registry entry for a known Entity definition.
+icon: boxes
+is-system: true
+name:
+  strategy: format
+  format: "{app}.{key}"
+fields:
+  - name: app
+    label: App
+    type: link
+    required: true
+    index: true
+    options:
+      entity: app
+
+  - name: key
+    label: Key
+    type: text
+    required: true
+    index: true
+
+  - name: slug
+    label: Slug
+    type: text
+    unique: true
+    index: true
+
+  - name: label
+    label: Label
+    type: text
+    required: true
+
+  - name: description
+    label: Description
+    type: long-text
+
+  - name: icon
+    label: Icon
+    type: text
+
+  - name: is-single
+    label: Is Single
+    type: boolean
+    required: true
+    default: false
+    index: true
+
+  - name: is-system
+    label: Is System
+    type: boolean
+    required: true
+    default: false
+    index: true
+
+  - name: is-collection
+    label: Is Collection
+    type: boolean
+    required: true
+    default: false
+    index: true
+
+  - name: naming
+    label: Naming
+    type: json

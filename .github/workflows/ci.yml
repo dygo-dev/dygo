@@ -1,0 +1,70 @@
+name: CI
+
+on:
+  push:
+    branches:
+      - main
+  pull_request:
+
+permissions:
+  contents: read
+
+jobs:
+  verify:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Set up Go
+        uses: actions/setup-go@v5
+        with:
+          go-version: "1.26.2"
+          cache: true
+
+      - name: Set up Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: "24"
+          cache: npm
+          cache-dependency-path: apps/studio/ui/package-lock.json
+
+      - name: Verify Core App bundle
+        run: |
+          go generate ./internal/frameworkapp
+          git diff --exit-code -- internal/frameworkapp/bundled/core
+
+      - name: Test Go
+        run: go test ./...
+
+      - name: Vet Go
+        run: go vet ./...
+
+      - name: Test and build Studio
+        working-directory: apps/studio/ui
+        run: |
+          npm ci
+          npm test
+          npm run build
+
+      - name: Smoke test released project generator
+        shell: bash
+        run: |
+          set -euo pipefail
+          smoke_root="$(mktemp -d)"
+          trap 'rm -rf "$smoke_root"' EXIT
+          go build -ldflags "-s -w -X github.com/hapyco/dygo/internal/cli.version=v0.0.0-ci" -o "$smoke_root/dygo" ./cmd/dygo
+          test "$("$smoke_root/dygo" version)" = "dygo v0.0.0-ci"
+          (
+            cd "$smoke_root"
+            "$smoke_root/dygo" new smoke-app --skip-tidy
+          )
+          test -f "$smoke_root/smoke-app/.dygo/apps/core/app.yml"
+          test ! -e "$smoke_root/smoke-app/.dygo/apps/core/entities/user/fixtures.yml"
+          test "$(cd "$smoke_root/smoke-app" && "$smoke_root/dygo" hook sync --dry-run)" = "runner: cmd/dygo/main.go (unchanged)"
+          (
+            cd "$smoke_root/smoke-app"
+            git init -q
+            ! git check-ignore .dygo/apps/core/app.yml
+            git check-ignore .dygo/apps/studio/ui/dist/index.html
+          )

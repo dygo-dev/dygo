@@ -45,6 +45,7 @@ The basic dygo loop should stay small:
 dygo generate app <app>
 dygo generate entity <app>/<entity>
 dygo db prepare
+dygo setup
 dygo dev
 ```
 

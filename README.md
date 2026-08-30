@@ -35,7 +35,7 @@ Create and run a project:
 ```sh
 dygo new my-system
 cd my-system
-dygo db migrate
+dygo db prepare
 dygo setup
 dygo dev
 ```
@@ -46,7 +46,8 @@ dygo dev
 
 - Apps live under `apps/<app>` and describe business modules.
 - Entities define metadata-backed Records, fields, indexes, constraints, permissions, hooks, fixtures, and route slugs.
-- `dygo db migrate` compares metadata with PostgreSQL, applies safe schema changes, syncs Core metadata records, applies fixtures, and refreshes `db/schema.sql`.
+- `dygo db migrate` compares metadata with PostgreSQL, applies safe schema changes, syncs Core metadata records, and refreshes `db/schema.sql`.
+- `dygo db prepare` creates a usable environment by running migration, access apply, and fixture apply.
 - Studio renders global app surfaces from metadata.
 - Jobs run durable background work through PostgreSQL-backed Job Executions.
 - Schedules create Job Executions from app-owned cron metadata.

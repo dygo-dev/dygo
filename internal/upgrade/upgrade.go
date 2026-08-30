@@ -66,6 +66,8 @@ type ProjectResult struct {
 	WouldUpdate   bool
 	Updated       bool
 	RunnerUpdated bool
+	CoreUpdated   bool
+	CoreSource    string
 	StudioUpdated bool
 	StudioSource  string
 	NoGit         bool
@@ -211,6 +213,9 @@ func resultLines(result Result, options Options) []string {
 		lines = append(lines, fmt.Sprintf("project: %s %s from %s to %s", action, result.Project.Root, result.Project.CurrentVersion, result.Project.TargetVersion))
 		if result.Project.RunnerUpdated {
 			lines = append(lines, "project runner: updated")
+		}
+		if result.Project.CoreUpdated {
+			lines = append(lines, fmt.Sprintf("project Core App: updated from %s", result.Project.CoreSource))
 		}
 		if result.Project.StudioUpdated {
 			lines = append(lines, fmt.Sprintf("project Studio cache: updated from %s", result.Project.StudioSource))

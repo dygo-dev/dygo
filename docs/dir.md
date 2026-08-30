@@ -45,8 +45,9 @@ project/                         - Generated dygo project root
     storage.yml                  - Future storage config
     queues.yml                   - Queue registry and concurrency config
     logging.yml                  - Future logging config
-  .dygo/                         - Local ignored runtime state
-    apps/                        - Cached first-party assets
+  .dygo/                         - Framework-managed Apps and local runtime state
+    apps/
+      core/                      - Tracked Core metadata required by fresh checkouts
       studio/                    - Cached Studio UI assets
     files/                       - Local uploaded files
     logs/                        - Local runtime logs

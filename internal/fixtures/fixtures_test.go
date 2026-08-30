@@ -135,7 +135,7 @@ func TestValidateFilesRejectsDeniedFixtureEntities(t *testing.T) {
 	}}
 	entities := []catalog.LoadedEntity{{
 		AppName: "core",
-		Entity: schema.Entity{Name: "role"},
+		Entity:  schema.Entity{Name: "role"},
 	}}
 
 	err := ValidateFiles(files, entities)
@@ -461,6 +461,42 @@ records:
 	}
 }
 
+func TestApplyFilesUsesAppScopedEntityIdentity(t *testing.T) {
+	store := newFakeStore()
+	store.metadata["crm/lead"] = db.MetadataEntityMeta{
+		MetadataEntity: db.MetadataEntity{Name: "crm.lead", Key: "lead", App: db.MetadataAppRef{Name: "crm"}},
+		Fields:         []db.MetadataField{{Name: "title", Type: "text", Unique: true, Required: true}},
+	}
+	store.metadata["support/lead"] = db.MetadataEntityMeta{
+		MetadataEntity: db.MetadataEntity{Name: "support.lead", Key: "lead", App: db.MetadataAppRef{Name: "support"}},
+		Fields:         []db.MetadataField{{Name: "title", Type: "text", Unique: true, Required: true}},
+	}
+	store.records["crm/lead"] = []db.Record{{"id": int64(1), "name": "crm-lead", "title": "Old CRM Lead"}}
+	store.records["support/lead"] = []db.Record{{"id": int64(2), "name": "support-lead", "title": "Support Lead"}}
+	file := loadedFixture(t, "crm-leads.yml", `
+entity: lead
+match: [name]
+records:
+  - name: crm-lead
+    title: CRM Lead
+`)
+	file.AppName = "crm"
+
+	result, err := ApplyFiles(context.Background(), store, []LoadedFile{file})
+	if err != nil {
+		t.Fatalf("ApplyFiles() error = %v, want nil", err)
+	}
+	if result.Updated != 1 || result.Created != 0 {
+		t.Fatalf("ApplyFiles() result = %+v, want one CRM update", result)
+	}
+	if store.records["crm/lead"][0]["title"] != "CRM Lead" {
+		t.Fatalf("CRM lead = %+v, want updated title", store.records["crm/lead"][0])
+	}
+	if store.records["support/lead"][0]["title"] != "Support Lead" {
+		t.Fatalf("support lead = %+v, want unchanged record", store.records["support/lead"][0])
+	}
+}
+
 func TestApplyFilesRejectsNonUniqueMatch(t *testing.T) {
 	store := newFakeStore()
 	file := loadedFixture(t, "roles.yml", `
@@ -508,6 +544,86 @@ records:
 	created := store.records["permission"][0]
 	if created["entity"] != "core.user" || created["role"] != "system-manager" || created["read"] != true {
 		t.Fatalf("created permission = %+v, want resolved link names", created)
+	}
+}
+
+func TestApplyFilesResolvesCrossAppLinkIdentity(t *testing.T) {
+	store := newFakeStore()
+	store.metadata["crm/lead"] = db.MetadataEntityMeta{
+		MetadataEntity: db.MetadataEntity{Name: "crm.lead", Key: "lead", App: db.MetadataAppRef{Name: "crm"}},
+		Fields: []db.MetadataField{
+			{Name: "title", Type: "text", Unique: true, Required: true},
+			{Name: "owner", Type: "link", Options: json.RawMessage(`{"app":"core","entity":"user"}`)},
+		},
+	}
+	store.metadata["core/user"] = db.MetadataEntityMeta{
+		MetadataEntity: db.MetadataEntity{Name: "core.user", Key: "user", App: db.MetadataAppRef{Name: "core"}},
+		Fields:         []db.MetadataField{{Name: "email", Type: "email", Unique: true, Required: true}},
+	}
+	store.records["core/user"] = []db.Record{{"id": int64(7), "name": "admin@example.com", "email": "admin@example.com"}}
+	file := loadedFixture(t, "crm-leads.yml", `
+entity: lead
+match: [title]
+records:
+  - title: First Lead
+    owner:
+      match:
+        email: admin@example.com
+`)
+	file.AppName = "crm"
+
+	result, err := ApplyFiles(context.Background(), store, []LoadedFile{file})
+	if err != nil {
+		t.Fatalf("ApplyFiles() error = %v, want nil", err)
+	}
+	if result.Created != 1 {
+		t.Fatalf("ApplyFiles() result = %+v, want one created CRM lead", result)
+	}
+	if got := store.records["crm/lead"][0]["owner"]; got != "admin@example.com" {
+		t.Fatalf("created CRM lead owner = %v, want resolved Core user name", got)
+	}
+}
+
+func TestApplyFilesResolvesGloballyUniqueLinkWhenAppIsOmitted(t *testing.T) {
+	store := newFakeStore()
+	store.metadata["crm/lead"] = db.MetadataEntityMeta{
+		MetadataEntity: db.MetadataEntity{Name: "crm.lead", Key: "lead", App: db.MetadataAppRef{Name: "crm"}},
+		Fields: []db.MetadataField{
+			{Name: "title", Type: "text", Unique: true, Required: true},
+			{Name: "owner", Type: "link", Options: json.RawMessage(`{"entity":"user"}`)},
+		},
+	}
+	store.metadata["core/user"] = db.MetadataEntityMeta{
+		MetadataEntity: db.MetadataEntity{Name: "core.user", Key: "user", App: db.MetadataAppRef{Name: "core"}},
+		Fields:         []db.MetadataField{{Name: "email", Type: "email", Unique: true, Required: true}},
+	}
+	store.metadata["crm/user"] = db.MetadataEntityMeta{
+		MetadataEntity: db.MetadataEntity{Name: "crm.user", Key: "user", App: db.MetadataAppRef{Name: "crm"}},
+		Fields:         []db.MetadataField{{Name: "email", Type: "email", Unique: true, Required: true}},
+	}
+	store.records["core/user"] = []db.Record{{"id": int64(7), "name": "operator@example.com", "email": "operator@example.com"}}
+	store.records["crm/user"] = []db.Record{{"id": int64(8), "name": "stale@example.com", "email": "operator@example.com"}}
+	file := loadedFixture(t, "crm-leads.yml", `
+entity: lead
+match: [title]
+records:
+  - title: First Lead
+    owner:
+      match:
+        email: operator@example.com
+`)
+	file.AppName = "crm"
+
+	sourceIndex := newFixtureEntityIndex([]catalog.LoadedEntity{
+		{AppName: "crm", Entity: schema.Entity{Name: "lead"}},
+		{AppName: "core", Entity: schema.Entity{Name: "user"}},
+	})
+	result, err := applyFilesWithIndex(context.Background(), store, []LoadedFile{file}, sourceIndex)
+	if err != nil {
+		t.Fatalf("ApplyFiles() error = %v, want globally unique Core target", err)
+	}
+	if result.Created != 1 || store.records["crm/lead"][0]["owner"] != "operator@example.com" {
+		t.Fatalf("ApplyFiles() result = %+v records = %+v, want resolved Core user", result, store.records["crm/lead"])
 	}
 }
 
@@ -735,7 +851,8 @@ func (s *fakeStore) GetEntityMeta(_ context.Context, entity string) (db.Metadata
 }
 
 func (s *fakeStore) GetEntityMetaByIdentity(_ context.Context, appName string, entity string) (db.MetadataEntityMeta, error) {
-	meta, ok := s.metadata[entity]
+	key := s.identityKey(appName, entity)
+	meta, ok := s.metadata[key]
 	if !ok {
 		return db.MetadataEntityMeta{}, db.MetadataNotFoundError{Kind: "entity", Name: appName + "/" + entity}
 	}
@@ -745,6 +862,25 @@ func (s *fakeStore) GetEntityMetaByIdentity(_ context.Context, appName string, e
 		meta.Name = entity
 	}
 	return meta, nil
+}
+
+func (s *fakeStore) ListEntities(_ context.Context) ([]db.MetadataEntity, error) {
+	entities := []db.MetadataEntity{}
+	for key, meta := range s.metadata {
+		entity := meta.MetadataEntity
+		if entity.Key == "" {
+			parts := strings.SplitN(key, "/", 2)
+			if len(parts) == 2 {
+				entity.App.Name = parts[0]
+				entity.Key = parts[1]
+			} else {
+				entity.App.Name = "sales"
+				entity.Key = key
+			}
+		}
+		entities = append(entities, entity)
+	}
+	return entities, nil
 }
 
 func (s *fakeStore) ListRecordsByIdentity(_ context.Context, _ string, entity string, params db.RecordListParams) (db.RecordListResult, error) {
@@ -779,6 +915,26 @@ func (s *fakeStore) ListRecordsByIdentity(_ context.Context, _ string, entity st
 	}
 	page := append([]db.Record(nil), records[offset:end]...)
 	return db.RecordListResult{Records: page, Limit: limit, Offset: offset, Count: len(page), Total: len(records)}, nil
+}
+
+func (s *fakeStore) FindRecordByIdentity(ctx context.Context, appName string, entity string, match db.RecordInput) (db.Record, error) {
+	return s.FindRecord(ctx, s.identityKey(appName, entity), match)
+}
+
+func (s *fakeStore) CreateRecordByIdentity(ctx context.Context, appName string, entity string, input db.RecordInput) (db.Record, error) {
+	return s.CreateRecord(ctx, s.identityKey(appName, entity), input)
+}
+
+func (s *fakeStore) UpdateRecordByIdentity(ctx context.Context, appName string, entity string, id int64, input db.RecordInput) (db.Record, error) {
+	return s.UpdateRecord(ctx, s.identityKey(appName, entity), id, input)
+}
+
+func (s *fakeStore) identityKey(appName string, entity string) string {
+	identity := appName + "/" + entity
+	if _, ok := s.metadata[identity]; ok {
+		return identity
+	}
+	return entity
 }
 
 func (s *fakeStore) FindRecord(_ context.Context, entity string, match db.RecordInput) (db.Record, error) {

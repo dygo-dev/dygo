@@ -88,4 +88,12 @@ func TestLinkFieldTarget(t *testing.T) {
 	if err == nil || !strings.Contains(err.Error(), "target entity is required") {
 		t.Fatalf("LinkFieldTarget() error = %v, want target error", err)
 	}
+	targetIdentity, err := LinkFieldTargetIdentity(MetadataField{Options: []byte(`{"app":"core","entity":"user"}`)}, "sales")
+	if err != nil || targetIdentity.App != "core" || targetIdentity.Entity != "user" {
+		t.Fatalf("LinkFieldTargetIdentity() = %+v, %v; want core/user, nil", targetIdentity, err)
+	}
+	targetIdentity, err = LinkFieldTargetIdentity(MetadataField{Options: []byte(`{"entity":"company"}`)}, "sales")
+	if err != nil || targetIdentity.App != "sales" || targetIdentity.Entity != "company" {
+		t.Fatalf("LinkFieldTargetIdentity() = %+v, %v; want sales/company, nil", targetIdentity, err)
+	}
 }
