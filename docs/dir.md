@@ -32,7 +32,7 @@ project/                         - Generated dygo project root
         _schedules.yml           - Recurring job schedules
       pages/                     - Custom app pages
         <page>/                  - Custom page bundle
-          page.yml               - Page metadata definition
+          <page>.page.yml        - Page metadata definition
       reports/                   - Cross-Entity report definitions
         <report>.yml             - Single-file report metadata
         <report>/                - Folder-form report bundle

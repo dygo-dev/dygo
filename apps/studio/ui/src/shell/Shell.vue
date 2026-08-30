@@ -14,12 +14,14 @@ withDefaults(defineProps<{
   userName?: string
   userAvatarUrl?: string
   navItems?: ShellNavItem[]
+  showSidebar?: boolean
 }>(), {
   brandLabel: 'dygo Studio',
   brandMark: 'd',
   companyName: 'Umami Smokehouse',
   userName: 'Studio user',
   navItems: () => [],
+  showSidebar: true,
 })
 
 const navigationStore = useNavigationStore()
@@ -27,7 +29,7 @@ const { sidebarCollapsed } = storeToRefs(navigationStore)
 </script>
 
 <template>
-  <div class="studio-shell" :class="{ 'studio-shell--sidebar-collapsed': sidebarCollapsed }">
+  <div class="studio-shell" :class="{ 'studio-shell--sidebar-collapsed': sidebarCollapsed && showSidebar, 'studio-shell--no-sidebar': !showSidebar }">
     <TopBar
       class="studio-shell__header"
       :brand-label="brandLabel"
@@ -42,6 +44,7 @@ const { sidebarCollapsed } = storeToRefs(navigationStore)
     </TopBar>
 
     <Sidebar
+      v-if="showSidebar"
       v-model:collapsed="sidebarCollapsed"
       class="studio-shell__sidebar"
       :items="navItems"
@@ -71,6 +74,15 @@ const { sidebarCollapsed } = storeToRefs(navigationStore)
 
 .studio-shell--sidebar-collapsed {
   grid-template-columns: 64px minmax(0, 1fr);
+}
+
+.studio-shell--no-sidebar {
+  grid-template-columns: minmax(0, 1fr);
+}
+
+.studio-shell--no-sidebar .studio-shell__sheet {
+  grid-column: 1;
+  padding-left: var(--studio-shell-sheet-right-gutter);
 }
 
 .studio-shell__header {

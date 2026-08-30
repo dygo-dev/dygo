@@ -5,6 +5,7 @@ import {
   getBoot,
   type StudioBoot,
   type StudioBootDefaults,
+  type StudioPageClaim,
 } from '@/features/boot/boot.api'
 import { statusForError, storeError, type LoadStatus, type StoreError } from './status'
 
@@ -27,6 +28,7 @@ export const useBootStore = defineStore('boot', {
 
   getters: {
     defaults: (state): StudioBootDefaults | null => state.boot?.defaults ?? null,
+    pages: (state): StudioPageClaim[] => state.boot?.pages ?? [],
   },
 
   actions: {

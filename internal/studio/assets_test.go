@@ -2,6 +2,7 @@ package studio
 
 import (
 	"io"
+	"io/fs"
 	"net/http"
 	"net/http/httptest"
 	"os"
@@ -56,6 +57,25 @@ func TestNewStaticHandlerServesAssetsAndSPAFallback(t *testing.T) {
 				t.Fatalf("body = %q, want substring %q", string(body), tt.wantBody)
 			}
 		})
+	}
+}
+
+func TestEmbeddedAppMatchesFrameworkSource(t *testing.T) {
+	embedded, err := EmbeddedAppSource()
+	if err != nil {
+		t.Fatalf("EmbeddedAppSource() error = %v, want nil", err)
+	}
+	want := studioMetadataContents(t, os.DirFS(FrameworkAppPath(filepath.Join("..", ".."))))
+	got := studioMetadataContents(t, embedded.FS)
+	for name, wantContent := range want {
+		if gotContent, ok := got[name]; !ok || gotContent != wantContent {
+			t.Fatalf("bundled Studio App asset %q is stale; got %q, want %q; run go generate ./internal/studio", name, gotContent, wantContent)
+		}
+	}
+	for name := range got {
+		if _, ok := want[name]; !ok {
+			t.Fatalf("bundled Studio App has retired asset %q; run go generate ./internal/studio", name)
+		}
 	}
 }
 
@@ -127,6 +147,57 @@ func TestInstallCacheCopiesFirstAvailableSource(t *testing.T) {
 	}
 }
 
+func TestInstallAppReplacesManagedBundle(t *testing.T) {
+	root := t.TempDir()
+	stalePath := filepath.Join(root, filepath.FromSlash(projectAppDir), "stale.txt")
+	if err := os.MkdirAll(filepath.Dir(stalePath), 0o755); err != nil {
+		t.Fatalf("MkdirAll(stale bundle) error = %v", err)
+	}
+	if err := os.WriteFile(stalePath, []byte("stale"), 0o644); err != nil {
+		t.Fatalf("WriteFile(stale bundle) error = %v", err)
+	}
+
+	name, err := InstallApp(root, []AppSource{{
+		Name: "test Studio App",
+		FS: fstest.MapFS{
+			"app.yml":                         {Data: []byte("name: studio\n")},
+			"access/home.page.access.yml":     {Data: []byte("policy: []\n")},
+			"pages/home/home.page.yml":        {Data: []byte("renderer: entity-index\n")},
+			"ui/src/should-not-be-copied.txt": {Data: []byte("source")},
+		},
+	}}, []Source{{
+		Name: "test Studio assets",
+		FS: fstest.MapFS{
+			"index.html":    {Data: []byte("<html>installed</html>")},
+			"assets/app.js": {Data: []byte("console.log('installed')")},
+		},
+	}})
+	if err != nil {
+		t.Fatalf("InstallApp() error = %v, want nil", err)
+	}
+	if name != "test Studio assets" {
+		t.Fatalf("InstallApp() source = %q, want test Studio assets", name)
+	}
+
+	appRoot := filepath.Join(root, filepath.FromSlash(projectAppDir))
+	for _, path := range []string{
+		"app.yml",
+		"access/home.page.access.yml",
+		"pages/home/home.page.yml",
+		"ui/dist/index.html",
+		"ui/dist/assets/app.js",
+	} {
+		if _, err := os.Stat(filepath.Join(appRoot, filepath.FromSlash(path))); err != nil {
+			t.Fatalf("Stat(%s) error = %v, want installed file", path, err)
+		}
+	}
+	for _, path := range []string{"stale.txt", "ui/src/should-not-be-copied.txt"} {
+		if _, err := os.Stat(filepath.Join(appRoot, filepath.FromSlash(path))); !os.IsNotExist(err) {
+			t.Fatalf("Stat(%s) error = %v, want file absent", path, err)
+		}
+	}
+}
+
 func writeStudioAsset(t *testing.T, root string, name string, body string) {
 	t.Helper()
 	path := filepath.Join(ProjectCachePath(root), filepath.FromSlash(name))
@@ -145,4 +216,27 @@ func readStudioCacheFile(t *testing.T, root string, name string) string {
 		t.Fatalf("ReadFile(%s) error = %v", name, err)
 	}
 	return string(data)
+}
+
+func studioMetadataContents(t *testing.T, source fs.FS) map[string]string {
+	t.Helper()
+	files := map[string]string{}
+	err := fs.WalkDir(source, ".", func(name string, entry fs.DirEntry, walkErr error) error {
+		if walkErr != nil {
+			return walkErr
+		}
+		if entry.IsDir() || !studioMetadataPath(name) {
+			return nil
+		}
+		data, err := fs.ReadFile(source, name)
+		if err != nil {
+			return err
+		}
+		files[filepath.ToSlash(name)] = string(data)
+		return nil
+	})
+	if err != nil {
+		t.Fatalf("WalkDir() error = %v", err)
+	}
+	return files
 }

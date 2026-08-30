@@ -1,6 +1,8 @@
 package access
 
 import (
+	"os"
+	"path/filepath"
 	"strings"
 	"testing"
 
@@ -8,6 +10,42 @@ import (
 	"github.com/hapyco/dygo/internal/entity/schema"
 	"github.com/hapyco/dygo/internal/permissions"
 )
+
+func TestLoadPagePolicyFile(t *testing.T) {
+	root := t.TempDir()
+	path := filepath.Join(root, "apps", "studio", "access", "home.page.access.yml")
+	if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(path, []byte("policy:\n  - role: studio-member\n    can: [read]\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	file, err := loadPolicyFile(root, "studio", "studio", "", "home", path)
+	if err != nil {
+		t.Fatalf("loadPolicyFile() error = %v, want nil", err)
+	}
+	if file.Entity != "" || file.Page != "home" || file.TargetApp != "studio" || len(file.Items) != 1 {
+		t.Fatalf("page policy file = %+v, want studio/home page policy", file)
+	}
+}
+
+func TestValidatePagePolicy(t *testing.T) {
+	plan := Plan{
+		Roles: []Role{{App: "studio", Name: "studio-member", Label: "Studio Member"}},
+		Policies: []PolicyFile{{
+			ContributorApp: "studio",
+			TargetApp:      "studio",
+			Page:           "home",
+			Items:          []PolicyItem{{Role: "studio-member", Can: []permissions.Action{permissions.ActionRead}}},
+		}},
+	}
+	if err := Validate(&plan, nil, nil); err != nil {
+		t.Fatalf("Validate() error = %v, want nil for page policy", err)
+	}
+	if len(plan.Grants) != 1 || plan.Grants[0].Entity != "" || plan.Grants[0].Page != "home" {
+		t.Fatalf("page grants = %+v, want one home page grant", plan.Grants)
+	}
+}
 
 func TestValidatePolicyOverrideResolution(t *testing.T) {
 	entities := []catalog.LoadedEntity{{AppName: "sales", Entity: schema.Entity{Name: "invoice"}}}

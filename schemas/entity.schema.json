@@ -364,6 +364,20 @@
             "operator": { "enum": ["eq", "neq", "gt", "gte", "lt", "lte", "in", "not-in"] },
             "value": true
           }
+        },
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["type", "fields"],
+          "properties": {
+            "name": { "$ref": "#/$defs/kebabName" },
+            "type": { "const": "exactly-one" },
+            "fields": {
+              "type": "array",
+              "minItems": 2,
+              "items": { "$ref": "#/$defs/kebabName" }
+            }
+          }
         }
       ]
     }

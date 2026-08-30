@@ -275,9 +275,25 @@ func resolveDygoDependency(options Options, workingDir string) (dygoDependency, 
 }
 
 func installStudioCache(root string, options Options, dep dygoDependency) (bool, string, error) {
-	sources := make([]studio.Source, 0, 3)
+	appSources := make([]studio.AppSource, 0, 2)
+	if dep.Replace != "" {
+		source, ok, err := studio.AppSourceFromDir("framework Studio App", studio.FrameworkAppPath(dep.Replace))
+		if err != nil {
+			return false, "", fmt.Errorf("resolve framework Studio App: %w", err)
+		}
+		if ok {
+			appSources = append(appSources, source)
+		}
+	}
+	embeddedApp, err := studio.EmbeddedAppSource()
+	if err != nil {
+		return false, "", err
+	}
+	appSources = append(appSources, embeddedApp)
+
+	assetSources := make([]studio.Source, 0, 3)
 	if options.StudioAssets != nil {
-		sources = append(sources, studio.Source{Name: "configured Studio assets", FS: options.StudioAssets})
+		assetSources = append(assetSources, studio.Source{Name: "configured Studio assets", FS: options.StudioAssets})
 	}
 	if dep.Replace != "" {
 		source, ok, err := studio.SourceFromDir("framework Studio build", studio.FrameworkDistPath(dep.Replace))
@@ -285,7 +301,7 @@ func installStudioCache(root string, options Options, dep dygoDependency) (bool,
 			return false, "", fmt.Errorf("resolve framework Studio build: %w", err)
 		}
 		if ok {
-			sources = append(sources, source)
+			assetSources = append(assetSources, source)
 		}
 	}
 	source, ok, err := studio.EmbeddedSource()
@@ -293,13 +309,13 @@ func installStudioCache(root string, options Options, dep dygoDependency) (bool,
 		return false, "", err
 	}
 	if ok {
-		sources = append(sources, source)
+		assetSources = append(assetSources, source)
 	}
-	cached, name, err := studio.InstallCache(root, sources...)
+	name, err := studio.InstallApp(root, appSources, assetSources)
 	if err != nil {
-		return false, "", fmt.Errorf("install Studio assets: %w", err)
+		return false, "", fmt.Errorf("install Studio App: %w", err)
 	}
-	return cached, name, nil
+	return true, name, nil
 }
 
 func writeProjectFiles(root string, name string, label string, modulePath string, dep dygoDependency) error {

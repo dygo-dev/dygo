@@ -165,22 +165,26 @@ func installCoreCache(root string, configured fs.FS) (string, error) {
 }
 
 func installStudioCache(root string, configured fs.FS) (bool, string, error) {
-	sources := make([]studio.Source, 0, 2)
+	appSource, err := studio.EmbeddedAppSource()
+	if err != nil {
+		return false, "", err
+	}
+	assetSources := make([]studio.Source, 0, 2)
 	if configured != nil {
-		sources = append(sources, studio.Source{Name: "configured Studio assets", FS: configured})
+		assetSources = append(assetSources, studio.Source{Name: "configured Studio assets", FS: configured})
 	}
 	source, ok, err := studio.EmbeddedSource()
 	if err != nil {
 		return false, "", err
 	}
 	if ok {
-		sources = append(sources, source)
+		assetSources = append(assetSources, source)
 	}
-	cached, name, err := studio.InstallCache(root, sources...)
+	name, err := studio.InstallApp(root, []studio.AppSource{appSource}, assetSources)
 	if err != nil {
-		return false, "", fmt.Errorf("install Studio assets: %w", err)
+		return false, "", fmt.Errorf("install Studio App: %w", err)
 	}
-	return cached, name, nil
+	return true, name, nil
 }
 
 // ReadProjectVersion reads the dygo module version from go.mod.

@@ -57,10 +57,12 @@ jobs:
           find ../../../internal/studio/bundled/assets -type f ! -name placeholder.txt -delete
           npm run build:embed
 
-      - name: Verify Core App bundle
+      - name: Verify framework App bundles
         run: |
           go generate ./internal/frameworkapp
+          go generate ./internal/studio
           git diff --exit-code -- internal/frameworkapp/bundled/core
+          git diff --exit-code -- internal/studio/bundled-app
 
       - name: Test
         run: |

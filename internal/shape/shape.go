@@ -47,10 +47,10 @@ const (
 
 	CollectionDir = "_collections"
 
-	JobMetadataFile    = "job.yml"
-	JobRunFile         = "run.go"
-	PageMetadataFile   = "page.yml"
-	ReportMetadataFile = "report.yml"
+	JobMetadataFile        = "job.yml"
+	JobRunFile             = "run.go"
+	PageMetadataFileSuffix = ".page.yml"
+	ReportMetadataFile     = "report.yml"
 )
 
 var metadataNamePattern = regexp.MustCompile(`^[a-z][a-z0-9]*(?:-[a-z0-9]+)*$`)
@@ -196,7 +196,12 @@ func JobRunPath(job string) string {
 
 // PageMetadataPath returns the app-relative metadata path for a custom page bundle.
 func PageMetadataPath(page string) string {
-	return filepath.ToSlash(filepath.Join(AppPagesDir, page, PageMetadataFile))
+	return filepath.ToSlash(filepath.Join(AppPagesDir, page, PageMetadataFileName(page)))
+}
+
+// PageMetadataFileName returns the canonical metadata filename for a page bundle.
+func PageMetadataFileName(page string) string {
+	return page + PageMetadataFileSuffix
 }
 
 // ReportFilePath returns the app-relative single-file report metadata path.

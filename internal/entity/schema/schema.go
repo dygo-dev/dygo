@@ -67,7 +67,7 @@ var (
 		NamingStrategyFormat,
 	}
 	checkOperators  = []string{"eq", "neq", "gt", "gte", "lt", "lte", "in", "not-in"}
-	constraintTypes = []string{"unique", "check"}
+	constraintTypes = []string{"unique", "check", "exactly-one"}
 )
 
 // SupportedNamingStrategies returns the authored Entity naming strategies in stable order.
@@ -153,6 +153,10 @@ func (c Constraint) EffectiveName(entity Entity) string {
 		return strings.Join(parts, "-")
 	case "check":
 		return strings.Join([]string{entity.Name, c.Field, c.Operator, "check"}, "-")
+	case "exactly-one":
+		parts := append([]string{entity.Name}, c.Fields...)
+		parts = append(parts, "exactly-one")
+		return strings.Join(parts, "-")
 	default:
 		return strings.Join([]string{entity.Name, "constraint"}, "-")
 	}
@@ -568,6 +572,8 @@ func validateConstraints(entity Entity, fields map[string]Field, fieldTypes map[
 			validateUniqueConstraint(constraint, fields, fieldTypes, seenDefinitions, problems)
 		case "check":
 			validateCheckConstraint(constraint, fields, fieldTypes, seenDefinitions, problems)
+		case "exactly-one":
+			validateExactlyOneConstraint(constraint, fields, fieldTypes, seenDefinitions, problems)
 		default:
 			*problems = append(*problems, withLine(constraint.Line, fmt.Sprintf("constraint type %q is not supported", constraint.Type)))
 		}
@@ -580,6 +586,23 @@ func validateConstraints(entity Entity, fields map[string]Field, fieldTypes map[
 			seenNames[name] = struct{}{}
 		}
 	}
+}
+
+func validateExactlyOneConstraint(constraint Constraint, fields map[string]Field, fieldTypes map[string]fieldtype.Definition, seenDefinitions map[string]struct{}, problems *[]string) {
+	if len(constraint.Fields) < 2 {
+		*problems = append(*problems, withLine(constraint.Line, "exactly-one constraint requires at least two fields"))
+	}
+	if strings.TrimSpace(constraint.Field) != "" || strings.TrimSpace(constraint.Operator) != "" || constraint.Value.Kind != 0 {
+		*problems = append(*problems, withLine(constraint.Line, "exactly-one constraint uses fields only"))
+	}
+	validateFieldReferences(constraint.Line, "exactly-one constraint", constraint.Fields, fields, fieldTypes, func(definition fieldtype.Definition) bool {
+		return definition.Behavior.Stored
+	}, "stored", problems)
+	key := constraint.Type + "\x00" + strings.Join(constraint.Fields, "\x00")
+	if _, ok := seenDefinitions[key]; ok {
+		*problems = append(*problems, withLine(constraint.Line, "duplicate exactly-one constraint"))
+	}
+	seenDefinitions[key] = struct{}{}
 }
 
 func validateUniqueConstraint(constraint Constraint, fields map[string]Field, fieldTypes map[string]fieldtype.Definition, seenDefinitions map[string]struct{}, problems *[]string) {

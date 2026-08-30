@@ -59,6 +59,39 @@ func TestCheckerAllowsAdministratorWithoutRolePermissionRows(t *testing.T) {
 	}
 }
 
+func TestCheckerAllowsAdministratorForPageResourceWithoutRolePermissionRows(t *testing.T) {
+	decision, err := NewChecker(nil).CheckResource(context.Background(), ResourceRequest{
+		Actor:    Actor{UserID: 7, Administrator: true},
+		Resource: Resource{Kind: ResourcePage, App: "studio", Name: "home"},
+		Action:   ActionRead,
+	})
+	if err != nil {
+		t.Fatalf("CheckResource() error = %v, want nil", err)
+	}
+	want := Resource{Kind: ResourcePage, App: "studio", Name: "home"}
+	if !decision.Allowed || decision.Resource != want || decision.Action != ActionRead {
+		t.Fatalf("CheckResource() decision = %+v, want administrator allowed for %+v", decision, want)
+	}
+}
+
+func TestCheckerChecksAppScopedPageResource(t *testing.T) {
+	queryer := &fakePermissionQueryer{row: fakePermissionRow{allowed: true}}
+	decision, err := NewChecker(queryer).CheckResource(context.Background(), ResourceRequest{
+		Actor:    Actor{UserID: 7},
+		Resource: Resource{Kind: ResourcePage, App: "studio", Name: "home"},
+		Action:   ActionRead,
+	})
+	if err != nil || !decision.Allowed {
+		t.Fatalf("CheckResource() = %+v, error %v, want allowed", decision, err)
+	}
+	if !strings.Contains(queryer.sql[0], `p.page_id IS NOT NULL`) || !strings.Contains(queryer.sql[0], `pg.key = $3`) {
+		t.Fatalf("page permission SQL = %q, want page target joins", queryer.sql[0])
+	}
+	if !reflect.DeepEqual(queryer.args[0], []any{int64(7), "studio", "home"}) {
+		t.Fatalf("page permission args = %#v, want user/app/page", queryer.args[0])
+	}
+}
+
 func TestCheckerDenied(t *testing.T) {
 	checker := NewChecker(&fakePermissionQueryer{row: fakePermissionRow{allowed: false}})
 
@@ -107,6 +140,9 @@ func TestCheckerValidatesRequest(t *testing.T) {
 	}{
 		{name: "invalid user id", request: Request{Actor: Actor{UserID: 0}, Entity: "user", Action: ActionRead}},
 		{name: "empty entity", request: Request{Actor: Actor{UserID: 7}, Entity: " ", Action: ActionRead}},
+		{name: "empty resource", request: Request{Actor: Actor{UserID: 7}, Resource: Resource{Kind: ResourcePage, App: "studio"}, Action: ActionRead}},
+		{name: "page without app", request: Request{Actor: Actor{UserID: 7}, Resource: Resource{Kind: ResourcePage, Name: "home"}, Action: ActionRead}},
+		{name: "unknown resource kind", request: Request{Actor: Actor{UserID: 7}, Resource: Resource{Kind: "widget", Name: "home"}, Action: ActionRead}},
 		{name: "unsupported action", request: Request{Actor: Actor{UserID: 7}, Entity: "user", Action: Action("drop-table")}},
 		{name: "invalid record id", request: Request{Actor: Actor{UserID: 7}, Entity: "user", Action: ActionRead, RecordID: -1}},
 	}

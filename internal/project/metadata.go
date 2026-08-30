@@ -8,6 +8,7 @@ import (
 	"github.com/hapyco/dygo/internal/entity/catalog"
 	"github.com/hapyco/dygo/internal/entity/fieldtype"
 	"github.com/hapyco/dygo/internal/jobs"
+	"github.com/hapyco/dygo/internal/pages"
 	"github.com/hapyco/dygo/internal/queues"
 	"github.com/hapyco/dygo/internal/schedules"
 )
@@ -16,12 +17,14 @@ import (
 type Metadata struct {
 	Apps     []manifest.LoadedApp
 	Entities []catalog.LoadedEntity
+	Pages    []pages.LoadedPage
 }
 
 // RuntimeMetadata is the validated metadata context used by runtime schema sync.
 type RuntimeMetadata struct {
 	Apps      []manifest.LoadedApp
 	Entities  []catalog.LoadedEntity
+	Pages     []pages.LoadedPage
 	Queues    queues.Config
 	Jobs      []jobs.LoadedJob
 	Schedules []schedules.LoadedSchedule
@@ -43,6 +46,15 @@ func LoadEntities(apps []manifest.LoadedApp) ([]catalog.LoadedEntity, error) {
 		return nil, fmt.Errorf("validate entities: %w", err)
 	}
 	return entities, nil
+}
+
+// LoadPages validates Page metadata for already loaded apps.
+func LoadPages(apps []manifest.LoadedApp) ([]pages.LoadedPage, error) {
+	loaded, err := pages.New(apps).Validate()
+	if err != nil {
+		return nil, fmt.Errorf("validate pages: %w", err)
+	}
+	return loaded, nil
 }
 
 // LoadQueues validates the project queue registry.
@@ -82,7 +94,11 @@ func LoadMetadata(root string) (Metadata, error) {
 	if err != nil {
 		return Metadata{}, err
 	}
-	return Metadata{Apps: apps, Entities: entities}, nil
+	loadedPages, err := LoadPages(apps)
+	if err != nil {
+		return Metadata{}, err
+	}
+	return Metadata{Apps: apps, Entities: entities, Pages: loadedPages}, nil
 }
 
 // LoadRuntimeMetadata loads metadata needed by database runtime sync.
@@ -92,6 +108,10 @@ func LoadRuntimeMetadata(root string) (RuntimeMetadata, error) {
 		return RuntimeMetadata{}, err
 	}
 	entities, err := LoadEntities(apps)
+	if err != nil {
+		return RuntimeMetadata{}, err
+	}
+	loadedPages, err := LoadPages(apps)
 	if err != nil {
 		return RuntimeMetadata{}, err
 	}
@@ -107,5 +127,5 @@ func LoadRuntimeMetadata(root string) (RuntimeMetadata, error) {
 	if err != nil {
 		return RuntimeMetadata{}, err
 	}
-	return RuntimeMetadata{Apps: apps, Entities: entities, Queues: queueConfig, Jobs: loadedJobs, Schedules: loadedSchedules}, nil
+	return RuntimeMetadata{Apps: apps, Entities: entities, Pages: loadedPages, Queues: queueConfig, Jobs: loadedJobs, Schedules: loadedSchedules}, nil
 }

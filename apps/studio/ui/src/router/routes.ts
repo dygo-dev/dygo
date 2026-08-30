@@ -19,6 +19,31 @@ export function normalizeSlug(value: string): string {
   return value.trim().toLowerCase()
 }
 
+export function pageRouteName(app: string, key: string): string {
+  return `page:${app.trim()}:${key.trim()}`
+}
+
+export function normalizePageClaimPath(value: unknown): string | null {
+  if (typeof value !== 'string') {
+    return null
+  }
+
+  const path = value.trim()
+  if (
+    path === ''
+    || !path.startsWith('/')
+    || path.startsWith('//')
+    || path.includes('?')
+    || path.includes('#')
+    || path.includes(':')
+    || path.includes('*')
+  ) {
+    return null
+  }
+
+  return path.length > 1 ? path.replace(/\/+$/, '') : path
+}
+
 export function routeParam(value: string | string[]): string {
   return Array.isArray(value) ? (value[0] ?? '') : value
 }

@@ -16,6 +16,7 @@ import (
 	"github.com/hapyco/dygo/internal/db"
 	"github.com/hapyco/dygo/internal/entity/catalog"
 	"github.com/hapyco/dygo/internal/naming"
+	"github.com/hapyco/dygo/internal/pages"
 	"github.com/hapyco/dygo/internal/permissions"
 	"github.com/hapyco/dygo/internal/project"
 	"github.com/hapyco/dygo/internal/shape"
@@ -47,6 +48,7 @@ type PolicyFile struct {
 	ContributorApp string
 	TargetApp      string
 	Entity         string
+	Page           string
 	Path           string
 	ProjectPath    string
 	Items          []PolicyItem
@@ -65,6 +67,7 @@ type PolicyItem struct {
 type Grant struct {
 	TargetApp string
 	Entity    string
+	Page      string
 	Role      string
 	Can       []permissions.Action
 	Source    PolicyItem
@@ -138,7 +141,7 @@ func BuildPlan(root string, existingRoles []string) (Plan, error) {
 	if err != nil {
 		return Plan{}, err
 	}
-	if err := Validate(&plan, metadata.Entities, existingRoles); err != nil {
+	if err := ValidateWithPages(&plan, metadata.Entities, metadata.Pages, existingRoles); err != nil {
 		return Plan{}, err
 	}
 	return plan, nil
@@ -162,8 +165,8 @@ func Discover(root string, metadata project.Metadata) (Plan, error) {
 		return plan.Roles[i].App < plan.Roles[j].App
 	})
 	sort.SliceStable(plan.Policies, func(i, j int) bool {
-		left := []string{plan.Policies[i].ContributorApp, plan.Policies[i].TargetApp, plan.Policies[i].Entity, plan.Policies[i].ProjectPath}
-		right := []string{plan.Policies[j].ContributorApp, plan.Policies[j].TargetApp, plan.Policies[j].Entity, plan.Policies[j].ProjectPath}
+		left := []string{plan.Policies[i].ContributorApp, plan.Policies[i].TargetApp, plan.Policies[i].Entity, plan.Policies[i].Page, plan.Policies[i].ProjectPath}
+		right := []string{plan.Policies[j].ContributorApp, plan.Policies[j].TargetApp, plan.Policies[j].Entity, plan.Policies[j].Page, plan.Policies[j].ProjectPath}
 		return strings.Join(left, "\x00") < strings.Join(right, "\x00")
 	})
 	return plan, nil
@@ -197,9 +200,18 @@ func discoverApp(root string, app manifest.LoadedApp) (Plan, error) {
 			plan.Roles = append(plan.Roles, roles...)
 			continue
 		}
+		if strings.HasSuffix(entry.Name(), ".page.access.yml") {
+			page := strings.TrimSuffix(entry.Name(), ".page.access.yml")
+			file, err := loadPolicyFile(root, app.Manifest.Name, app.Manifest.Name, "", page, path)
+			if err != nil {
+				return Plan{}, err
+			}
+			plan.Policies = append(plan.Policies, file)
+			continue
+		}
 		if strings.HasSuffix(entry.Name(), ".access.yml") {
 			entity := strings.TrimSuffix(entry.Name(), ".access.yml")
-			file, err := loadPolicyFile(root, app.Manifest.Name, app.Manifest.Name, entity, path)
+			file, err := loadPolicyFile(root, app.Manifest.Name, app.Manifest.Name, entity, "", path)
 			if err != nil {
 				return Plan{}, err
 			}
@@ -233,8 +245,17 @@ func discoverCrossAppPolicies(root string, app manifest.LoadedApp, dir string, t
 			}
 			continue
 		}
+		if strings.HasSuffix(entry.Name(), ".page.access.yml") {
+			page := strings.TrimSuffix(entry.Name(), ".page.access.yml")
+			file, err := loadPolicyFile(root, app.Manifest.Name, targetApp, "", page, path)
+			if err != nil {
+				return nil, err
+			}
+			files = append(files, file)
+			continue
+		}
 		entity := strings.TrimSuffix(entry.Name(), ".access.yml")
-		file, err := loadPolicyFile(root, app.Manifest.Name, targetApp, entity, path)
+		file, err := loadPolicyFile(root, app.Manifest.Name, targetApp, entity, "", path)
 		if err != nil {
 			return nil, err
 		}
@@ -318,8 +339,18 @@ func decodeRole(root string, appName string, path string, node *yaml.Node) (Role
 	return role, nil
 }
 
-func loadPolicyFile(root string, contributorApp string, targetApp string, entity string, path string) (PolicyFile, error) {
-	if err := shape.ValidateMetadataName("access entity", entity); err != nil {
+func loadPolicyFile(root string, contributorApp string, targetApp string, entity string, page string, path string) (PolicyFile, error) {
+	if entity == "" && page == "" {
+		return PolicyFile{}, fmt.Errorf("%s: access target is required", rel(root, path))
+	}
+	if entity != "" && page != "" {
+		return PolicyFile{}, fmt.Errorf("%s: access target must be one of Entity or Page", rel(root, path))
+	}
+	if entity != "" {
+		if err := shape.ValidateMetadataName("access entity", entity); err != nil {
+			return PolicyFile{}, fmt.Errorf("%s: %w", rel(root, path), err)
+		}
+	} else if err := shape.ValidateMetadataName("access page", page); err != nil {
 		return PolicyFile{}, fmt.Errorf("%s: %w", rel(root, path), err)
 	}
 	node, err := parseYAMLFile(path)
@@ -334,6 +365,7 @@ func loadPolicyFile(root string, contributorApp string, targetApp string, entity
 		ContributorApp: contributorApp,
 		TargetApp:      targetApp,
 		Entity:         entity,
+		Page:           page,
 		Path:           path,
 		ProjectPath:    rel(root, path),
 	}
@@ -450,6 +482,11 @@ func parseYAMLFile(path string) (yaml.Node, error) {
 
 // Validate checks role references, Entity targets, and duplicate policy resolution.
 func Validate(plan *Plan, entities []catalog.LoadedEntity, existingRoles []string) error {
+	return ValidateWithPages(plan, entities, nil, existingRoles)
+}
+
+// ValidateWithPages checks role references, Entity/Page targets, and duplicate policy resolution.
+func ValidateWithPages(plan *Plan, entities []catalog.LoadedEntity, loadedPages []pages.LoadedPage, existingRoles []string) error {
 	knownRoles := map[string]bool{}
 	roleByName := map[string]Role{}
 	for _, role := range plan.Roles {
@@ -467,17 +504,36 @@ func Validate(plan *Plan, entities []catalog.LoadedEntity, existingRoles []strin
 	for _, entity := range entities {
 		entityIndex[catalog.EntityKey(entity.AppName, entity.Entity.Name)] = true
 	}
+	pageIndex := map[string]bool{}
+	for _, page := range loadedPages {
+		pageIndex[page.Key()] = true
+	}
 
 	groups := map[string][]groupedPolicy{}
 	for _, file := range plan.Policies {
-		if !entityIndex[catalog.EntityKey(file.TargetApp, file.Entity)] {
+		if file.Entity != "" && file.Page != "" {
+			return fmt.Errorf("%s: access target must be one of Entity or Page", file.ProjectPath)
+		}
+		if file.Entity != "" && !entityIndex[catalog.EntityKey(file.TargetApp, file.Entity)] {
 			return fmt.Errorf("%s: access target Entity %s/%s is not loaded", file.ProjectPath, file.TargetApp, file.Entity)
+		}
+		if file.Entity == "" && file.Page == "" {
+			return fmt.Errorf("%s: access target is required", file.ProjectPath)
+		}
+		if file.Entity == "" && len(loadedPages) > 0 && !pageIndex[file.TargetApp+"\x00"+file.Page] {
+			return fmt.Errorf("%s: access target Page %s/%s is not loaded", file.ProjectPath, file.TargetApp, file.Page)
 		}
 		for _, item := range file.Items {
 			if !knownRoles[item.Role] {
 				return fmt.Errorf("%s:%d: policy references unknown role %q", file.ProjectPath, item.Line, item.Role)
 			}
-			key := policyKey(file.TargetApp, file.Entity, item.Role)
+			targetKind := "entity"
+			targetName := file.Entity
+			if targetName == "" {
+				targetKind = "page"
+				targetName = file.Page
+			}
+			key := policyKey(file.TargetApp, targetKind+"\x00"+targetName, item.Role)
 			groups[key] = append(groups[key], groupedPolicy{file: file, item: item})
 		}
 	}
@@ -491,8 +547,8 @@ func Validate(plan *Plan, entities []catalog.LoadedEntity, existingRoles []strin
 		plan.Grants = append(plan.Grants, grant)
 	}
 	sort.SliceStable(plan.Grants, func(i, j int) bool {
-		left := []string{plan.Grants[i].TargetApp, plan.Grants[i].Entity, plan.Grants[i].Role}
-		right := []string{plan.Grants[j].TargetApp, plan.Grants[j].Entity, plan.Grants[j].Role}
+		left := []string{plan.Grants[i].TargetApp, plan.Grants[i].Entity, plan.Grants[i].Page, plan.Grants[i].Role}
+		right := []string{plan.Grants[j].TargetApp, plan.Grants[j].Entity, plan.Grants[j].Page, plan.Grants[j].Role}
 		return strings.Join(left, "\x00") < strings.Join(right, "\x00")
 	})
 	return nil
@@ -518,12 +574,17 @@ func resolvePolicyGroup(group []groupedPolicy) (Grant, error) {
 		}
 		if overrideCount != 1 {
 			first := group[0]
-			return Grant{}, fmt.Errorf("%s:%d: duplicate policy for %s/%s role %q; add override: true to the intended replacement", first.file.ProjectPath, first.item.Line, first.file.TargetApp, first.file.Entity, first.item.Role)
+			target := first.file.Entity
+			if target == "" {
+				target = first.file.Page + " (page)"
+			}
+			return Grant{}, fmt.Errorf("%s:%d: duplicate policy for %s/%s role %q; add override: true to the intended replacement", first.file.ProjectPath, first.item.Line, first.file.TargetApp, target, first.item.Role)
 		}
 	}
 	return Grant{
 		TargetApp: effective.file.TargetApp,
 		Entity:    effective.file.Entity,
+		Page:      effective.file.Page,
 		Role:      effective.item.Role,
 		Can:       effective.item.Can,
 		Source:    effective.item,
@@ -580,6 +641,7 @@ func ApplyPlan(ctx context.Context, root string, databaseURL string) (Plan, erro
 }
 
 // PlanExport builds a file export plan from live role and permission records.
+// TODO: Add an app/page target form so Page grants round-trip through access export.
 func PlanExport(ctx context.Context, root string, databaseURL string, target *shape.AppRef, destinationApp string) (ExportPlan, error) {
 	if strings.TrimSpace(destinationApp) == "" {
 		return ExportPlan{}, fmt.Errorf("destination app is required")
@@ -675,11 +737,21 @@ func applyPlan(ctx context.Context, tx pgx.Tx, plan Plan) error {
 			}
 			roleIDs[grant.Role] = roleID
 		}
-		entityID, err := entityID(ctx, tx, grant.TargetApp, grant.Entity)
-		if err != nil {
-			return err
+		var entityTargetID, pageTargetID *int64
+		if grant.Entity != "" {
+			id, err := entityID(ctx, tx, grant.TargetApp, grant.Entity)
+			if err != nil {
+				return err
+			}
+			entityTargetID = &id
+		} else {
+			id, err := pageID(ctx, tx, grant.TargetApp, grant.Page)
+			if err != nil {
+				return err
+			}
+			pageTargetID = &id
 		}
-		if err := upsertPermission(ctx, tx, entityID, roleID, grant); err != nil {
+		if err := upsertPermission(ctx, tx, entityTargetID, pageTargetID, roleID, grant); err != nil {
 			return err
 		}
 	}
@@ -842,7 +914,7 @@ func existingPolicyForExport(root string, destinationApp string, target shape.Ap
 	} else if err != nil {
 		return PolicyFile{}, fmt.Errorf("stat access file %s: %w", rel(root, path), err)
 	}
-	return loadPolicyFile(root, destinationApp, target.App, target.Name, path)
+	return loadPolicyFile(root, destinationApp, target.App, target.Name, "", path)
 }
 
 func upsertExportRoles(existing []Role, dbRoles map[string]Role, represented map[string]string, destinationApp string, roleNames []string) ([]Role, int) {
@@ -1105,15 +1177,34 @@ WHERE a.name = $1 AND e.key = $2`, appName, entity).Scan(&id); err != nil {
 	return id, nil
 }
 
-func upsertPermission(ctx context.Context, tx pgx.Tx, entityID int64, roleID int64, grant Grant) error {
+func pageID(ctx context.Context, tx pgx.Tx, appName string, page string) (int64, error) {
+	var id int64
+	if err := tx.QueryRow(ctx, `
+SELECT p.id
+FROM "page" p
+JOIN app a ON a.id = p.app_id
+WHERE a.name = $1 AND p.key = $2 AND COALESCE(p.retired, false) = false`, appName, page).Scan(&id); err != nil {
+		return 0, fmt.Errorf("load Page %s/%s: %w", appName, page, err)
+	}
+	return id, nil
+}
+
+func upsertPermission(ctx context.Context, tx pgx.Tx, entityID *int64, pageID *int64, roleID int64, grant Grant) error {
 	values := actionValues(grant.Can)
 	name, err := naming.Random(16)
 	if err != nil {
 		return err
 	}
-	_, err = tx.Exec(ctx, `
-INSERT INTO "permission" (name, entity_id, role_id, "read", "create", "update", "delete", "export", "print", retired)
-VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, false)
+	target := grant.Entity
+	if target == "" {
+		target = grant.Page + " (page)"
+	}
+	var query string
+	var args []any
+	if entityID != nil {
+		query = `
+INSERT INTO "permission" (name, entity_id, page_id, role_id, "read", "create", "update", "delete", "export", "print", retired)
+VALUES ($1, $2, NULL, $3, $4, $5, $6, $7, $8, $9, false)
 ON CONFLICT (entity_id, role_id) DO UPDATE
 SET "read" = EXCLUDED."read",
 	"create" = EXCLUDED."create",
@@ -1122,9 +1213,26 @@ SET "read" = EXCLUDED."read",
 	"export" = EXCLUDED."export",
 	"print" = EXCLUDED."print",
 	retired = false,
-	updated_at = now()`, name, entityID, roleID, values[permissions.ActionRead], values[permissions.ActionCreate], values[permissions.ActionUpdate], values[permissions.ActionDelete], values[permissions.ActionExport], values[permissions.ActionPrint])
+	updated_at = now()`
+		args = []any{name, *entityID, roleID, values[permissions.ActionRead], values[permissions.ActionCreate], values[permissions.ActionUpdate], values[permissions.ActionDelete], values[permissions.ActionExport], values[permissions.ActionPrint]}
+	} else {
+		query = `
+INSERT INTO "permission" (name, entity_id, page_id, role_id, "read", "create", "update", "delete", "export", "print", retired)
+VALUES ($1, NULL, $2, $3, $4, $5, $6, $7, $8, $9, false)
+ON CONFLICT (page_id, role_id) DO UPDATE
+SET "read" = EXCLUDED."read",
+	"create" = EXCLUDED."create",
+	"update" = EXCLUDED."update",
+	"delete" = EXCLUDED."delete",
+	"export" = EXCLUDED."export",
+	"print" = EXCLUDED."print",
+	retired = false,
+	updated_at = now()`
+		args = []any{name, *pageID, roleID, values[permissions.ActionRead], values[permissions.ActionCreate], values[permissions.ActionUpdate], values[permissions.ActionDelete], values[permissions.ActionExport], values[permissions.ActionPrint]}
+	}
+	_, err = tx.Exec(ctx, query, args...)
 	if err != nil {
-		return fmt.Errorf("upsert permission %s/%s role %q: %w", grant.TargetApp, grant.Entity, grant.Role, err)
+		return fmt.Errorf("upsert permission %s/%s role %q: %w", grant.TargetApp, target, grant.Role, err)
 	}
 	return nil
 }

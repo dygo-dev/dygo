@@ -1,5 +1,5 @@
 label: Permission
-description: Role access rule for an Entity.
+description: Role access rule for exactly one Entity or Page target.
 icon: key-round
 name:
   strategy: random
@@ -7,10 +7,16 @@ fields:
   - name: entity
     label: Entity
     type: link
-    required: true
     index: true
     options:
       entity: entity
+
+  - name: page
+    label: Page
+    type: link
+    index: true
+    options:
+      entity: page
 
   - name: role
     label: Role
@@ -59,3 +65,10 @@ fields:
 constraints:
   - type: unique
     fields: [entity, role]
+
+  - type: unique
+    fields: [page, role]
+
+  - name: entity-or-page-target
+    type: exactly-one
+    fields: [entity, page]

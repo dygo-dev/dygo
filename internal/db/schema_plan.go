@@ -505,6 +505,18 @@ func buildDesiredSchema(entities []catalog.LoadedEntity) (desiredSchema, error) 
 					Definition: definition,
 					Source:     constraintSource(loaded, constraint),
 				})
+			case "exactly-one":
+				columns, err := columnsForMetadataFields(constraint.Fields, fieldColumns)
+				if err != nil {
+					return desiredSchema{}, entitySchemaError(loaded, err)
+				}
+				desiredTable.Constraints = append(desiredTable.Constraints, desiredConstraint{
+					Name:       storageName(constraint.EffectiveName(loaded.Entity)),
+					Type:       "check",
+					Columns:    columns,
+					Definition: fmt.Sprintf("CHECK (num_nonnulls(%s) = 1)", quoteIdentList(columns)),
+					Source:     constraintSource(loaded, constraint),
+				})
 			}
 		}
 		if err := validateDesiredObjectNames(desiredTable); err != nil {

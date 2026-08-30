@@ -10,7 +10,9 @@ import (
 	"github.com/hapyco/dygo/internal/entity/fieldtype"
 	"github.com/hapyco/dygo/internal/entity/schema"
 	"github.com/hapyco/dygo/internal/jobs"
+	"github.com/hapyco/dygo/internal/pages"
 	"github.com/hapyco/dygo/internal/schedules"
+	"github.com/hapyco/dygo/pkg/dygo"
 	"gopkg.in/yaml.v3"
 )
 
@@ -101,6 +103,28 @@ func TestBuildMetadataRecords(t *testing.T) {
 	check := records.Constraints[1]
 	if check.Name != "user-status-in-check" || check.Type != "check" || check.Field != "status" || !strings.Contains(string(check.Value), `"Active"`) {
 		t.Fatalf("check constraint record = %+v, want status check", check)
+	}
+}
+
+func TestBuildMetadataRecordsStoresPageMetadata(t *testing.T) {
+	records, err := buildMetadataRecords(metadataCatalog{
+		Apps: []manifest.LoadedApp{{Manifest: manifest.Manifest{Name: "studio", Label: "Studio", Version: "0.1.0"}}},
+		Pages: []pages.LoadedPage{{
+			AppName: "studio",
+			Page: dygo.Page{
+				App: "studio", Name: "studio.home", Key: "home", Label: "Home", Description: "Available work", Icon: "house", Path: "/", Renderer: "entity-index", Options: map[string]any{}, Source: "file",
+			},
+		}},
+	})
+	if err != nil {
+		t.Fatalf("buildMetadataRecords() error = %v, want nil", err)
+	}
+	if len(records.Pages) != 1 {
+		t.Fatalf("page records = %+v, want one Page", records.Pages)
+	}
+	page := records.Pages[0]
+	if page.Name != "studio.home" || page.Key != "home" || page.Path != "/" || page.Renderer != "entity-index" || page.Source != "file" || string(page.Options) != `{}` {
+		t.Fatalf("page record = %+v options=%s, want persisted Studio Home", page, page.Options)
 	}
 }
 

@@ -29,6 +29,7 @@ fields:
       values:
         - unique
         - check
+        - exactly-one
 
   - name: field-names
     label: Field Names

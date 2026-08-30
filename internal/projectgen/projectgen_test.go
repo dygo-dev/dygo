@@ -57,7 +57,10 @@ func TestGenerateCreatesProjectSkeletonAndSecrets(t *testing.T) {
 		"docs/index.md",
 		".dygo/apps/core/app.yml",
 		".dygo/apps/core/entities/user/user.entity.yml",
-		".dygo/apps/studio",
+		".dygo/apps/studio/app.yml",
+		".dygo/apps/studio/access/home.page.access.yml",
+		".dygo/apps/studio/pages/home/home.page.yml",
+		".dygo/apps/studio/ui/dist/index.html",
 		".dygo/files",
 		".dygo/logs",
 		".dygo/tmp",
@@ -91,8 +94,8 @@ func TestGenerateCreatesProjectSkeletonAndSecrets(t *testing.T) {
 	if err != nil {
 		t.Fatalf("project.LoadApps() error = %v, want generated project apps valid", err)
 	}
-	if len(apps) != 2 || apps[0].Manifest.Name != "core" || apps[1].Manifest.Name != "my-company" {
-		t.Fatalf("project.LoadApps() apps = %+v, want core and my-company", apps)
+	if len(apps) != 3 || apps[0].Manifest.Name != "core" || apps[1].Manifest.Name != "my-company" || apps[2].Manifest.Name != "studio" {
+		t.Fatalf("project.LoadApps() apps = %+v, want core, my-company, and studio", apps)
 	}
 	metadata, err := project.LoadMetadata(root)
 	if err != nil {
@@ -100,6 +103,9 @@ func TestGenerateCreatesProjectSkeletonAndSecrets(t *testing.T) {
 	}
 	if len(metadata.Entities) == 0 {
 		t.Fatal("project.LoadMetadata() loaded no Core Entities")
+	}
+	if len(metadata.Pages) != 1 || metadata.Pages[0].AppName != "studio" || metadata.Pages[0].Page.Key != "home" {
+		t.Fatalf("project.LoadMetadata() pages = %+v, want studio/home", metadata.Pages)
 	}
 	if _, err := os.Stat(filepath.Join(root, ".dygo", "apps", "core", "entities", "user", "fixtures.yml")); !os.IsNotExist(err) {
 		t.Fatalf("Stat(Core user fixture) error = %v, want no shipped Administrator fixture", err)
@@ -155,6 +161,8 @@ func TestGenerateInstallsStudioCacheFromFrameworkBuild(t *testing.T) {
 	root := filepath.Join(parent, "studio-ready")
 	assertContains(t, readFile(t, filepath.Join(root, ".dygo", "apps", "studio", "ui", "dist", "index.html")), "studio")
 	assertContains(t, readFile(t, filepath.Join(root, ".dygo", "apps", "studio", "ui", "dist", "assets", "index.js")), "console.log")
+	assertContains(t, readFile(t, filepath.Join(root, ".dygo", "apps", "studio", "app.yml")), "name: studio")
+	assertContains(t, readFile(t, filepath.Join(root, ".dygo", "apps", "studio", "pages", "home", "home.page.yml")), "renderer: entity-index")
 }
 
 func TestGenerateDefaultsModuleToName(t *testing.T) {

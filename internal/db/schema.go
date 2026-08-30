@@ -97,6 +97,7 @@ func applyMetadataSchemaPlanAndRecords(ctx context.Context, pool *pgxpool.Pool, 
 	}
 	result := plan.Result()
 	result.Apps = len(metadata.Apps)
+	result.Pages = len(metadata.Pages)
 	return result, nil
 }
 

@@ -32,6 +32,7 @@ type Options struct {
 	DatabaseURL string
 	Auth        AuthStore
 	Metadata    MetadataStore
+	Pages       PageStore
 	Records     RecordStore
 	Activity    ActivityStore
 	Permissions PermissionChecker
@@ -55,6 +56,12 @@ type MetadataStore interface {
 	GetEntityMeta(context.Context, string) (db.MetadataEntityMeta, error)
 }
 
+// PageStore is the persisted Page metadata used by Studio routing and renderers.
+type PageStore interface {
+	ListPages(context.Context) ([]db.MetadataPage, error)
+	GetPage(context.Context, string, string) (db.MetadataPage, error)
+}
+
 // RecordStore is the runtime Record behavior used by HTTP handlers.
 type RecordStore interface {
 	ListRecords(context.Context, string, db.RecordListParams) (db.RecordListResult, error)
@@ -75,6 +82,7 @@ type ActivityStore interface {
 // PermissionChecker is the authorization behavior used by HTTP handlers.
 type PermissionChecker interface {
 	Can(context.Context, permissions.Request) error
+	Authorize(context.Context, dygo.PermissionRequest) error
 }
 
 // NewRouter creates the dygo HTTP router.
@@ -89,9 +97,10 @@ func NewRouter(options ...Options) http.Handler {
 		registerAuthRoutes(api, opts.Auth)
 		api.Group(func(protected chi.Router) {
 			protected.Use(authMiddleware(opts.Auth))
-			registerBootRoutes(protected, opts.Records)
+			registerBootRoutes(protected, opts.Records, opts.Pages, opts.Permissions)
 			registerPlatformRoutes(protected)
 			registerMetadataRoutes(protected, opts.Metadata, opts.Permissions)
+			registerPageRoutes(protected, opts.Pages, opts.Permissions)
 			registerRecordRoutes(protected, opts.Records, opts.Activity, opts.Permissions)
 		})
 	})
@@ -148,6 +157,7 @@ func Serve(ctx context.Context, options Options) error {
 		authService.SessionWriter = db.NewAuthSessionWriter(pool)
 		options.Auth = authService
 		options.Metadata = db.NewMetadataReader(pool)
+		options.Pages = db.NewMetadataReader(pool)
 		if options.RecordHooks != nil {
 			options.Records = db.NewRecordStoreWithHooks(pool, options.RecordHooks)
 		} else {
@@ -438,14 +448,23 @@ type bootDefaults struct {
 type bootPayload struct {
 	User     auth.User    `json:"user"`
 	Defaults bootDefaults `json:"defaults"`
+	Pages    []pageClaim  `json:"pages"`
 }
 
 type bootHandler struct {
-	store RecordStore
+	store       RecordStore
+	pages       PageStore
+	permissions PermissionChecker
 }
 
-func registerBootRoutes(router chi.Router, store RecordStore) {
-	handler := bootHandler{store: store}
+type pageClaim struct {
+	App  string `json:"app"`
+	Key  string `json:"key"`
+	Path string `json:"path"`
+}
+
+func registerBootRoutes(router chi.Router, store RecordStore, pages PageStore, checker PermissionChecker) {
+	handler := bootHandler{store: store, pages: pages, permissions: checker}
 	router.Get("/boot", handler.boot)
 }
 
@@ -454,6 +473,24 @@ func (h bootHandler) boot(w http.ResponseWriter, r *http.Request) {
 	if !ok {
 		writeAuthError(w, auth.Error{Code: auth.ErrorUnauthenticated, Message: "authentication required"})
 		return
+	}
+	if h.pages == nil || h.permissions == nil {
+		writeErrorEnvelope(w, http.StatusServiceUnavailable, "service_unavailable", "Studio access metadata is unavailable", nil)
+		return
+	}
+	if err := h.permissions.Authorize(r.Context(), pagePermissionRequest(user, "studio", "home", dygo.ActionRead)); err != nil {
+		writePermissionError(w, err)
+		return
+	}
+
+	pages, err := h.pages.ListPages(r.Context())
+	if err != nil {
+		writeAPIError(w, err, "", "")
+		return
+	}
+	claims := make([]pageClaim, 0, len(pages))
+	for _, page := range pages {
+		claims = append(claims, pageClaim{App: page.App.Name, Key: page.Key, Path: page.Path})
 	}
 
 	home, err := h.homeDefault(r.Context())
@@ -465,6 +502,7 @@ func (h bootHandler) boot(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, http.StatusOK, dataEnvelope{Data: bootPayload{
 		User:     user,
 		Defaults: bootDefaults{Home: home},
+		Pages:    claims,
 	}})
 }
 
@@ -554,6 +592,82 @@ func registerMetadataRoutes(router chi.Router, store MetadataStore, checker Perm
 	router.Get("/apps/{app}", handler.getApp)
 	router.Get("/entities", handler.listEntities)
 	router.Get("/entities/{entity}/meta", handler.getEntityMeta)
+}
+
+type pageHandler struct {
+	store       PageStore
+	permissions PermissionChecker
+}
+
+func registerPageRoutes(router chi.Router, store PageStore, checker PermissionChecker) {
+	handler := pageHandler{store: store, permissions: checker}
+	router.Get("/pages", handler.list)
+	router.Get("/pages/{app}/{page}", handler.get)
+}
+
+func (h pageHandler) list(w http.ResponseWriter, r *http.Request) {
+	user, ok := h.currentUser(w, r)
+	if !ok {
+		return
+	}
+	pages, err := h.store.ListPages(r.Context())
+	if err != nil {
+		writeAPIError(w, err, "", "")
+		return
+	}
+	visible := make([]db.MetadataPage, 0, len(pages))
+	for _, page := range pages {
+		err := h.permissions.Authorize(r.Context(), pagePermissionRequest(user, page.App.Name, page.Key, dygo.ActionRead))
+		if permissions.IsDenied(err) {
+			continue
+		}
+		if err != nil {
+			writePermissionError(w, err)
+			return
+		}
+		visible = append(visible, page)
+	}
+	writeJSON(w, http.StatusOK, dataEnvelope{Data: visible})
+}
+
+func (h pageHandler) get(w http.ResponseWriter, r *http.Request) {
+	user, ok := h.currentUser(w, r)
+	if !ok {
+		return
+	}
+	appName := chi.URLParam(r, "app")
+	pageKey := chi.URLParam(r, "page")
+	page, err := h.store.GetPage(r.Context(), appName, pageKey)
+	if err != nil {
+		writeAPIError(w, err, "page", appName+"/"+pageKey)
+		return
+	}
+	if err := h.permissions.Authorize(r.Context(), pagePermissionRequest(user, appName, pageKey, dygo.ActionRead)); err != nil {
+		writePermissionError(w, err)
+		return
+	}
+	writeJSON(w, http.StatusOK, dataEnvelope{Data: page})
+}
+
+func (h pageHandler) currentUser(w http.ResponseWriter, r *http.Request) (auth.User, bool) {
+	if h.store == nil || h.permissions == nil {
+		writeErrorEnvelope(w, http.StatusServiceUnavailable, "service_unavailable", "Page metadata is unavailable", nil)
+		return auth.User{}, false
+	}
+	user, ok := CurrentUserFromContext(r.Context())
+	if !ok {
+		writeAuthError(w, auth.Error{Code: auth.ErrorUnauthenticated, Message: "authentication required"})
+		return auth.User{}, false
+	}
+	return user, true
+}
+
+func pagePermissionRequest(user auth.User, appName string, pageKey string, action dygo.Action) dygo.PermissionRequest {
+	return dygo.PermissionRequest{
+		Actor:    dygo.Actor{UserID: user.ID, Administrator: user.Administrator},
+		Resource: dygo.Resource{Kind: dygo.ResourcePage, App: appName, Name: pageKey},
+		Action:   action,
+	}
 }
 
 func (h metadataHandler) listApps(w http.ResponseWriter, r *http.Request) {

@@ -116,6 +116,6 @@ Core is the required system App.
 
 Studio is the first-party UI App.
 
-Business Apps define Entities, Permissions, Hooks, Fixtures, and Patches.
+Business Apps define Entities, Pages, Permissions, Hooks, Fixtures, and Patches.
 
 Studio initially groups metadata by App and renders those Apps globally through Spaces, Records, Forms, Lists, and Saved Views.

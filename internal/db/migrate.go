@@ -27,6 +27,7 @@ var (
 type SchemaSyncResult struct {
 	Apps       int
 	Entities   int
+	Pages      int
 	Fields     int
 	Operations int
 }

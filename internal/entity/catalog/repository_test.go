@@ -46,6 +46,7 @@ func TestRepositoryEntitiesValidate(t *testing.T) {
 		"language",
 		"log",
 		"naming-series",
+		"page",
 		"patch-run",
 		"permission",
 		"role",

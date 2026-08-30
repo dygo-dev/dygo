@@ -43,6 +43,10 @@ test "$("$smoke_root/dygo" version)" = "dygo $version"
   "$smoke_root/dygo" new smoke-app --skip-tidy
 )
 test -f "$smoke_root/smoke-app/.dygo/apps/core/app.yml"
+test -f "$smoke_root/smoke-app/.dygo/apps/studio/app.yml"
+test -f "$smoke_root/smoke-app/.dygo/apps/studio/pages/home/home.page.yml"
+test -f "$smoke_root/smoke-app/.dygo/apps/studio/access/home.page.access.yml"
+test -f "$smoke_root/smoke-app/.dygo/apps/studio/ui/dist/index.html"
 test ! -e "$smoke_root/smoke-app/.dygo/apps/core/entities/user/fixtures.yml"
 test "$(cd "$smoke_root/smoke-app" && "$smoke_root/dygo" hook sync --dry-run)" = "runner: cmd/dygo/main.go (unchanged)"
 (

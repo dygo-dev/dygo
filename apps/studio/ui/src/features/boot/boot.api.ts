@@ -5,9 +5,16 @@ export type StudioBootDefaults = {
   home: string
 }
 
+export type StudioPageClaim = {
+  app: string
+  key: string
+  path: string
+}
+
 export type StudioBoot = {
   user: CurrentUser
   defaults: StudioBootDefaults
+  pages: StudioPageClaim[]
 }
 
 export class BootApiError extends ApiClientError {
@@ -33,6 +40,8 @@ function bootErrorMessage(payload: ApiErrorEnvelope): string {
   switch (payload.error?.code) {
     case 'unauthenticated':
       return 'Sign in to load Studio boot settings.'
+    case 'forbidden':
+      return 'Your account does not have access to Studio.'
     case 'schema_not_ready':
       return 'Studio is not ready yet. Run dygo db migrate, then try again.'
     default:

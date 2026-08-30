@@ -7,13 +7,15 @@ import (
 	"strings"
 
 	"github.com/hapyco/dygo/internal/entity/catalog"
+	"github.com/hapyco/dygo/internal/pages"
 )
 
-// Entry describes one Entity-owned route.
+// Entry describes one Entity- or Page-owned route.
 type Entry struct {
 	Slug       string
 	AppName    string
 	EntityName string
+	PageName   string
 	Kind       string
 	Path       string
 }
@@ -30,6 +32,7 @@ type RegistryEntry struct {
 type ValidationResult struct {
 	ReservedRoutes int
 	EntityRoutes   int
+	PageRoutes     int
 	Conflicts      int
 }
 
@@ -44,7 +47,12 @@ func (e ValidationError) Error() string {
 
 // Entries returns routeable Entity routes in stable slug order.
 func Entries(entities []catalog.LoadedEntity) []Entry {
-	routes := make([]Entry, 0, len(entities))
+	return EntriesWithPages(entities, nil)
+}
+
+// EntriesWithPages returns Entity and Page routes in stable slug order.
+func EntriesWithPages(entities []catalog.LoadedEntity, loadedPages []pages.LoadedPage) []Entry {
+	routes := make([]Entry, 0, len(entities)+len(loadedPages))
 	for _, entity := range entities {
 		if !entity.HasRouteSlug() {
 			continue
@@ -57,6 +65,9 @@ func Entries(entities []catalog.LoadedEntity) []Entry {
 			Path:       entity.Path,
 		})
 	}
+	for _, page := range loadedPages {
+		routes = append(routes, Entry{Slug: strings.TrimPrefix(page.RoutePath(), "/"), AppName: page.AppName, PageName: page.Page.Key, Kind: "page", Path: page.Path})
+	}
 	sort.SliceStable(routes, func(i, j int) bool {
 		if routes[i].Slug != routes[j].Slug {
 			return routes[i].Slug < routes[j].Slug
@@ -68,7 +79,12 @@ func Entries(entities []catalog.LoadedEntity) []Entry {
 
 // Registry returns framework-reserved and Entity-owned root route claims.
 func Registry(entities []catalog.LoadedEntity) []RegistryEntry {
-	entityRoutes := Entries(entities)
+	return RegistryWithPages(entities, nil)
+}
+
+// RegistryWithPages returns framework-reserved, Entity-owned, and Page-owned route claims.
+func RegistryWithPages(entities []catalog.LoadedEntity, loadedPages []pages.LoadedPage) []RegistryEntry {
+	entityRoutes := EntriesWithPages(entities, loadedPages)
 	routes := make([]RegistryEntry, 0, len(ReservedSlugs())+len(entityRoutes))
 	for _, slug := range ReservedSlugs() {
 		routes = append(routes, RegistryEntry{
@@ -78,12 +94,14 @@ func Registry(entities []catalog.LoadedEntity) []RegistryEntry {
 		})
 	}
 	for _, route := range entityRoutes {
-		routes = append(routes, RegistryEntry{
-			Path:   "/" + route.Slug,
-			Kind:   "entity",
-			Owner:  fmt.Sprintf("entity %s/%s", route.AppName, route.EntityName),
-			Source: route.Path,
-		})
+		entry := RegistryEntry{Path: "/" + route.Slug, Kind: route.Kind, Source: route.Path}
+		if route.Kind == "page" {
+			entry.Owner = fmt.Sprintf("page %s/%s", route.AppName, route.PageName)
+		} else {
+			entry.Kind = "entity"
+			entry.Owner = fmt.Sprintf("entity %s/%s", route.AppName, route.EntityName)
+		}
+		routes = append(routes, entry)
 	}
 	sort.SliceStable(routes, func(i, j int) bool {
 		if routes[i].Path != routes[j].Path {
@@ -99,13 +117,19 @@ func Registry(entities []catalog.LoadedEntity) []RegistryEntry {
 
 // Validate checks the static public route registry for ownership conflicts.
 func Validate(entities []catalog.LoadedEntity) (ValidationResult, error) {
-	entityRoutes := Entries(entities)
+	return ValidateWithPages(entities, nil)
+}
+
+// ValidateWithPages checks the static public route registry including Page claims.
+func ValidateWithPages(entities []catalog.LoadedEntity, loadedPages []pages.LoadedPage) (ValidationResult, error) {
+	entityRoutes := EntriesWithPages(entities, loadedPages)
 	result := ValidationResult{
 		ReservedRoutes: len(ReservedSlugs()),
-		EntityRoutes:   len(entityRoutes),
+		EntityRoutes:   len(entityRoutes) - countEntries(entityRoutes, "page"),
+		PageRoutes:     countEntries(entityRoutes, "page"),
 	}
 	claims := map[string][]RegistryEntry{}
-	for _, route := range Registry(entities) {
+	for _, route := range RegistryWithPages(entities, loadedPages) {
 		claims[route.Path] = append(claims[route.Path], route)
 	}
 
@@ -130,6 +154,16 @@ func Validate(entities []catalog.LoadedEntity) (ValidationResult, error) {
 	}
 	result.Conflicts = len(problems)
 	return result, ValidationError{Problems: problems}
+}
+
+func countEntries(entries []Entry, kind string) int {
+	count := 0
+	for _, entry := range entries {
+		if entry.Kind == kind {
+			count++
+		}
+	}
+	return count
 }
 
 // ReservedSlugs returns framework-reserved root route slugs without a leading slash.

@@ -16,6 +16,7 @@ import (
 	"github.com/hapyco/dygo/internal/auth"
 	"github.com/hapyco/dygo/internal/db"
 	"github.com/hapyco/dygo/internal/permissions"
+	"github.com/hapyco/dygo/pkg/dygo"
 )
 
 func TestNewRouterHealth(t *testing.T) {
@@ -591,7 +592,11 @@ func TestBootRoute(t *testing.T) {
 		t.Run(tt.name, func(t *testing.T) {
 			request := authenticatedRequest(http.MethodGet, "/api/v1/boot", "")
 			recorder := httptest.NewRecorder()
-			options := Options{Auth: validFakeAuthStore()}
+			options := Options{
+				Auth:        validFakeAuthStore(),
+				Pages:       &fakePageStore{pages: []db.MetadataPage{{Key: "home", Path: "/", App: db.MetadataAppRef{Name: "studio", Label: "Studio"}}}},
+				Permissions: &fakePermissionChecker{},
+			}
 			if tt.store != nil {
 				options.Records = tt.store
 			}
@@ -614,6 +619,52 @@ func TestBootRoute(t *testing.T) {
 				t.Fatalf("body = %s, want boot user", string(body))
 			}
 		})
+	}
+}
+
+func TestBootRouteRequiresStudioHomeRead(t *testing.T) {
+	user := auth.User{ID: 8, Email: "member@example.com", FullName: "Member", Enabled: true}
+	authStore := validFakeAuthStore()
+	authStore.user = user
+	checker := &fakePermissionChecker{denied: map[string]bool{"studio/home": true}}
+	records := &fakeRecordStore{record: db.Record{"home": "/currency"}}
+	recorder := httptest.NewRecorder()
+
+	NewRouter(Options{
+		Auth:        authStore,
+		Pages:       &fakePageStore{pages: []db.MetadataPage{{Key: "home", Path: "/", App: db.MetadataAppRef{Name: "studio"}}}},
+		Records:     records,
+		Permissions: checker,
+	}).ServeHTTP(recorder, authenticatedRequest(http.MethodGet, "/api/v1/boot", ""))
+
+	if recorder.Code != http.StatusForbidden {
+		t.Fatalf("status = %d, want %d", recorder.Code, http.StatusForbidden)
+	}
+	if !contains(recorder.Body.String(), `"code":"forbidden"`) {
+		t.Fatalf("body = %s, want stable forbidden code", recorder.Body.String())
+	}
+	if len(records.calls) != 0 {
+		t.Fatalf("record calls = %#v, want no configuration read before access", records.calls)
+	}
+}
+
+func TestPageRoutesFilterAndEnforceReadPermission(t *testing.T) {
+	home := db.MetadataPage{Name: "studio.home", Key: "home", Label: "Home", Path: "/", Renderer: "entity-index", App: db.MetadataAppRef{Name: "studio", Label: "Studio"}}
+	private := db.MetadataPage{Name: "sales.private", Key: "private", Label: "Private", Path: "/private", Renderer: "entity-index", App: db.MetadataAppRef{Name: "sales", Label: "Sales"}}
+	pages := &fakePageStore{pages: []db.MetadataPage{home, private}, page: private}
+	checker := &fakePermissionChecker{denied: map[string]bool{"sales/private": true}}
+	options := Options{Auth: validFakeAuthStore(), Pages: pages, Permissions: checker}
+
+	listRecorder := httptest.NewRecorder()
+	NewRouter(options).ServeHTTP(listRecorder, authenticatedRequest(http.MethodGet, "/api/v1/pages", ""))
+	if listRecorder.Code != http.StatusOK || !contains(listRecorder.Body.String(), `"name":"studio.home"`) || contains(listRecorder.Body.String(), `sales.private`) {
+		t.Fatalf("list response = %d %s, want only readable Page", listRecorder.Code, listRecorder.Body.String())
+	}
+
+	getRecorder := httptest.NewRecorder()
+	NewRouter(options).ServeHTTP(getRecorder, authenticatedRequest(http.MethodGet, "/api/v1/pages/sales/private", ""))
+	if getRecorder.Code != http.StatusForbidden || !contains(getRecorder.Body.String(), `"code":"forbidden"`) {
+		t.Fatalf("get response = %d %s, want forbidden", getRecorder.Code, getRecorder.Body.String())
 	}
 }
 
@@ -1279,6 +1330,21 @@ type fakeMetadataStore struct {
 	metaErr   error
 }
 
+type fakePageStore struct {
+	pages   []db.MetadataPage
+	page    db.MetadataPage
+	listErr error
+	getErr  error
+}
+
+func (s *fakePageStore) ListPages(context.Context) ([]db.MetadataPage, error) {
+	return s.pages, s.listErr
+}
+
+func (s *fakePageStore) GetPage(context.Context, string, string) (db.MetadataPage, error) {
+	return s.page, s.getErr
+}
+
 func (s *fakeMetadataStore) ListApps(context.Context) ([]db.MetadataApp, error) {
 	return s.apps, s.appsErr
 }
@@ -1392,15 +1458,25 @@ func (s *fakeActivityStore) ListRecordActivity(_ context.Context, entity string,
 }
 
 type fakePermissionChecker struct {
-	err      error
-	denied   map[string]bool
-	requests []permissions.Request
+	err              error
+	denied           map[string]bool
+	requests         []permissions.Request
+	resourceRequests []dygo.PermissionRequest
 }
 
 func (c *fakePermissionChecker) Can(_ context.Context, request permissions.Request) error {
 	c.requests = append(c.requests, request)
 	if c.denied[request.Entity] {
 		return permissions.Error{Code: permissions.ErrorDenied, Message: "permission denied", Details: map[string]any{"entity": request.Entity, "action": request.Action}}
+	}
+	return c.err
+}
+
+func (c *fakePermissionChecker) Authorize(_ context.Context, request dygo.PermissionRequest) error {
+	c.resourceRequests = append(c.resourceRequests, request)
+	key := request.Resource.App + "/" + request.Resource.Name
+	if c.denied[key] {
+		return permissions.Error{Code: permissions.ErrorDenied, Message: "permission denied", Details: map[string]any{"resource-kind": request.Resource.Kind, "resource-app": request.Resource.App, "resource-name": request.Resource.Name, "action": request.Action}}
 	}
 	return c.err
 }

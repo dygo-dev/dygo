@@ -8,6 +8,8 @@ import (
 
 	"github.com/hapyco/dygo/internal/entity/catalog"
 	"github.com/hapyco/dygo/internal/entity/schema"
+	"github.com/hapyco/dygo/internal/pages"
+	"github.com/hapyco/dygo/pkg/dygo"
 )
 
 func TestEntriesBuildsStableRouteRegistry(t *testing.T) {
@@ -111,6 +113,40 @@ func TestValidateReportsDuplicateEntityRouteConflict(t *testing.T) {
 		loadedRouteEntity("support", "customer", "customer"),
 	})
 	assertRouteValidationError(t, err, "/customer claimed by entity sales/customer and entity support/customer")
+}
+
+func TestRegistryWithPagesIncludesPageRoutes(t *testing.T) {
+	loaded := pages.LoadedPage{
+		AppName: "studio",
+		Path:    "/project/apps/studio/pages/home/home.page.yml",
+		Page:    dygo.Page{App: "studio", Name: "studio.home", Key: "home", Path: "/", Renderer: "entity-index"},
+	}
+
+	entries := EntriesWithPages(nil, []pages.LoadedPage{loaded})
+	if len(entries) != 1 || entries[0].Kind != "page" || entries[0].Slug != "" {
+		t.Fatalf("EntriesWithPages() = %+v, want root Page route", entries)
+	}
+	registry := RegistryWithPages(nil, []pages.LoadedPage{loaded})
+	if !containsRegistryEntry(registry, RegistryEntry{Path: "/", Kind: "page", Owner: "page studio/home", Source: loaded.Path}) {
+		t.Fatalf("RegistryWithPages() = %+v, want home Page claim", registry)
+	}
+	result, err := ValidateWithPages(nil, []pages.LoadedPage{loaded})
+	if err != nil {
+		t.Fatalf("ValidateWithPages() error = %v, want nil", err)
+	}
+	if result.PageRoutes != 1 {
+		t.Fatalf("PageRoutes = %d, want 1", result.PageRoutes)
+	}
+}
+
+func TestValidateWithPagesReportsEntityPageConflict(t *testing.T) {
+	page := pages.LoadedPage{
+		AppName: "studio",
+		Path:    "/project/apps/studio/pages/home/home.page.yml",
+		Page:    dygo.Page{App: "studio", Name: "studio.home", Key: "home", Path: "/lead", Renderer: "entity-index"},
+	}
+	_, err := ValidateWithPages([]catalog.LoadedEntity{loadedRouteEntity("sales", "lead", "lead")}, []pages.LoadedPage{page})
+	assertRouteValidationError(t, err, "/lead claimed by entity sales/lead and page studio/home")
 }
 
 func loadedRouteEntity(appName string, entityName string, routeSlug string) catalog.LoadedEntity {

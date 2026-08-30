@@ -1,0 +1,3 @@
+policy:
+  - role: studio-member
+    can: [read]

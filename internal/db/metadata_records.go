@@ -22,6 +22,7 @@ import (
 type metadataPersistResult struct {
 	Apps        int
 	Entities    int
+	Pages       int
 	Jobs        int
 	Schedules   int
 	Fields      int
@@ -32,6 +33,7 @@ type metadataPersistResult struct {
 type metadataRecordSet struct {
 	Apps        []appRecord
 	Entities    []entityRecord
+	Pages       []pageRecord
 	Jobs        []jobRecord
 	Schedules   []scheduleRecord
 	Fields      []fieldRecord
@@ -58,6 +60,20 @@ type entityRecord struct {
 	IsSystem     bool
 	IsCollection bool
 	Naming       []byte
+}
+
+type pageRecord struct {
+	AppName     string
+	Name        string
+	Key         string
+	Label       string
+	Description string
+	Icon        string
+	Path        string
+	Renderer    string
+	Options     []byte
+	Source      string
+	Retired     bool
 }
 
 type jobRecord struct {
@@ -181,6 +197,32 @@ RETURNING id`, appID, entity.Name, entity.Key, entity.Slug, entity.Label, entity
 		entityIDs[entityKey(entity.AppName, entity.Key)] = id
 	}
 
+	for _, page := range records.Pages {
+		appID, ok := appIDs[page.AppName]
+		if !ok {
+			return metadataPersistResult{}, fmt.Errorf("persist page metadata %q: app %q was not persisted", page.Key, page.AppName)
+		}
+		if _, err := tx.Exec(ctx, `
+INSERT INTO "page" (name, app_id, key, label, description, icon, path, renderer, options, source, retired)
+VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11)
+ON CONFLICT (app_id, key) DO UPDATE
+SET name = EXCLUDED.name,
+	label = EXCLUDED.label,
+	description = EXCLUDED.description,
+	icon = EXCLUDED.icon,
+	path = EXCLUDED.path,
+	renderer = EXCLUDED.renderer,
+	options = EXCLUDED.options,
+	source = EXCLUDED.source,
+	retired = false,
+	updated_at = now()`, page.Name, appID, page.Key, page.Label, nullIfEmpty(page.Description), nullIfEmpty(page.Icon), page.Path, page.Renderer, page.Options, page.Source, page.Retired); err != nil {
+			return metadataPersistResult{}, fmt.Errorf("persist page metadata %s/%s: %w", page.AppName, page.Key, err)
+		}
+	}
+	if err := retireRemovedFilePageRecords(ctx, tx, appIDs, records.Pages); err != nil {
+		return metadataPersistResult{}, err
+	}
+
 	jobIDs := map[string]int64{}
 	for _, job := range records.Jobs {
 		appID, ok := appIDs[job.AppName]
@@ -247,12 +289,40 @@ RETURNING id`, appID, entity.Name, entity.Key, entity.Slug, entity.Label, entity
 	return metadataPersistResult{
 		Apps:        len(records.Apps),
 		Entities:    len(records.Entities),
+		Pages:       len(records.Pages),
 		Jobs:        len(records.Jobs),
 		Schedules:   len(records.Schedules),
 		Fields:      len(records.Fields),
 		Indexes:     len(records.Indexes),
 		Constraints: len(records.Constraints),
 	}, nil
+}
+
+func retireRemovedFilePageRecords(ctx context.Context, tx pgx.Tx, appIDs map[string]int64, records []pageRecord) error {
+	currentKeys := make(map[string][]string, len(appIDs))
+	for appName := range appIDs {
+		currentKeys[appName] = nil
+	}
+	for _, record := range records {
+		currentKeys[record.AppName] = append(currentKeys[record.AppName], record.Key)
+	}
+	for appName, appID := range appIDs {
+		keys := currentKeys[appName]
+		if keys == nil {
+			keys = []string{}
+		}
+		if _, err := tx.Exec(ctx, `
+UPDATE "page"
+SET retired = true,
+	updated_at = now()
+WHERE app_id = $1
+	AND source = $2
+	AND retired = false
+	AND NOT (key = ANY($3::text[]))`, appID, "file", keys); err != nil {
+			return fmt.Errorf("retire removed page metadata for app %q: %w", appName, err)
+		}
+	}
+	return nil
 }
 
 func persistJobRecord(ctx context.Context, tx pgx.Tx, appID int64, job jobRecord) (int64, error) {
@@ -618,6 +688,24 @@ func buildMetadataRecords(metadata metadataCatalog) (metadataRecordSet, error) {
 				Position:      constraintPosition + 1,
 			})
 		}
+	}
+	for _, loaded := range metadata.Pages {
+		optionsJSON, err := json.Marshal(loaded.Page.Options)
+		if err != nil {
+			return metadataRecordSet{}, fmt.Errorf("build page metadata %s/%s options: %w", loaded.AppName, loaded.Page.Key, err)
+		}
+		records.Pages = append(records.Pages, pageRecord{
+			AppName:     loaded.AppName,
+			Name:        loaded.AppName + "." + loaded.Page.Key,
+			Key:         loaded.Page.Key,
+			Label:       loaded.Page.Label,
+			Description: loaded.Page.Description,
+			Icon:        loaded.Page.Icon,
+			Path:        loaded.RoutePath(),
+			Renderer:    loaded.Page.Renderer,
+			Options:     optionsJSON,
+			Source:      "file",
+		})
 	}
 	for _, loaded := range metadata.Jobs {
 		retryJSON, err := jobRetryJSON(loaded.Job.EffectiveRetry())

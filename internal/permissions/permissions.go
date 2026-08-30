@@ -7,22 +7,23 @@ import (
 	"fmt"
 	"strings"
 
+	"github.com/hapyco/dygo/pkg/dygo"
 	"github.com/jackc/pgx/v5"
 )
 
 const (
-	// ActionRead allows reading Records for an Entity.
-	ActionRead Action = "read"
-	// ActionCreate allows creating Records for an Entity.
-	ActionCreate Action = "create"
-	// ActionUpdate allows updating Records for an Entity.
-	ActionUpdate Action = "update"
-	// ActionDelete allows deleting Records for an Entity.
-	ActionDelete Action = "delete"
-	// ActionExport allows exporting Records for an Entity.
-	ActionExport Action = "export"
-	// ActionPrint allows printing Records for an Entity.
-	ActionPrint Action = "print"
+	// ActionRead allows reading a resource.
+	ActionRead = dygo.ActionRead
+	// ActionCreate allows creating a resource.
+	ActionCreate = dygo.ActionCreate
+	// ActionUpdate allows updating a resource.
+	ActionUpdate = dygo.ActionUpdate
+	// ActionDelete allows deleting a resource.
+	ActionDelete = dygo.ActionDelete
+	// ActionExport allows exporting a resource.
+	ActionExport = dygo.ActionExport
+	// ActionPrint allows printing a resource.
+	ActionPrint = dygo.ActionPrint
 )
 
 const (
@@ -42,18 +43,31 @@ const (
 )
 
 // Action is a supported permission action.
-type Action string
+type Action = dygo.Action
 
 // Actor identifies the user asking a permission question.
-type Actor struct {
-	UserID        int64
-	Administrator bool
-}
+type Actor = dygo.Actor
+
+// ResourceKind identifies the namespace of a permission target.
+type ResourceKind = dygo.ResourceKind
+
+const (
+	ResourceEntity = dygo.ResourceEntity
+	ResourcePage   = dygo.ResourcePage
+)
+
+// Resource identifies an app-scoped Entity or Page permission target.
+type Resource = dygo.Resource
+
+// ResourceRequest is the resource-oriented permission contract used by new
+// callers. Request remains available as the legacy Entity-compatible shape.
+type ResourceRequest = dygo.PermissionRequest
 
 // Request identifies the permission question being asked.
 type Request struct {
 	Actor    Actor
 	Entity   string
+	Resource Resource
 	Action   Action
 	RecordID int64
 }
@@ -63,6 +77,7 @@ type Decision struct {
 	Allowed  bool
 	Actor    Actor
 	Entity   string
+	Resource Resource
 	Action   Action
 	RecordID int64
 	Reason   string
@@ -116,22 +131,25 @@ func NewChecker(queryer Queryer) Checker {
 
 // Check evaluates whether a user has an Entity permission action.
 func (c Checker) Check(ctx context.Context, request Request) (Decision, error) {
-	normalized, column, err := normalizeRequest(request)
+	normalized, resource, column, err := normalizeRequest(request)
 	if err != nil {
 		return Decision{}, err
 	}
 	if normalized.Actor.Administrator {
-		return Decision{
-			Allowed:  true,
-			Actor:    normalized.Actor,
-			Entity:   normalized.Entity,
-			Action:   normalized.Action,
-			RecordID: normalized.RecordID,
-			Reason:   ReasonAllowed,
-		}, nil
+		return allowedDecision(normalized, resource), nil
 	}
 	if c.queryer == nil {
 		return Decision{}, permissionError(ErrorInternal, "permission queryer is required", nil, nil)
+	}
+
+	targetSQL := "e.slug = $2"
+	args := []any{normalized.Actor.UserID, resource.Name}
+	if resource.Kind == ResourcePage {
+		targetSQL = "pa.name = $2 AND pg.key = $3 AND p.page_id IS NOT NULL AND COALESCE(pg.retired, false) = false"
+		args = []any{normalized.Actor.UserID, resource.App, resource.Name}
+	} else if resource.App != "" {
+		targetSQL = "a.name = $2 AND e.key = $3"
+		args = []any{normalized.Actor.UserID, resource.App, resource.Name}
 	}
 
 	sql := fmt.Sprintf(`
@@ -141,37 +159,34 @@ SELECT EXISTS (
 	JOIN user_role ur ON ur.user_id = u.id
 	JOIN "role" r ON r.id = ur.role_id AND COALESCE(r.enabled, false) = true
 	JOIN "permission" p ON p.role_id = r.id
-	JOIN entity e ON e.id = p.entity_id
+	LEFT JOIN entity e ON e.id = p.entity_id
+	LEFT JOIN app a ON a.id = e.app_id
+	LEFT JOIN page pg ON pg.id = p.page_id
+	LEFT JOIN app pa ON pa.id = pg.app_id
 	WHERE u.id = $1
 		AND COALESCE(u.enabled, false) = true
-		AND e.slug = $2
+		AND %s
 		AND COALESCE(p.retired, false) = false
 		AND COALESCE(p.%s, false) = true
 	LIMIT 1
-)`, column)
+)`, targetSQL, column)
 
 	var allowed bool
-	if err := c.queryer.QueryRow(ctx, sql, normalized.Actor.UserID, normalized.Entity).Scan(&allowed); err != nil {
+	if err := c.queryer.QueryRow(ctx, sql, args...).Scan(&allowed); err != nil {
 		return Decision{}, permissionError(ErrorInternal, "permission check failed", decisionDetails(normalized), err)
 	}
 	if allowed {
-		return Decision{
-			Allowed:  true,
-			Actor:    normalized.Actor,
-			Entity:   normalized.Entity,
-			Action:   normalized.Action,
-			RecordID: normalized.RecordID,
-			Reason:   ReasonAllowed,
-		}, nil
+		return allowedDecision(normalized, resource), nil
 	}
-	return Decision{
-		Allowed:  false,
-		Actor:    normalized.Actor,
-		Entity:   normalized.Entity,
-		Action:   normalized.Action,
-		RecordID: normalized.RecordID,
-		Reason:   ReasonDenied,
-	}, nil
+	decision := allowedDecision(normalized, resource)
+	decision.Allowed = false
+	decision.Reason = ReasonDenied
+	return decision, nil
+}
+
+// CheckResource evaluates a permission against an app-scoped resource.
+func (c Checker) CheckResource(ctx context.Context, request ResourceRequest) (Decision, error) {
+	return c.Check(ctx, Request{Actor: request.Actor, Resource: request.Resource, Action: request.Action, RecordID: request.RecordID})
 }
 
 // Can returns nil only when the requested permission is allowed.
@@ -189,6 +204,29 @@ func (c Checker) Can(ctx context.Context, request Request) error {
 		Action:   decision.Action,
 		RecordID: decision.RecordID,
 	}), nil)
+}
+
+// CanResource returns nil only when the resource permission is allowed.
+func (c Checker) CanResource(ctx context.Context, request ResourceRequest) error {
+	decision, err := c.CheckResource(ctx, request)
+	if err != nil {
+		return err
+	}
+	if decision.Allowed {
+		return nil
+	}
+	return permissionError(ErrorDenied, "permission denied", decisionDetails(Request{
+		Actor:    decision.Actor,
+		Entity:   decision.Entity,
+		Resource: decision.Resource,
+		Action:   decision.Action,
+		RecordID: decision.RecordID,
+	}), nil)
+}
+
+// Authorize implements the public dygo.Authorizer contract.
+func (c Checker) Authorize(ctx context.Context, request dygo.PermissionRequest) error {
+	return c.CanResource(ctx, request)
 }
 
 // CheckRole evaluates whether a role grants an Entity permission action.
@@ -245,34 +283,62 @@ func IsDenied(err error) bool {
 	return errors.As(err, &permissionErr) && permissionErr.Code == ErrorDenied
 }
 
-func normalizeRequest(request Request) (Request, string, error) {
+func normalizeRequest(request Request) (Request, Resource, string, error) {
+	entity := strings.TrimSpace(request.Entity)
+	resource := request.Resource
+	if resource.Kind == "" && resource.App == "" && resource.Name == "" && entity != "" {
+		resource = Resource{Kind: ResourceEntity, Name: entity}
+	}
 	normalized := Request{
 		Actor:    request.Actor,
-		Entity:   strings.TrimSpace(request.Entity),
+		Entity:   entity,
+		Resource: Resource{Kind: ResourceKind(strings.TrimSpace(string(resource.Kind))), App: strings.TrimSpace(resource.App), Name: strings.TrimSpace(resource.Name)},
 		Action:   Action(strings.TrimSpace(string(request.Action))),
 		RecordID: request.RecordID,
 	}
 	if normalized.Actor.UserID <= 0 {
-		return Request{}, "", permissionError(ErrorInvalidRequest, "user id must be a positive integer", map[string]any{"user-id": request.Actor.UserID}, nil)
+		return Request{}, Resource{}, "", permissionError(ErrorInvalidRequest, "user id must be a positive integer", map[string]any{"user-id": request.Actor.UserID}, nil)
 	}
-	if normalized.Entity == "" {
-		return Request{}, "", permissionError(ErrorInvalidRequest, "entity is required", map[string]any{"entity": request.Entity}, nil)
+	if normalized.Entity != "" && request.Resource != (Resource{}) {
+		return Request{}, Resource{}, "", permissionError(ErrorInvalidRequest, "entity and resource must not both be provided", nil, nil)
+	}
+	if normalized.Resource.Kind != ResourceEntity && normalized.Resource.Kind != ResourcePage {
+		return Request{}, Resource{}, "", permissionError(ErrorInvalidRequest, "resource kind must be entity or page", map[string]any{"resource-kind": normalized.Resource.Kind}, nil)
+	}
+	if normalized.Resource.Name == "" {
+		return Request{}, Resource{}, "", permissionError(ErrorInvalidRequest, "resource name is required", nil, nil)
+	}
+	if normalized.Resource.Kind == ResourcePage && normalized.Resource.App == "" {
+		return Request{}, Resource{}, "", permissionError(ErrorInvalidRequest, "page resource app is required", nil, nil)
 	}
 	if normalized.RecordID < 0 {
-		return Request{}, "", permissionError(ErrorInvalidRequest, "record id must be greater than or equal to zero", map[string]any{"record-id": request.RecordID}, nil)
+		return Request{}, Resource{}, "", permissionError(ErrorInvalidRequest, "record id must be greater than or equal to zero", map[string]any{"record-id": request.RecordID}, nil)
 	}
 	column, ok := actionColumn(normalized.Action)
 	if !ok {
-		return Request{}, "", permissionError(ErrorInvalidRequest, "permission action is not supported", map[string]any{"action": request.Action}, nil)
+		return Request{}, Resource{}, "", permissionError(ErrorInvalidRequest, "permission action is not supported", map[string]any{"action": request.Action}, nil)
 	}
-	return normalized, column, nil
+	if normalized.Resource.Kind == ResourceEntity {
+		normalized.Entity = normalized.Resource.Name
+	}
+	return normalized, normalized.Resource, column, nil
+}
+
+func allowedDecision(request Request, resource Resource) Decision {
+	return Decision{Allowed: true, Actor: request.Actor, Entity: request.Entity, Resource: resource, Action: request.Action, RecordID: request.RecordID, Reason: ReasonAllowed}
 }
 
 func decisionDetails(request Request) map[string]any {
 	details := map[string]any{
 		"user-id": request.Actor.UserID,
-		"entity":  request.Entity,
 		"action":  request.Action,
+	}
+	if request.Resource.Kind != "" {
+		details["resource-kind"] = request.Resource.Kind
+		details["resource-app"] = request.Resource.App
+		details["resource-name"] = request.Resource.Name
+	} else {
+		details["entity"] = request.Entity
 	}
 	if request.RecordID > 0 {
 		details["record-id"] = request.RecordID

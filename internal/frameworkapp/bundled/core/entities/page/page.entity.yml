@@ -1,0 +1,78 @@
+label: Page
+description: Registry entry for a metadata-driven Page definition.
+icon: panels-top-left
+is-system: true
+name:
+  strategy: format
+  format: "{app}.{key}"
+fields:
+  - name: app
+    label: App
+    type: link
+    required: true
+    index: true
+    options:
+      entity: app
+
+  - name: key
+    label: Key
+    type: text
+    required: true
+    index: true
+
+  - name: source
+    label: Source
+    type: select
+    required: true
+    default: file
+    index: true
+    options:
+      values:
+        - file
+        - studio
+        - system
+
+  - name: label
+    label: Label
+    type: text
+    required: true
+
+  - name: description
+    label: Description
+    type: long-text
+
+  - name: icon
+    label: Icon
+    type: text
+
+  - name: path
+    label: Path
+    type: text
+    required: true
+    unique: true
+    index: true
+
+  - name: renderer
+    label: Renderer
+    type: select
+    required: true
+    default: entity-index
+    index: true
+    options:
+      values:
+        - entity-index
+
+  - name: options
+    label: Options
+    type: json
+
+  - name: retired
+    label: Retired
+    type: boolean
+    required: true
+    default: false
+    index: true
+
+constraints:
+  - type: unique
+    fields: [app, key]

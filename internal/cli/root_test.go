@@ -1560,7 +1560,7 @@ fields:
 		"PASS entity metadata: 1 entities valid",
 		"PASS queue config: 1 queues valid",
 		"PASS job metadata: 0 jobs valid",
-		"PASS route registry: 8 reserved routes, 1 entity routes, 0 conflicts",
+		"PASS route registry: 8 reserved routes, 1 entity routes, 0 page routes, 0 conflicts",
 		"PASS fixture files: 0 files, 0 records valid",
 		"SKIP hook wiring: go.mod not found",
 		"PASS schema snapshot: db/schema.sql present",

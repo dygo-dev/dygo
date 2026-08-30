@@ -57,6 +57,14 @@ func TestUpgradeProjectUpdatesGoModAndGeneratedRunner(t *testing.T) {
 	if !strings.Contains(studioIndex, "studio v1.2.3") {
 		t.Fatalf("Studio index = %q, want upgraded Studio cache", studioIndex)
 	}
+	studioManifest := readUpgradeTestFile(t, filepath.Join(root, ".dygo", "apps", "studio", "app.yml"))
+	if !strings.Contains(studioManifest, "name: studio") {
+		t.Fatalf("Studio manifest = %q, want upgraded Studio App metadata", studioManifest)
+	}
+	studioHome := readUpgradeTestFile(t, filepath.Join(root, ".dygo", "apps", "studio", "pages", "home", "home.page.yml"))
+	if !strings.Contains(studioHome, "renderer: entity-index") {
+		t.Fatalf("Studio home Page = %q, want bundled entity-index renderer", studioHome)
+	}
 }
 
 func TestPlanProjectIsCurrentWhenVersionMatchesTarget(t *testing.T) {

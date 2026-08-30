@@ -29,10 +29,12 @@ jobs:
           cache: npm
           cache-dependency-path: apps/studio/ui/package-lock.json
 
-      - name: Verify Core App bundle
+      - name: Verify framework App bundles
         run: |
           go generate ./internal/frameworkapp
+          go generate ./internal/studio
           git diff --exit-code -- internal/frameworkapp/bundled/core
+          git diff --exit-code -- internal/studio/bundled-app
 
       - name: Test Go
         run: go test ./...

@@ -130,7 +130,7 @@ The helper functions are best-effort. Use `dygo.Log(ctx, dygo.LogEntry{...})` wh
 ```txt
 hooks   - run inside the current Record transaction
 jobs    - run outside user requests
-pages   - coming soon
+pages   - metadata contract; rendering remains framework-owned
 reports - coming soon
 ```
 
@@ -144,5 +144,5 @@ dygo.Permissions   - permission checks
 dygo.Actor         - current user/session identity
 dygo.Config        - app/runtime config reads
 dygo.Secrets       - controlled secret reads
-dygo.Metadata      - Entity and Field metadata reads
+dygo.Metadata      - Entity, Field, and Page metadata reads
 ```

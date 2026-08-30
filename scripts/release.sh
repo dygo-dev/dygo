@@ -63,7 +63,9 @@ fi
   npm run build:embed
 )
 go generate ./internal/frameworkapp
+go generate ./internal/studio
 git diff --exit-code -- internal/frameworkapp/bundled/core
+git diff --exit-code -- internal/studio/bundled-app
 go test ./...
 go vet ./...
 scripts/test-install.sh

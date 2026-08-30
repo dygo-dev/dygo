@@ -13,15 +13,27 @@ import (
 	"strings"
 )
 
-const projectCacheDir = ".dygo/apps/studio/ui/dist"
+const (
+	projectAppDir   = ".dygo/apps/studio"
+	projectCacheDir = projectAppDir + "/ui/dist"
+)
 
 //go:embed bundled
 var bundled embed.FS
+
+//go:embed all:bundled-app
+var bundledApp embed.FS
 
 var embeddedSource = defaultEmbeddedSource
 
 // Source describes one possible Studio asset source.
 type Source struct {
+	Name string
+	FS   fs.FS
+}
+
+// AppSource describes one possible Studio App metadata source.
+type AppSource struct {
 	Name string
 	FS   fs.FS
 }
@@ -34,6 +46,38 @@ func ProjectCachePath(root string) string {
 // FrameworkDistPath returns the Studio build output path inside a framework checkout.
 func FrameworkDistPath(root string) string {
 	return filepath.Join(root, "apps", "studio", "ui", "dist")
+}
+
+// FrameworkAppPath returns the Studio App path inside a framework checkout.
+func FrameworkAppPath(root string) string {
+	return filepath.Join(root, "apps", "studio")
+}
+
+// AppSourceFromDir returns a source when dir contains the Studio App manifest.
+func AppSourceFromDir(name string, dir string) (AppSource, bool, error) {
+	if strings.TrimSpace(dir) == "" {
+		return AppSource{}, false, nil
+	}
+	source := AppSource{Name: name, FS: os.DirFS(dir)}
+	ok, err := hasManifest(source.FS)
+	if err != nil {
+		return AppSource{}, false, fmt.Errorf("check %s: %w", name, err)
+	}
+	return source, ok, nil
+}
+
+// EmbeddedAppSource returns the Studio App metadata bundled into this dygo binary.
+func EmbeddedAppSource() (AppSource, error) {
+	fsys, err := fs.Sub(bundledApp, "bundled-app")
+	if err != nil {
+		return AppSource{}, fmt.Errorf("open bundled Studio App: %w", err)
+	}
+	if ok, err := hasManifest(fsys); err != nil {
+		return AppSource{}, fmt.Errorf("check bundled Studio App: %w", err)
+	} else if !ok {
+		return AppSource{}, fmt.Errorf("bundled Studio App is missing app.yml")
+	}
+	return AppSource{Name: "bundled Studio App", FS: fsys}, nil
 }
 
 // SourceFromDir returns a source when dir contains a built Studio index.html.
@@ -168,6 +212,168 @@ func InstallCache(root string, sources ...Source) (bool, string, error) {
 		return true, source.Name, nil
 	}
 	return false, "", nil
+}
+
+// InstallApp installs Studio metadata and UI assets as one framework-managed App.
+func InstallApp(root string, appSources []AppSource, assetSources []Source) (string, error) {
+	appSource, err := firstAppSource(appSources)
+	if err != nil {
+		return "", err
+	}
+	assetSource, err := firstAssetSource(assetSources)
+	if err != nil {
+		return "", err
+	}
+	target := filepath.Join(root, filepath.FromSlash(projectAppDir))
+	if err := replaceAppDir(appSource.FS, assetSource.FS, target); err != nil {
+		return "", fmt.Errorf("install %s with %s: %w", appSource.Name, assetSource.Name, err)
+	}
+	return assetSource.Name, nil
+}
+
+func firstAppSource(sources []AppSource) (AppSource, error) {
+	for _, source := range sources {
+		if source.FS == nil {
+			continue
+		}
+		ok, err := hasManifest(source.FS)
+		if err != nil {
+			return AppSource{}, fmt.Errorf("check %s: %w", source.Name, err)
+		}
+		if ok {
+			return source, nil
+		}
+	}
+	return AppSource{}, fmt.Errorf("Studio App metadata is unavailable")
+}
+
+func firstAssetSource(sources []Source) (Source, error) {
+	for _, source := range sources {
+		if source.FS == nil {
+			continue
+		}
+		ok, err := HasIndex(source.FS)
+		if err != nil {
+			return Source{}, fmt.Errorf("check %s: %w", source.Name, err)
+		}
+		if ok {
+			return source, nil
+		}
+	}
+	return Source{}, fmt.Errorf("Studio UI assets are unavailable")
+}
+
+func hasManifest(fsys fs.FS) (bool, error) {
+	if fsys == nil {
+		return false, nil
+	}
+	info, err := fs.Stat(fsys, "app.yml")
+	if err == nil {
+		return !info.IsDir(), nil
+	}
+	if errors.Is(err, fs.ErrNotExist) || errors.Is(err, os.ErrNotExist) {
+		return false, nil
+	}
+	return false, err
+}
+
+func replaceAppDir(appSource fs.FS, assetSource fs.FS, target string) error {
+	parent := filepath.Dir(target)
+	if err := os.MkdirAll(parent, 0o755); err != nil {
+		return fmt.Errorf("create Studio App cache parent: %w", err)
+	}
+	temp, err := os.MkdirTemp(parent, ".studio-app-*")
+	if err != nil {
+		return fmt.Errorf("create temporary Studio App cache: %w", err)
+	}
+	defer func() {
+		if temp != "" {
+			_ = os.RemoveAll(temp)
+		}
+	}()
+
+	if err := copyAppMetadata(appSource, temp); err != nil {
+		return err
+	}
+	if err := copyFS(assetSource, filepath.Join(temp, "ui", "dist")); err != nil {
+		return err
+	}
+	if ok, err := hasManifest(os.DirFS(temp)); err != nil {
+		return fmt.Errorf("verify temporary Studio App cache: %w", err)
+	} else if !ok {
+		return fmt.Errorf("temporary Studio App cache is missing app.yml")
+	}
+	if ok, err := HasIndex(os.DirFS(filepath.Join(temp, "ui", "dist"))); err != nil {
+		return fmt.Errorf("verify temporary Studio UI cache: %w", err)
+	} else if !ok {
+		return fmt.Errorf("temporary Studio UI cache is missing index.html")
+	}
+
+	// TODO(packaging): share this guarded directory swap with frameworkapp once
+	// framework App installation has one package-level primitive.
+	backup := target + ".previous"
+	_ = os.RemoveAll(backup)
+	hadExisting := false
+	if _, err := os.Stat(target); err == nil {
+		hadExisting = true
+		if err := os.Rename(target, backup); err != nil {
+			return fmt.Errorf("move existing Studio App cache aside: %w", err)
+		}
+	} else if !errors.Is(err, os.ErrNotExist) {
+		return fmt.Errorf("check existing Studio App cache: %w", err)
+	}
+	if err := os.Rename(temp, target); err != nil {
+		if hadExisting {
+			_ = os.Rename(backup, target)
+		}
+		return fmt.Errorf("replace Studio App cache: %w", err)
+	}
+	temp = ""
+	if hadExisting {
+		_ = os.RemoveAll(backup)
+	}
+	return nil
+}
+
+func copyAppMetadata(source fs.FS, target string) error {
+	return fs.WalkDir(source, ".", func(name string, entry fs.DirEntry, walkErr error) error {
+		if walkErr != nil {
+			return walkErr
+		}
+		if name == "." {
+			return nil
+		}
+		if !studioMetadataPath(name) {
+			if entry.IsDir() {
+				return fs.SkipDir
+			}
+			return nil
+		}
+		destination := filepath.Join(target, filepath.FromSlash(name))
+		if entry.IsDir() {
+			return os.MkdirAll(destination, 0o755)
+		}
+		data, err := fs.ReadFile(source, name)
+		if err != nil {
+			return fmt.Errorf("read Studio App metadata %s: %w", name, err)
+		}
+		if err := os.MkdirAll(filepath.Dir(destination), 0o755); err != nil {
+			return fmt.Errorf("create Studio App metadata directory %s: %w", name, err)
+		}
+		if err := os.WriteFile(destination, data, 0o644); err != nil {
+			return fmt.Errorf("write Studio App metadata %s: %w", name, err)
+		}
+		return nil
+	})
+}
+
+func studioMetadataPath(name string) bool {
+	name = filepath.ToSlash(name)
+	return name == "app.yml" ||
+		name == "access" ||
+		strings.HasPrefix(name, "access/") ||
+		name == "pages" ||
+		strings.HasPrefix(name, "pages/")
 }
 
 func cleanAssetPath(value string) string {
