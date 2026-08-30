@@ -10,7 +10,6 @@ Source: local staging list for `hapyco/dygo`, last updated on 2026-05-31.
 - [ ] #2 Define global Studio surfaces
 - [ ] #5 Create the opinions directory
 - [ ] #7 Add project documentation links
-- [ ] #21 Split field type registry files by responsibility
 - [ ] #24 Add role inheritance for hierarchical permissions
 - [ ] #255 Finalize Workflow metadata file naming and app layout
 - [ ] #256 Add Workflow loaders, validators, JSON Schema, and generator support
@@ -88,11 +87,9 @@ Source: local staging list for `hapyco/dygo`, last updated on 2026-05-31.
 - [ ] #186 Add Studio clear-filters action
 - [ ] #187 Add typed Studio filter value controls
 - [ ] #188 Add searchable Studio filter field picker
-- [ ] #189 Polish Studio filter dirty state
 - [ ] #192 Support filtered Link field records
 - [ ] #202 Add saved filters for Studio record lists
 - [ ] #246 Add Studio DOM freeze support
-- [x] #247 Add Studio dialog and popup API
 - [ ] #263 Add Studio notification and toast API
 - [ ] #248 Design notification logic for system and external events
 - [ ] #249 Add test mode for trying changes before switching live
