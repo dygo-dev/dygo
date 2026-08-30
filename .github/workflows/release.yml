@@ -32,12 +32,43 @@ jobs:
         working-directory: apps/studio/ui
         run: |
           npm ci
+          npm test
           rm -f ../../../internal/studio/bundled/index.html
           find ../../../internal/studio/bundled/assets -type f ! -name placeholder.txt -delete
           npm run build:embed
 
+      - name: Verify Core App bundle
+        run: |
+          go generate ./internal/frameworkapp
+          git diff --exit-code -- internal/frameworkapp/bundled/core
+
       - name: Test
-        run: go test ./...
+        run: |
+          go test ./...
+          go vet ./...
+
+      - name: Smoke test release binary
+        shell: bash
+        run: |
+          set -euo pipefail
+          version="${GITHUB_REF_NAME}"
+          smoke_root="$(mktemp -d)"
+          trap 'rm -rf "$smoke_root"' EXIT
+          go build -ldflags "-s -w -X github.com/hapyco/dygo/internal/cli.version=${version}" -o "$smoke_root/dygo" ./cmd/dygo
+          test "$("$smoke_root/dygo" version)" = "dygo ${version}"
+          (
+            cd "$smoke_root"
+            "$smoke_root/dygo" new smoke-app --skip-tidy
+          )
+          test -f "$smoke_root/smoke-app/.dygo/apps/core/app.yml"
+          test ! -e "$smoke_root/smoke-app/.dygo/apps/core/entities/user/fixtures.yml"
+          test "$(cd "$smoke_root/smoke-app" && "$smoke_root/dygo" hook sync --dry-run)" = "runner: cmd/dygo/main.go (unchanged)"
+          (
+            cd "$smoke_root/smoke-app"
+            git init -q
+            ! git check-ignore .dygo/apps/core/app.yml
+            git check-ignore .dygo/apps/studio/ui/dist/index.html
+          )
 
       - name: Build release assets
         shell: bash
@@ -64,7 +95,7 @@ jobs:
             rm -rf "dist/build/${name}"
             mkdir -p "dist/build/${name}"
             GOOS="$goos" GOARCH="$goarch" CGO_ENABLED=0 go build \
-              -ldflags "-s -w -X github.com/dygo-dev/dygo/internal/cli.version=${version}" \
+              -ldflags "-s -w -X github.com/hapyco/dygo/internal/cli.version=${version}" \
               -o "dist/build/${name}/${binary}" ./cmd/dygo
             if [ "$goos" = "windows" ]; then
               (cd "dist/build/${name}" && zip -q "../../${name}.zip" "$binary")

@@ -10,6 +10,7 @@ import (
 
 	"github.com/hapyco/dygo/internal/app/manifest"
 	"github.com/hapyco/dygo/internal/config"
+	"github.com/hapyco/dygo/internal/project"
 	"github.com/hapyco/dygo/internal/queues"
 	"github.com/hapyco/dygo/internal/secrets"
 )
@@ -54,6 +55,8 @@ func TestGenerateCreatesProjectSkeletonAndSecrets(t *testing.T) {
 		"config/secrets/production.yml.age",
 		"db/schema.sql",
 		"docs/index.md",
+		".dygo/apps/core/app.yml",
+		".dygo/apps/core/entities/user/user.entity.yml",
 		".dygo/apps/studio",
 		".dygo/files",
 		".dygo/logs",
@@ -84,6 +87,23 @@ func TestGenerateCreatesProjectSkeletonAndSecrets(t *testing.T) {
 	if app.Name != "my-company" || app.Label != "My Company" {
 		t.Fatalf("app manifest = %+v, want generated app metadata", app)
 	}
+	apps, err := project.LoadApps(root)
+	if err != nil {
+		t.Fatalf("project.LoadApps() error = %v, want generated project apps valid", err)
+	}
+	if len(apps) != 2 || apps[0].Manifest.Name != "core" || apps[1].Manifest.Name != "my-company" {
+		t.Fatalf("project.LoadApps() apps = %+v, want core and my-company", apps)
+	}
+	metadata, err := project.LoadMetadata(root)
+	if err != nil {
+		t.Fatalf("project.LoadMetadata() error = %v, want generated Core metadata valid", err)
+	}
+	if len(metadata.Entities) == 0 {
+		t.Fatal("project.LoadMetadata() loaded no Core Entities")
+	}
+	if _, err := os.Stat(filepath.Join(root, ".dygo", "apps", "core", "entities", "user", "fixtures.yml")); !os.IsNotExist(err) {
+		t.Fatalf("Stat(Core user fixture) error = %v, want no shipped Administrator fixture", err)
+	}
 
 	store := secrets.NewStore(root)
 	secret, err := store.Get(secrets.EnvironmentDevelopment, "DATABASE_URL")
@@ -105,12 +125,13 @@ func TestGenerateCreatesProjectSkeletonAndSecrets(t *testing.T) {
 	}
 
 	assertContains(t, readFile(t, filepath.Join(root, ".gitignore")), ".dygo/secrets/master.key")
-	assertContains(t, readFile(t, filepath.Join(root, ".gitignore")), ".dygo/")
+	assertContains(t, readFile(t, filepath.Join(root, ".gitignore")), "!.dygo/apps/core/**")
 	assertContains(t, readFile(t, filepath.Join(root, "cmd", "dygo", "main.go")), "dygoruntime.Run")
 	readme := readFile(t, filepath.Join(root, "README.md"))
 	assertContains(t, readme, "dygo db prepare")
 	assertContains(t, readme, "dygo setup")
 	assertContains(t, readme, "dygo dev")
+	assertContains(t, readme, "Commit `.dygo/apps/core`")
 }
 
 func TestGenerateInstallsStudioCacheFromFrameworkBuild(t *testing.T) {

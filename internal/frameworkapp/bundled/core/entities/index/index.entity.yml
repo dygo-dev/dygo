@@ -1,0 +1,30 @@
+label: Index
+description: Top-level non-unique index definition belonging to an Entity.
+icon: list-tree
+is-system: true
+name:
+  strategy: format
+  format: "{entity}.{index-name}"
+fields:
+  - name: entity
+    label: Entity
+    type: link
+    required: true
+    index: true
+    options:
+      entity: entity
+
+  - name: index-name
+    label: Index Name
+    type: text
+    required: true
+    index: true
+
+  - name: field-names
+    label: Field Names
+    type: json
+    required: true
+
+  - name: position
+    label: Position
+    type: int

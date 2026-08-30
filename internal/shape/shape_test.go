@@ -53,6 +53,7 @@ func TestCanonicalPaths(t *testing.T) {
 		PageMetadataPath("dashboard"):       "pages/dashboard/page.yml",
 		ReportFilePath("pipeline"):          "reports/pipeline.yml",
 		ReportMetadataPath("pipeline"):      "reports/pipeline/report.yml",
+		LocalCoreAppDir:                     ".dygo/apps/core",
 		LocalStudioAppDir:                   ".dygo/apps/studio",
 		LocalFilesDir:                       ".dygo/files",
 		LocalLogsDir:                        ".dygo/logs",

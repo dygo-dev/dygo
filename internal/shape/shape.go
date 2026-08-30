@@ -21,6 +21,7 @@ const (
 
 	LocalStateDir       = ".dygo"
 	LocalAppsDir        = ".dygo/apps"
+	LocalCoreAppDir     = ".dygo/apps/core"
 	LocalStudioAppDir   = ".dygo/apps/studio"
 	LocalFilesDir       = ".dygo/files"
 	LocalLogsDir        = ".dygo/logs"

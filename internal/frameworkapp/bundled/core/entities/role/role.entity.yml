@@ -1,0 +1,21 @@
+label: Role
+description: Named permission group.
+icon: shield
+name:
+  strategy: manual
+  label: Name
+fields:
+  - name: label
+    label: Label
+    type: text
+    required: true
+
+  - name: description
+    label: Description
+    type: long-text
+
+  - name: enabled
+    label: Enabled
+    type: boolean
+    index: true
+    default: true

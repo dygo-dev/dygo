@@ -30,6 +30,7 @@ func TestNewProjectCommandCreatesProject(t *testing.T) {
 		"module: example.com/my-company",
 		"secrets: initialized",
 		"dependencies: tidy skipped",
+		"core: installed from bundled Core App",
 		"studio: cached from framework Studio build",
 		"dygo db prepare",
 		"dygo setup",
@@ -54,6 +55,7 @@ func TestNewProjectCommandCreatesProject(t *testing.T) {
 		"config/secrets/staging.yml.age",
 		"config/secrets/production.yml.age",
 		".dygo/secrets/master.key",
+		".dygo/apps/core/app.yml",
 		".dygo/apps/studio/ui/dist/index.html",
 	} {
 		if _, err := os.Stat(filepath.Join(projectRoot, filepath.FromSlash(path))); err != nil {

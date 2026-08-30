@@ -47,7 +47,7 @@ func SingleRecordName(entityKey string) string {
 
 func (s RecordStore) generateRecordName(ctx context.Context, layout recordLayout, input RecordInput) (string, error) {
 	name, err := namegen.Generate(ctx, layout.Naming, recordNameResolver{store: s, layout: layout, input: input}, namegen.Options{
-		Entity: layout.Entity,
+		Entity: recordIdentityName(layout.AppName, layout.Entity),
 		Series: recordSeriesCounter{
 			store:  s,
 			layout: layout,
@@ -94,17 +94,30 @@ type recordSeriesCounter struct {
 
 func (c recordSeriesCounter) Next(ctx context.Context, key string, pattern string) (int64, error) {
 	var current int64
+	legacyKey := legacySeriesKey(key, c.layout.AppName, c.layout.Entity)
 	err := c.store.queryer.QueryRow(ctx, `
 INSERT INTO "naming_series" ("name", "entity_id", "key", "pattern", "current")
-VALUES ($1, $2, $3, $4, 1)
+VALUES ($1, $2, $3, $4, COALESCE((
+	SELECT legacy."current"
+	FROM "naming_series" legacy
+	WHERE legacy."key" = $5 AND legacy."entity_id" = $2
+), 0) + 1)
 ON CONFLICT ("key") DO UPDATE
 SET "current" = "naming_series"."current" + 1,
 	updated_at = now()
-RETURNING "current"`, key, c.layout.EntityID, key, pattern).Scan(&current)
+RETURNING "current"`, key, c.layout.EntityID, key, pattern, legacyKey).Scan(&current)
 	if err != nil {
 		return 0, classifyRecordDBError(err, "naming-series")
 	}
 	return current, nil
+}
+
+func legacySeriesKey(key string, appName string, entity string) string {
+	prefix := recordIdentityName(appName, entity) + ":"
+	if !strings.HasPrefix(key, prefix) {
+		return key
+	}
+	return entity + ":" + strings.TrimPrefix(key, prefix)
 }
 
 func recordNameValue(field recordField, raw json.RawMessage) (string, error) {

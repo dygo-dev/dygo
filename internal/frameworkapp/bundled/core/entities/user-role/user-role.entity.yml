@@ -1,0 +1,22 @@
+label: User Role
+description: Role assignment for a User.
+icon: users-round
+name:
+  strategy: format
+  format: "{user}.{role}"
+fields:
+  - name: user
+    label: User
+    type: link
+    required: true
+    index: true
+    options:
+      entity: user
+
+  - name: role
+    label: Role
+    type: link
+    required: true
+    index: true
+    options:
+      entity: role

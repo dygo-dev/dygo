@@ -40,16 +40,36 @@ func MetadataFieldStored(field MetadataField) bool {
 
 // LinkFieldTarget returns the target Entity key for a link field.
 func LinkFieldTarget(field MetadataField) (string, error) {
+	target, err := LinkFieldTargetIdentity(field, "")
+	if err != nil {
+		return "", err
+	}
+	return target.Entity, nil
+}
+
+// EntityIdentity identifies one Entity within an App.
+type EntityIdentity struct {
+	App    string
+	Entity string
+}
+
+// LinkFieldTargetIdentity returns the app-scoped target for a link field.
+func LinkFieldTargetIdentity(field MetadataField, defaultApp string) (EntityIdentity, error) {
 	var options struct {
+		App    string `json:"app"`
 		Entity string `json:"entity"`
 	}
 	if err := json.Unmarshal(field.Options, &options); err != nil {
-		return "", fmt.Errorf("link field options are invalid")
+		return EntityIdentity{}, fmt.Errorf("link field options are invalid")
 	}
 	if strings.TrimSpace(options.Entity) == "" {
-		return "", fmt.Errorf("link field target entity is required")
+		return EntityIdentity{}, fmt.Errorf("link field target entity is required")
 	}
-	return options.Entity, nil
+	appName := strings.TrimSpace(options.App)
+	if appName == "" {
+		appName = strings.TrimSpace(defaultApp)
+	}
+	return EntityIdentity{App: appName, Entity: strings.TrimSpace(options.Entity)}, nil
 }
 
 // ValidateRecordMatch verifies that match is backed by a unique metadata contract.

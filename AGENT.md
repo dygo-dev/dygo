@@ -152,6 +152,8 @@ Framework internals should dogfood framework primitives wherever metadata is ava
 
 If framework code needs a one-off path, first ask whether the one-off is actually a missing framework primitive. When the behavior is reusable across Records, metadata sync, fixtures, patches, hooks, permissions, Studio, or CLI, introduce or extend the framework-level primitive instead of hiding bespoke logic in one subsystem.
 
+Any capability that Core or framework code uses to build application behavior must also be available to Business Apps through a supported SDK contract in `pkg/dygo/`. Keep implementation details internal, but do not keep reusable product capability exclusive to private Core paths. Core should use the same SDK primitive where practical; bootstrap-only privileges must be narrow and explicit.
+
 Prefer shared contracts and registries for:
 
 - naming strategies

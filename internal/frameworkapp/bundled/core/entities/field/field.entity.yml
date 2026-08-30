@@ -1,0 +1,67 @@
+label: Field
+description: Field definition belonging to an Entity.
+icon: columns-3
+is-system: true
+name:
+  strategy: format
+  format: "{entity}.{field-name}"
+fields:
+  - name: entity
+    label: Entity
+    type: link
+    required: true
+    index: true
+    options:
+      entity: entity
+
+  - name: field-name
+    label: Field Name
+    type: text
+    required: true
+    index: true
+
+  - name: label
+    label: Label
+    type: text
+    required: true
+
+  - name: type
+    label: Type
+    type: text
+    required: true
+    index: true
+
+  - name: required
+    label: Required
+    type: boolean
+    default: false
+
+  - name: unique
+    label: Unique
+    type: boolean
+    default: false
+
+  - name: index
+    label: Index
+    type: boolean
+    default: false
+
+  - name: default
+    label: Default
+    type: json
+
+  - name: check
+    label: Check
+    type: json
+
+  - name: fetch
+    label: Fetch
+    type: json
+
+  - name: position
+    label: Position
+    type: int
+
+  - name: options
+    label: Options
+    type: json

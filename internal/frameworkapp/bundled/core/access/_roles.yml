@@ -1,0 +1,8 @@
+roles:
+  - name: studio-member
+    label: Studio Member
+    description: Baseline role for users who can sign in to Studio.
+
+  - name: system-manager
+    label: System Manager
+    description: Manages users, roles, permissions, and system settings.

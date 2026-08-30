@@ -11,6 +11,7 @@ import (
 	"path/filepath"
 	"strings"
 
+	"github.com/hapyco/dygo/internal/frameworkapp"
 	"github.com/hapyco/dygo/internal/hookgen"
 	"github.com/hapyco/dygo/internal/studio"
 )
@@ -27,6 +28,9 @@ type ProjectOptions struct {
 	// StudioAssets is for tests and custom upgrade callers. Normal upgrades use
 	// bundled release assets from the running dygo binary.
 	StudioAssets fs.FS
+	// CoreAssets is for tests and custom upgrade callers. Normal upgrades use
+	// the Core App bundled into the running dygo binary.
+	CoreAssets fs.FS
 }
 
 // PlanProject describes project upgrade work without writing files.
@@ -121,6 +125,10 @@ func UpgradeProject(ctx context.Context, options ProjectOptions) (ProjectResult,
 		return ProjectResult{}, fmt.Errorf("update project runner: %w", err)
 	}
 	_ = update
+	coreSource, err := installCoreCache(root, options.CoreAssets)
+	if err != nil {
+		return ProjectResult{}, err
+	}
 	studioUpdated, studioSource, err := installStudioCache(root, options.StudioAssets)
 	if err != nil {
 		return ProjectResult{}, err
@@ -132,9 +140,28 @@ func UpgradeProject(ctx context.Context, options ProjectOptions) (ProjectResult,
 	}
 	result.Updated = true
 	result.RunnerUpdated = written
+	result.CoreUpdated = true
+	result.CoreSource = coreSource
 	result.StudioUpdated = studioUpdated
 	result.StudioSource = studioSource
 	return result, nil
+}
+
+func installCoreCache(root string, configured fs.FS) (string, error) {
+	sources := make([]frameworkapp.Source, 0, 2)
+	if configured != nil {
+		sources = append(sources, frameworkapp.Source{Name: "configured Core App", FS: configured})
+	}
+	embedded, err := frameworkapp.EmbeddedCoreSource()
+	if err != nil {
+		return "", err
+	}
+	sources = append(sources, embedded)
+	name, err := frameworkapp.InstallCore(root, sources...)
+	if err != nil {
+		return "", fmt.Errorf("install Core App: %w", err)
+	}
+	return name, nil
 }
 
 func installStudioCache(root string, configured fs.FS) (bool, string, error) {

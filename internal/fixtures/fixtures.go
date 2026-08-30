@@ -32,7 +32,8 @@ type Result struct {
 
 // Plan previews discovered fixture files before a runtime write.
 type Plan struct {
-	Files []LoadedFile
+	Files    []LoadedFile
+	Entities []catalog.LoadedEntity
 }
 
 // FileCount returns the number of fixture files in the plan.
@@ -102,10 +103,11 @@ type Value struct {
 
 // Store is the metadata and Record behavior needed by fixture apply.
 type Store interface {
-	GetEntityMeta(context.Context, string) (db.MetadataEntityMeta, error)
-	FindRecord(context.Context, string, db.RecordInput) (db.Record, error)
-	CreateRecord(context.Context, string, db.RecordInput) (db.Record, error)
-	UpdateRecord(context.Context, string, int64, db.RecordInput) (db.Record, error)
+	ListEntities(context.Context) ([]db.MetadataEntity, error)
+	GetEntityMetaByIdentity(context.Context, string, string) (db.MetadataEntityMeta, error)
+	FindRecordByIdentity(context.Context, string, string, db.RecordInput) (db.Record, error)
+	CreateRecordByIdentity(context.Context, string, string, db.RecordInput) (db.Record, error)
+	UpdateRecordByIdentity(context.Context, string, string, int64, db.RecordInput) (db.Record, error)
 }
 
 type runtimeStore struct {
@@ -149,7 +151,7 @@ func (r Runner) Apply(ctx context.Context, root string, databaseURL string) (Res
 		metadata: db.NewMetadataReader(tx),
 		records:  newFixtureRecordStore(tx, r.recordHooks),
 	}
-	result, err := ApplyFiles(ctx, store, plan.Files)
+	result, err := applyFilesWithIndex(ctx, store, plan.Files, newFixtureEntityIndex(plan.Entities))
 	if err != nil {
 		return Result{}, err
 	}
@@ -175,7 +177,7 @@ func (r Runner) Plan(ctx context.Context, root string) (Plan, error) {
 	if err := ValidateFiles(files, metadata.Entities); err != nil {
 		return Plan{}, err
 	}
-	return Plan{Files: files}, nil
+	return Plan{Files: files, Entities: metadata.Entities}, nil
 }
 
 func newFixtureRecordStore(queryer db.RecordQueryer, recordHooks *db.RecordHookRegistry) db.RecordStore {
@@ -650,6 +652,18 @@ func ApplyFiles(ctx context.Context, store Store, files []LoadedFile) (Result, e
 	if store == nil {
 		return Result{}, fmt.Errorf("fixture store is required")
 	}
+	entities, err := store.ListEntities(ctx)
+	if err != nil {
+		return Result{}, safeWrap("list fixture entity metadata", err)
+	}
+	loaded := make([]catalog.LoadedEntity, 0, len(entities))
+	for _, entity := range entities {
+		loaded = append(loaded, catalog.LoadedEntity{AppName: entity.App.Name, Entity: schema.Entity{Name: entity.Key}})
+	}
+	return applyFilesWithIndex(ctx, store, files, newFixtureEntityIndex(loaded))
+}
+
+func applyFilesWithIndex(ctx context.Context, store Store, files []LoadedFile, index fixtureEntityIndex) (Result, error) {
 	for _, file := range files {
 		if err := validateFixtureAllowed(file.AppName, file.Fixture.Entity, file.Path); err != nil {
 			return Result{}, err
@@ -664,7 +678,7 @@ func ApplyFiles(ctx context.Context, store Store, files []LoadedFile) (Result, e
 		}
 		prepared = append(prepared, parsed)
 	}
-	ordered, err := orderPreparedFiles(prepared)
+	ordered, err := orderPreparedFiles(prepared, index)
 	if err != nil {
 		return Result{}, err
 	}
@@ -672,13 +686,13 @@ func ApplyFiles(ctx context.Context, store Store, files []LoadedFile) (Result, e
 	var result Result
 	for _, file := range ordered {
 		for _, record := range file.Fixture.Records {
-			input, match, err := resolveRecord(ctx, store, file, record)
+			input, match, err := resolveRecord(ctx, store, index, file, record)
 			if err != nil {
 				return Result{}, err
 			}
-			existing, err := store.FindRecord(ctx, file.Fixture.Entity, match)
+			existing, err := store.FindRecordByIdentity(ctx, file.AppName, file.Fixture.Entity, match)
 			if isRecordNotFound(err) {
-				if _, err := store.CreateRecord(ctx, file.Fixture.Entity, input); err != nil {
+				if _, err := store.CreateRecordByIdentity(ctx, file.AppName, file.Fixture.Entity, input); err != nil {
 					return Result{}, safeWrap("create fixture record", err)
 				}
 				result.Created++
@@ -695,7 +709,7 @@ func ApplyFiles(ctx context.Context, store Store, files []LoadedFile) (Result, e
 			if len(updateInput) == 0 {
 				continue
 			}
-			if _, err := store.UpdateRecord(ctx, file.Fixture.Entity, id, updateInput); err != nil {
+			if _, err := store.UpdateRecordByIdentity(ctx, file.AppName, file.Fixture.Entity, id, updateInput); err != nil {
 				return Result{}, safeWrap("update fixture record", err)
 			}
 			result.Updated++
@@ -715,20 +729,24 @@ func fixtureUpdateInput(input db.RecordInput) db.RecordInput {
 	return update
 }
 
-func (s runtimeStore) GetEntityMeta(ctx context.Context, entity string) (db.MetadataEntityMeta, error) {
-	return s.metadata.GetEntityMeta(ctx, entity)
+func (s runtimeStore) GetEntityMetaByIdentity(ctx context.Context, appName string, entity string) (db.MetadataEntityMeta, error) {
+	return s.metadata.GetEntityMetaByIdentity(ctx, appName, entity)
 }
 
-func (s runtimeStore) FindRecord(ctx context.Context, entity string, match db.RecordInput) (db.Record, error) {
-	return s.records.FindRecord(ctx, entity, match)
+func (s runtimeStore) ListEntities(ctx context.Context) ([]db.MetadataEntity, error) {
+	return s.metadata.ListEntities(ctx)
 }
 
-func (s runtimeStore) CreateRecord(ctx context.Context, entity string, input db.RecordInput) (db.Record, error) {
-	return s.records.CreateRecord(ctx, entity, input)
+func (s runtimeStore) FindRecordByIdentity(ctx context.Context, appName string, entity string, match db.RecordInput) (db.Record, error) {
+	return s.records.FindRecordByIdentity(ctx, appName, entity, match)
 }
 
-func (s runtimeStore) UpdateRecord(ctx context.Context, entity string, id int64, input db.RecordInput) (db.Record, error) {
-	return s.records.UpdateRecord(ctx, entity, id, input)
+func (s runtimeStore) CreateRecordByIdentity(ctx context.Context, appName string, entity string, input db.RecordInput) (db.Record, error) {
+	return s.records.CreateRecordByIdentity(ctx, appName, entity, input)
+}
+
+func (s runtimeStore) UpdateRecordByIdentity(ctx context.Context, appName string, entity string, id int64, input db.RecordInput) (db.Record, error) {
+	return s.records.UpdateRecordByIdentity(ctx, appName, entity, id, input)
 }
 
 type preparedFile struct {
@@ -738,9 +756,9 @@ type preparedFile struct {
 }
 
 func prepareFile(ctx context.Context, store Store, file LoadedFile) (preparedFile, error) {
-	meta, err := store.GetEntityMeta(ctx, file.Fixture.Entity)
+	meta, err := store.GetEntityMetaByIdentity(ctx, file.AppName, file.Fixture.Entity)
 	if err != nil {
-		return preparedFile{}, safeWrap(fmt.Sprintf("%s: load fixture entity %q", file.Path, file.Fixture.Entity), err)
+		return preparedFile{}, safeWrap(fmt.Sprintf("%s: load fixture entity %q", file.Path, file.AppName+"/"+file.Fixture.Entity), err)
 	}
 	fields := db.MetadataFieldsByName(meta)
 	if err := db.ValidateRecordMatch(meta, file.Fixture.Match); err != nil {
@@ -754,10 +772,11 @@ func prepareFile(ctx context.Context, store Store, file LoadedFile) (preparedFil
 	return preparedFile{LoadedFile: file, Meta: meta, Fields: fields}, nil
 }
 
-func orderPreparedFiles(files []preparedFile) ([]preparedFile, error) {
+func orderPreparedFiles(files []preparedFile, index fixtureEntityIndex) ([]preparedFile, error) {
 	fixturesByEntity := map[string][]int{}
 	for i, file := range files {
-		fixturesByEntity[file.Fixture.Entity] = append(fixturesByEntity[file.Fixture.Entity], i)
+		identity := catalog.EntityKey(file.AppName, file.Fixture.Entity)
+		fixturesByEntity[identity] = append(fixturesByEntity[identity], i)
 	}
 
 	dependencies := map[int]map[int]bool{}
@@ -771,11 +790,19 @@ func orderPreparedFiles(files []preparedFile) ([]preparedFile, error) {
 				if field.Type != "link" {
 					continue
 				}
-				target, err := db.LinkFieldTarget(field)
+				owner, ok := index.byIdentity[catalog.EntityKey(file.AppName, file.Fixture.Entity)]
+				if !ok {
+					return nil, fmt.Errorf("%s: fixture Entity %s/%s is not loaded", file.Path, file.AppName, file.Fixture.Entity)
+				}
+				targetRef, err := db.LinkFieldTargetIdentity(field, "")
 				if err != nil {
 					return nil, fmt.Errorf("%s: fixture field %q: %w", file.Path, name, err)
 				}
-				for _, targetIndex := range fixturesByEntity[target] {
+				target, err := index.resolve(owner, targetRef.App, targetRef.Entity)
+				if err != nil {
+					return nil, fmt.Errorf("%s: fixture field %q: %w", file.Path, name, err)
+				}
+				for _, targetIndex := range fixturesByEntity[target.Key()] {
 					if targetIndex == i {
 						continue
 					}
@@ -817,7 +844,7 @@ func orderPreparedFiles(files []preparedFile) ([]preparedFile, error) {
 		if !progressed {
 			names := make([]string, 0, len(pending))
 			for i := range pending {
-				names = append(names, files[i].Fixture.Entity)
+				names = append(names, files[i].AppName+"/"+files[i].Fixture.Entity)
 			}
 			sort.Strings(names)
 			return nil, fmt.Errorf("fixture dependency cycle among entities: %s", strings.Join(names, ", "))
@@ -855,7 +882,11 @@ func validateRecord(file LoadedFile, fields map[string]db.MetadataField, record 
 	return nil
 }
 
-func resolveRecord(ctx context.Context, store Store, file preparedFile, record Record) (db.RecordInput, db.RecordInput, error) {
+func resolveRecord(ctx context.Context, store Store, index fixtureEntityIndex, file preparedFile, record Record) (db.RecordInput, db.RecordInput, error) {
+	owner, ok := index.byIdentity[catalog.EntityKey(file.AppName, file.Fixture.Entity)]
+	if !ok {
+		return nil, nil, fmt.Errorf("%s: fixture Entity %s/%s is not loaded", file.Path, file.AppName, file.Fixture.Entity)
+	}
 	input := db.RecordInput{}
 	match := db.RecordInput{}
 	for name, value := range record.Values {
@@ -863,7 +894,7 @@ func resolveRecord(ctx context.Context, store Store, file preparedFile, record R
 		if !ok {
 			return nil, nil, fmt.Errorf("%s:%d: unknown fixture field %q", file.Path, value.Line, name)
 		}
-		raw, err := resolveValue(ctx, store, field, value, 0)
+		raw, err := resolveValue(ctx, store, index, owner, field, value, 0)
 		if err != nil {
 			return nil, nil, fmt.Errorf("%s:%d: resolve fixture field %q: %w", file.Path, value.Line, name, err)
 		}
@@ -875,7 +906,7 @@ func resolveRecord(ctx context.Context, store Store, file preparedFile, record R
 	return input, match, nil
 }
 
-func resolveValue(ctx context.Context, store Store, field db.MetadataField, value Value, depth int) (json.RawMessage, error) {
+func resolveValue(ctx context.Context, store Store, index fixtureEntityIndex, owner catalog.LoadedEntity, field db.MetadataField, value Value, depth int) (json.RawMessage, error) {
 	if field.Type != "link" {
 		raw, err := nodeJSON(value.Node)
 		if err != nil {
@@ -890,13 +921,17 @@ func resolveValue(ctx context.Context, store Store, field db.MetadataField, valu
 	if err != nil {
 		return nil, err
 	}
-	target, err := db.LinkFieldTarget(field)
+	targetRef, err := db.LinkFieldTargetIdentity(field, "")
 	if err != nil {
 		return nil, err
 	}
-	targetMeta, err := store.GetEntityMeta(ctx, target)
+	target, err := index.resolve(owner, targetRef.App, targetRef.Entity)
 	if err != nil {
-		return nil, safeWrap(fmt.Sprintf("load link target entity %q", target), err)
+		return nil, err
+	}
+	targetMeta, err := store.GetEntityMetaByIdentity(ctx, target.AppName, target.Entity.Name)
+	if err != nil {
+		return nil, safeWrap(fmt.Sprintf("load link target entity %q", target.AppName+"/"+target.Entity.Name), err)
 	}
 	targetFields := db.MetadataFieldsByName(targetMeta)
 	matchNames := sortedValueKeys(reference.Match)
@@ -909,7 +944,7 @@ func resolveValue(ctx context.Context, store Store, field db.MetadataField, valu
 		if !ok {
 			return nil, fmt.Errorf("link match field %q does not exist", name)
 		}
-		raw, err := resolveValue(ctx, store, targetField, reference.Match[name], depth+1)
+		raw, err := resolveValue(ctx, store, index, target, targetField, reference.Match[name], depth+1)
 		if err != nil {
 			return nil, fmt.Errorf("resolve link match field %q: %w", name, err)
 		}
@@ -918,9 +953,9 @@ func resolveValue(ctx context.Context, store Store, field db.MetadataField, valu
 		}
 		match[name] = raw
 	}
-	record, err := store.FindRecord(ctx, target, match)
+	record, err := store.FindRecordByIdentity(ctx, target.AppName, target.Entity.Name, match)
 	if err != nil {
-		return nil, safeWrap(fmt.Sprintf("resolve link target %q", target), err)
+		return nil, safeWrap(fmt.Sprintf("resolve link target %q", target.AppName+"/"+target.Entity.Name), err)
 	}
 	name, err := recordName(record)
 	if err != nil {
