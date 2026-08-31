@@ -5,6 +5,35 @@ repo="hapyco/dygo"
 version="${DYGO_VERSION:-latest}"
 install_dir="${DYGO_INSTALL_DIR:-$HOME/.dygo/bin}"
 download_base_url="${DYGO_DOWNLOAD_BASE_URL:-}"
+spinner_pid=""
+spinner_message=""
+
+start_spinner() {
+  spinner_message="$1"
+  if [ ! -t 1 ]; then
+    return
+  fi
+  (
+    set -- '|' '/' '-' '\'
+    while :; do
+      for frame do
+        printf '\r\033[2K%s %s' "$frame" "$spinner_message"
+        sleep 0.1
+      done
+    done
+  ) &
+  spinner_pid=$!
+}
+
+stop_spinner() {
+  if [ -z "$spinner_pid" ]; then
+    return
+  fi
+  kill "$spinner_pid" 2>/dev/null || true
+  wait "$spinner_pid" 2>/dev/null || true
+  printf '\r\033[2K'
+  spinner_pid=""
+}
 
 require_command() {
   if ! command -v "$1" >/dev/null 2>&1; then
@@ -13,7 +42,7 @@ require_command() {
   fi
 }
 
-for command in awk curl grep head install mktemp sed tar; do
+for command in awk curl grep head install mktemp sed sleep tar; do
   require_command "$command"
 done
 
@@ -49,6 +78,7 @@ base_url="${download_base_url:-https://github.com/$repo/releases/download/$versi
 tmp_dir="$(mktemp -d)"
 staged_binary=""
 cleanup() {
+  stop_spinner
   rm -rf "$tmp_dir"
   if [ -n "$staged_binary" ]; then
     rm -f "$staged_binary"
@@ -56,9 +86,12 @@ cleanup() {
 }
 trap cleanup EXIT INT TERM
 
+start_spinner "Downloading dygo $version"
 curl -fsSL "$base_url/$asset" -o "$tmp_dir/$asset"
 curl -fsSL "$base_url/checksums.txt" -o "$tmp_dir/checksums.txt"
+stop_spinner
 
+start_spinner "Installing dygo $version"
 expected="$(awk -v file="$asset" '$2 == file || $2 == "*" file { print $1 }' "$tmp_dir/checksums.txt")"
 if [ -z "$expected" ]; then
   echo "checksums.txt does not contain $asset" >&2
@@ -93,6 +126,7 @@ staged_binary="$install_dir/.dygo-install-$$"
 install -m 0755 "$tmp_dir/dygo" "$staged_binary"
 mv -f "$staged_binary" "$install_dir/dygo"
 staged_binary=""
+stop_spinner
 
 echo "dygo $version installed to $install_dir/dygo"
 case ":$PATH:" in
