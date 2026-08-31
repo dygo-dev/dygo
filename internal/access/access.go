@@ -5,6 +5,7 @@ import (
 	"bytes"
 	"context"
 	"database/sql"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"os"
@@ -12,9 +13,11 @@ import (
 	"sort"
 	"strings"
 
+	"github.com/hapyco/dygo/internal/accesspolicy"
 	"github.com/hapyco/dygo/internal/app/manifest"
 	"github.com/hapyco/dygo/internal/db"
 	"github.com/hapyco/dygo/internal/entity/catalog"
+	"github.com/hapyco/dygo/internal/entity/schema"
 	"github.com/hapyco/dygo/internal/naming"
 	"github.com/hapyco/dygo/internal/pages"
 	"github.com/hapyco/dygo/internal/permissions"
@@ -58,10 +61,17 @@ type PolicyFile struct {
 type PolicyItem struct {
 	Role     string
 	Can      []permissions.Action
+	When     *PolicyWhen
+	Fields   PolicyFields
 	Override bool
 	Path     string
 	Line     int
 }
+
+type PolicyWhen = accesspolicy.When
+type PolicyCondition = accesspolicy.Condition
+type PolicyMembership = accesspolicy.Membership
+type PolicyFields = accesspolicy.Fields
 
 // Grant is the effective DB permission for one Entity and role.
 type Grant struct {
@@ -70,6 +80,8 @@ type Grant struct {
 	Page      string
 	Role      string
 	Can       []permissions.Action
+	When      *PolicyWhen
+	Fields    PolicyFields
 	Source    PolicyItem
 }
 
@@ -127,8 +139,10 @@ type ExportResult struct {
 }
 
 type exportedPermission struct {
-	Role Role
-	Can  []permissions.Action
+	Role   Role
+	Can    []permissions.Action
+	When   *PolicyWhen
+	Fields PolicyFields
 }
 
 // BuildPlan loads and validates project access metadata.
@@ -420,6 +434,18 @@ func decodePolicyItem(root string, path string, node *yaml.Node) (PolicyItem, er
 				return PolicyItem{}, fmt.Errorf("%s:%d: %w", rel(root, path), value.Line, err)
 			}
 			item.Can = actions
+		case "when":
+			when, err := decodePolicyWhen(value)
+			if err != nil {
+				return PolicyItem{}, fmt.Errorf("%s:%d: %w", rel(root, path), value.Line, err)
+			}
+			item.When = when
+		case "fields":
+			fields, err := decodePolicyFields(value)
+			if err != nil {
+				return PolicyItem{}, fmt.Errorf("%s:%d: %w", rel(root, path), value.Line, err)
+			}
+			item.Fields = fields
 		case "override":
 			var override bool
 			if err := value.Decode(&override); err != nil {
@@ -440,6 +466,138 @@ func decodePolicyItem(root string, path string, node *yaml.Node) (PolicyItem, er
 		return PolicyItem{}, fmt.Errorf("%s:%d: %w", rel(root, path), node.Line, err)
 	}
 	return item, nil
+}
+
+func decodePolicyWhen(node *yaml.Node) (*PolicyWhen, error) {
+	mapping := yamlmeta.ValueMapping(node)
+	if mapping == nil {
+		return nil, fmt.Errorf("policy when must be a mapping")
+	}
+	when := &PolicyWhen{Match: "all"}
+	for i := 0; i < len(mapping.Content); i += 2 {
+		key, value := mapping.Content[i], mapping.Content[i+1]
+		if key.Value == "match" {
+			var err error
+			when.Match, err = yamlmeta.ScalarString(value, "policy when match")
+			if err != nil {
+				return nil, err
+			}
+			continue
+		}
+		if !strings.HasPrefix(key.Value, "record.") {
+			return nil, fmt.Errorf("policy when field %q must start with record.", key.Value)
+		}
+		condition, err := decodePolicyCondition(key.Value, value)
+		if err != nil {
+			return nil, err
+		}
+		when.Conditions = append(when.Conditions, condition)
+	}
+	if when.Match != "all" && when.Match != "any" {
+		return nil, fmt.Errorf("policy when match must be all or any")
+	}
+	if len(when.Conditions) == 0 {
+		return nil, fmt.Errorf("policy when conditions are required")
+	}
+	return when, nil
+}
+
+func decodePolicyCondition(field string, node *yaml.Node) (PolicyCondition, error) {
+	condition := PolicyCondition{Field: field}
+	if node.Kind == yaml.ScalarNode {
+		value, err := yamlmeta.ScalarString(node, "policy condition")
+		if err != nil {
+			return PolicyCondition{}, err
+		}
+		if value != "actor.user" {
+			return PolicyCondition{}, fmt.Errorf("policy equality supports actor.user only")
+		}
+		condition.Equals = value
+		return condition, nil
+	}
+	mapping := yamlmeta.ValueMapping(node)
+	if mapping == nil || len(mapping.Content) != 2 || mapping.Content[0].Value != "in" {
+		return PolicyCondition{}, fmt.Errorf("policy condition must be actor.user or an in expression")
+	}
+	membership, err := decodePolicyMembership(mapping.Content[1])
+	if err != nil {
+		return PolicyCondition{}, err
+	}
+	condition.In = membership
+	return condition, nil
+}
+
+func decodePolicyMembership(node *yaml.Node) (*PolicyMembership, error) {
+	mapping := yamlmeta.ValueMapping(node)
+	if mapping == nil {
+		return nil, fmt.Errorf("policy in must be a mapping")
+	}
+	membership := &PolicyMembership{Where: map[string]string{}}
+	for i := 0; i < len(mapping.Content); i += 2 {
+		key, value := mapping.Content[i], mapping.Content[i+1]
+		switch key.Value {
+		case "entity":
+			var err error
+			membership.Entity, err = yamlmeta.ScalarString(value, "policy in entity")
+			if err != nil {
+				return nil, err
+			}
+		case "value":
+			var err error
+			membership.Value, err = yamlmeta.ScalarString(value, "policy in value")
+			if err != nil {
+				return nil, err
+			}
+		case "where":
+			where := yamlmeta.ValueMapping(value)
+			if where == nil || len(where.Content) == 0 {
+				return nil, fmt.Errorf("policy in where must be a non-empty mapping")
+			}
+			for j := 0; j < len(where.Content); j += 2 {
+				match, err := yamlmeta.ScalarString(where.Content[j+1], "policy in where value")
+				if err != nil || match != "actor.user" {
+					return nil, fmt.Errorf("policy in where supports actor.user only")
+				}
+				membership.Where[where.Content[j].Value] = match
+			}
+		default:
+			return nil, fmt.Errorf("unknown policy in field %q", key.Value)
+		}
+	}
+	if err := shape.ValidateMetadataName("policy in entity", membership.Entity); err != nil {
+		return nil, err
+	}
+	if err := shape.ValidateMetadataName("policy in value", membership.Value); err != nil {
+		return nil, err
+	}
+	if len(membership.Where) == 0 {
+		return nil, fmt.Errorf("policy in where is required")
+	}
+	return membership, nil
+}
+
+func decodePolicyFields(node *yaml.Node) (PolicyFields, error) {
+	mapping := yamlmeta.ValueMapping(node)
+	if mapping == nil {
+		return PolicyFields{}, fmt.Errorf("policy fields must be a mapping")
+	}
+	fields := PolicyFields{}
+	for i := 0; i < len(mapping.Content); i += 2 {
+		key, value := mapping.Content[i], mapping.Content[i+1]
+		values, err := yamlmeta.ScalarStringSequence(value, "policy fields "+key.Value)
+		if err != nil {
+			return PolicyFields{}, err
+		}
+		switch key.Value {
+		case "deny-read":
+			fields.DenyRead = values
+		case "deny-write":
+			fields.DenyWrite = values
+		default:
+			return PolicyFields{}, fmt.Errorf("unknown policy fields field %q", key.Value)
+		}
+	}
+	return fields, nil
 }
 
 func decodeActions(node *yaml.Node) ([]permissions.Action, error) {
@@ -501,8 +659,11 @@ func ValidateWithPages(plan *Plan, entities []catalog.LoadedEntity, loadedPages 
 	}
 
 	entityIndex := map[string]bool{}
+	entityByKey := map[string]catalog.LoadedEntity{}
 	for _, entity := range entities {
-		entityIndex[catalog.EntityKey(entity.AppName, entity.Entity.Name)] = true
+		key := catalog.EntityKey(entity.AppName, entity.Entity.Name)
+		entityIndex[key] = true
+		entityByKey[key] = entity
 	}
 	pageIndex := map[string]bool{}
 	for _, page := range loadedPages {
@@ -526,6 +687,13 @@ func ValidateWithPages(plan *Plan, entities []catalog.LoadedEntity, loadedPages 
 		for _, item := range file.Items {
 			if !knownRoles[item.Role] {
 				return fmt.Errorf("%s:%d: policy references unknown role %q", file.ProjectPath, item.Line, item.Role)
+			}
+			if file.Entity != "" {
+				if err := validatePolicyRules(file, item, entityByKey); err != nil {
+					return fmt.Errorf("%s:%d: %w", file.ProjectPath, item.Line, err)
+				}
+			} else if item.When != nil || len(item.Fields.DenyRead) > 0 || len(item.Fields.DenyWrite) > 0 {
+				return fmt.Errorf("%s:%d: Page policies do not support when or fields", file.ProjectPath, item.Line)
 			}
 			targetKind := "entity"
 			targetName := file.Entity
@@ -552,6 +720,96 @@ func ValidateWithPages(plan *Plan, entities []catalog.LoadedEntity, loadedPages 
 		return strings.Join(left, "\x00") < strings.Join(right, "\x00")
 	})
 	return nil
+}
+
+func validatePolicyRules(file PolicyFile, item PolicyItem, entities map[string]catalog.LoadedEntity) error {
+	root, ok := entities[catalog.EntityKey(file.TargetApp, file.Entity)]
+	if !ok {
+		return fmt.Errorf("access target Entity is not loaded")
+	}
+	for _, field := range append(append([]string{}, item.Fields.DenyRead...), item.Fields.DenyWrite...) {
+		if field == "owner" {
+			continue
+		}
+		if _, ok := schemaField(root, field); !ok {
+			return fmt.Errorf("field rule references unknown field %q", field)
+		}
+	}
+	if item.When == nil {
+		return nil
+	}
+	for _, condition := range item.When.Conditions {
+		currentField, err := validateRecordPath(root, condition.Field, entities)
+		if err != nil {
+			return err
+		}
+		if condition.Equals == "actor.user" && currentField.Type != "link" {
+			return fmt.Errorf("condition %q must resolve to a user Link", condition.Field)
+		}
+		if condition.In == nil {
+			continue
+		}
+		assignment, ok := entities[catalog.EntityKey(file.TargetApp, condition.In.Entity)]
+		if !ok {
+			return fmt.Errorf("assignment Entity %q is not loaded in app %q", condition.In.Entity, file.TargetApp)
+		}
+		valueField, ok := schemaField(assignment, condition.In.Value)
+		if !ok {
+			return fmt.Errorf("assignment value field %q does not exist on %q", condition.In.Value, condition.In.Entity)
+		}
+		if valueField.Type != currentField.Type && !(condition.Field == "record.id" && valueField.Type == "link") {
+			return fmt.Errorf("assignment value field %q does not match %q", condition.In.Value, condition.Field)
+		}
+		for where := range condition.In.Where {
+			field, ok := schemaField(assignment, where)
+			if !ok || field.Type != "link" {
+				return fmt.Errorf("assignment where field %q must be a user Link", where)
+			}
+		}
+	}
+	return nil
+}
+
+func validateRecordPath(root catalog.LoadedEntity, raw string, entities map[string]catalog.LoadedEntity) (schema.Field, error) {
+	parts := strings.Split(strings.TrimPrefix(raw, "record."), ".")
+	current := root
+	for index, name := range parts {
+		if name == "id" && index == len(parts)-1 {
+			return schema.Field{Name: "id", Type: "bigint"}, nil
+		}
+		if name == "owner" && index == len(parts)-1 {
+			return schema.Field{Name: "owner", Type: "link"}, nil
+		}
+		field, ok := schemaField(current, name)
+		if !ok {
+			return schema.Field{}, fmt.Errorf("condition path %q references unknown field %q", raw, name)
+		}
+		if index == len(parts)-1 {
+			return field, nil
+		}
+		if field.Type != "link" {
+			return schema.Field{}, fmt.Errorf("condition path %q traverses non-Link field %q", raw, name)
+		}
+		appName := field.Options.App
+		if appName == "" {
+			appName = current.AppName
+		}
+		next, ok := entities[catalog.EntityKey(appName, field.Options.Entity)]
+		if !ok {
+			return schema.Field{}, fmt.Errorf("condition path %q target %s/%s is not loaded", raw, appName, field.Options.Entity)
+		}
+		current = next
+	}
+	return schema.Field{}, fmt.Errorf("condition path is required")
+}
+
+func schemaField(entity catalog.LoadedEntity, name string) (schema.Field, bool) {
+	for _, field := range entity.Entity.Fields {
+		if field.Name == name {
+			return field, true
+		}
+	}
+	return schema.Field{}, false
 }
 
 type groupedPolicy struct {
@@ -587,6 +845,8 @@ func resolvePolicyGroup(group []groupedPolicy) (Grant, error) {
 		Page:      effective.file.Page,
 		Role:      effective.item.Role,
 		Can:       effective.item.Can,
+		When:      effective.item.When,
+		Fields:    effective.item.Fields,
 		Source:    effective.item,
 	}, nil
 }
@@ -803,7 +1063,7 @@ func listDatabaseRoles(ctx context.Context, queryer roleNameQueryer) ([]Role, er
 func listDatabasePermissions(ctx context.Context, queryer roleNameQueryer, target shape.AppRef) ([]exportedPermission, error) {
 	rows, err := queryer.Query(ctx, `
 SELECT r.name, r.label, r.description,
-	p."read", p."create", p."update", p."delete", p."export", p."print"
+	p."read", p."create", p."update", p."delete", p."export", p."print", COALESCE(p.actions, '[]'::jsonb), p."when", COALESCE(p.field_rules, '{}'::jsonb)
 FROM "permission" p
 JOIN "role" r ON r.id = p.role_id
 JOIN entity e ON e.id = p.entity_id
@@ -821,7 +1081,8 @@ ORDER BY r.name`, target.App, target.Name)
 		var item exportedPermission
 		var description sql.NullString
 		var read, create, update, deleteAction, export, print bool
-		if err := rows.Scan(&item.Role.Name, &item.Role.Label, &description, &read, &create, &update, &deleteAction, &export, &print); err != nil {
+		var customActions, whenJSON, fieldsJSON []byte
+		if err := rows.Scan(&item.Role.Name, &item.Role.Label, &description, &read, &create, &update, &deleteAction, &export, &print, &customActions, &whenJSON, &fieldsJSON); err != nil {
 			return nil, err
 		}
 		if description.Valid {
@@ -835,6 +1096,19 @@ ORDER BY r.name`, target.App, target.Name)
 			permissions.ActionExport: export,
 			permissions.ActionPrint:  print,
 		})
+		var custom []permissions.Action
+		if err := json.Unmarshal(customActions, &custom); err != nil {
+			return nil, fmt.Errorf("decode permission custom actions: %w", err)
+		}
+		item.Can = append(item.Can, custom...)
+		if len(whenJSON) > 0 && string(whenJSON) != "null" {
+			if err := json.Unmarshal(whenJSON, &item.When); err != nil {
+				return nil, fmt.Errorf("decode permission row conditions: %w", err)
+			}
+		}
+		if err := json.Unmarshal(fieldsJSON, &item.Fields); err != nil {
+			return nil, fmt.Errorf("decode permission field rules: %w", err)
+		}
 		exported = append(exported, item)
 	}
 	return exported, rows.Err()
@@ -962,13 +1236,15 @@ func upsertExportPolicyItems(existing []PolicyItem, exported []exportedPermissio
 	changed := 0
 	for _, permission := range exported {
 		if i, exists := index[permission.Role.Name]; exists {
-			if !sameActions(items[i].Can, permission.Can) {
+			if !sameActions(items[i].Can, permission.Can) || !samePolicyRules(items[i], permission) {
 				items[i].Can = append([]permissions.Action(nil), permission.Can...)
+				items[i].When = permission.When
+				items[i].Fields = permission.Fields
 				changed++
 			}
 			continue
 		}
-		items = append(items, PolicyItem{Role: permission.Role.Name, Can: append([]permissions.Action(nil), permission.Can...)})
+		items = append(items, PolicyItem{Role: permission.Role.Name, Can: append([]permissions.Action(nil), permission.Can...), When: permission.When, Fields: permission.Fields})
 		index[permission.Role.Name] = len(items) - 1
 		changed++
 	}
@@ -1008,9 +1284,65 @@ func encodePolicyFile(items []PolicyItem) ([]byte, error) {
 		if item.Override {
 			content = append(content, yamlStringNode("override"), yamlBoolNode(true))
 		}
+		if item.When != nil {
+			content = append(content, yamlStringNode("when"), yamlPolicyWhenNode(*item.When))
+		}
+		if len(item.Fields.DenyRead) > 0 || len(item.Fields.DenyWrite) > 0 {
+			content = append(content, yamlStringNode("fields"), yamlValueNode(item.Fields))
+		}
 		nodes = append(nodes, &yaml.Node{Kind: yaml.MappingNode, Content: content})
 	}
 	return encodeDocument(yamlStringNode("policy"), &yaml.Node{Kind: yaml.SequenceNode, Content: nodes})
+}
+
+func yamlValueNode(value any) *yaml.Node {
+	var node yaml.Node
+	if err := node.Encode(value); err != nil {
+		panic(err)
+	}
+	return &node
+}
+
+func yamlPolicyWhenNode(when PolicyWhen) *yaml.Node {
+	content := []*yaml.Node{}
+	if when.Match == "any" {
+		content = append(content, yamlStringNode("match"), yamlStringNode("any"))
+	}
+	for _, condition := range when.Conditions {
+		content = append(content, yamlStringNode(condition.Field))
+		if condition.In == nil {
+			content = append(content, yamlStringNode(condition.Equals))
+			continue
+		}
+		where := []*yaml.Node{}
+		keys := make([]string, 0, len(condition.In.Where))
+		for key := range condition.In.Where {
+			keys = append(keys, key)
+		}
+		sort.Strings(keys)
+		for _, key := range keys {
+			where = append(where, yamlStringNode(key), yamlStringNode(condition.In.Where[key]))
+		}
+		membership := &yaml.Node{Kind: yaml.MappingNode, Content: []*yaml.Node{
+			yamlStringNode("entity"), yamlStringNode(condition.In.Entity),
+			yamlStringNode("value"), yamlStringNode(condition.In.Value),
+			yamlStringNode("where"), &yaml.Node{Kind: yaml.MappingNode, Content: where},
+		}}
+		content = append(content, &yaml.Node{Kind: yaml.MappingNode, Content: []*yaml.Node{yamlStringNode("in"), membership}})
+	}
+	return &yaml.Node{Kind: yaml.MappingNode, Content: content}
+}
+
+func samePolicyRules(item PolicyItem, permission exportedPermission) bool {
+	left, _ := json.Marshal(struct {
+		When   *PolicyWhen
+		Fields PolicyFields
+	}{item.When, item.Fields})
+	right, _ := json.Marshal(struct {
+		When   *PolicyWhen
+		Fields PolicyFields
+	}{permission.When, permission.Fields})
+	return bytes.Equal(left, right)
 }
 
 func encodeDocument(key *yaml.Node, value *yaml.Node) ([]byte, error) {
@@ -1191,6 +1523,18 @@ WHERE a.name = $1 AND p.key = $2 AND COALESCE(p.retired, false) = false`, appNam
 
 func upsertPermission(ctx context.Context, tx pgx.Tx, entityID *int64, pageID *int64, roleID int64, grant Grant) error {
 	values := actionValues(grant.Can)
+	customJSON, err := json.Marshal(customActions(grant.Can))
+	if err != nil {
+		return err
+	}
+	whenJSON, err := json.Marshal(grant.When)
+	if err != nil {
+		return err
+	}
+	fieldsJSON, err := json.Marshal(grant.Fields)
+	if err != nil {
+		return err
+	}
 	name, err := naming.Random(16)
 	if err != nil {
 		return err
@@ -1203,8 +1547,8 @@ func upsertPermission(ctx context.Context, tx pgx.Tx, entityID *int64, pageID *i
 	var args []any
 	if entityID != nil {
 		query = `
-INSERT INTO "permission" (name, entity_id, page_id, role_id, "read", "create", "update", "delete", "export", "print", retired)
-VALUES ($1, $2, NULL, $3, $4, $5, $6, $7, $8, $9, false)
+INSERT INTO "permission" (name, entity_id, page_id, role_id, "read", "create", "update", "delete", "export", "print", actions, "when", field_rules, retired)
+VALUES ($1, $2, NULL, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, false)
 ON CONFLICT (entity_id, role_id) DO UPDATE
 SET "read" = EXCLUDED."read",
 	"create" = EXCLUDED."create",
@@ -1212,13 +1556,16 @@ SET "read" = EXCLUDED."read",
 	"delete" = EXCLUDED."delete",
 	"export" = EXCLUDED."export",
 	"print" = EXCLUDED."print",
+	actions = EXCLUDED.actions,
+	"when" = EXCLUDED."when",
+	field_rules = EXCLUDED.field_rules,
 	retired = false,
 	updated_at = now()`
-		args = []any{name, *entityID, roleID, values[permissions.ActionRead], values[permissions.ActionCreate], values[permissions.ActionUpdate], values[permissions.ActionDelete], values[permissions.ActionExport], values[permissions.ActionPrint]}
+		args = []any{name, *entityID, roleID, values[permissions.ActionRead], values[permissions.ActionCreate], values[permissions.ActionUpdate], values[permissions.ActionDelete], values[permissions.ActionExport], values[permissions.ActionPrint], customJSON, whenJSON, fieldsJSON}
 	} else {
 		query = `
-INSERT INTO "permission" (name, entity_id, page_id, role_id, "read", "create", "update", "delete", "export", "print", retired)
-VALUES ($1, NULL, $2, $3, $4, $5, $6, $7, $8, $9, false)
+INSERT INTO "permission" (name, entity_id, page_id, role_id, "read", "create", "update", "delete", "export", "print", actions, "when", field_rules, retired)
+VALUES ($1, NULL, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, false)
 ON CONFLICT (page_id, role_id) DO UPDATE
 SET "read" = EXCLUDED."read",
 	"create" = EXCLUDED."create",
@@ -1226,9 +1573,12 @@ SET "read" = EXCLUDED."read",
 	"delete" = EXCLUDED."delete",
 	"export" = EXCLUDED."export",
 	"print" = EXCLUDED."print",
+	actions = EXCLUDED.actions,
+	"when" = EXCLUDED."when",
+	field_rules = EXCLUDED.field_rules,
 	retired = false,
 	updated_at = now()`
-		args = []any{name, *pageID, roleID, values[permissions.ActionRead], values[permissions.ActionCreate], values[permissions.ActionUpdate], values[permissions.ActionDelete], values[permissions.ActionExport], values[permissions.ActionPrint]}
+		args = []any{name, *pageID, roleID, values[permissions.ActionRead], values[permissions.ActionCreate], values[permissions.ActionUpdate], values[permissions.ActionDelete], values[permissions.ActionExport], values[permissions.ActionPrint], customJSON, whenJSON, fieldsJSON}
 	}
 	_, err = tx.Exec(ctx, query, args...)
 	if err != nil {
@@ -1243,6 +1593,17 @@ func actionValues(actions []permissions.Action) map[permissions.Action]bool {
 		values[action] = true
 	}
 	return values
+}
+
+func customActions(actions []permissions.Action) []permissions.Action {
+	custom := []permissions.Action{}
+	for _, action := range actions {
+		if !permissions.IsBuiltInAction(action) {
+			custom = append(custom, action)
+		}
+	}
+	sort.Slice(custom, func(i, j int) bool { return custom[i] < custom[j] })
+	return custom
 }
 
 func nullIfEmpty(value string) any {

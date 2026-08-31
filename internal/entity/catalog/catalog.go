@@ -11,6 +11,7 @@ import (
 	"github.com/hapyco/dygo/internal/app/manifest"
 	"github.com/hapyco/dygo/internal/entity/fieldtype"
 	"github.com/hapyco/dygo/internal/entity/schema"
+	"github.com/hapyco/dygo/internal/recordfilter"
 	"github.com/hapyco/dygo/internal/reserved"
 	"github.com/hapyco/dygo/internal/shape"
 )
@@ -293,7 +294,7 @@ func validateCatalog(apps []manifest.LoadedApp, entities []LoadedEntity, fieldTy
 	}
 
 	targets := newTargetIndex(entities)
-	validateFieldTargets(entities, targets, &problems)
+	validateFieldTargets(entities, targets, fieldTypes, &problems)
 	validateFieldFetches(entities, targets, fieldTypes, &problems)
 	if err := validateHookFiles(apps, entities, &problems); err != nil {
 		return err
@@ -305,7 +306,7 @@ func validateCatalog(apps []manifest.LoadedApp, entities []LoadedEntity, fieldTy
 	return nil
 }
 
-func validateFieldTargets(entities []LoadedEntity, targets targetIndex, problems *[]string) {
+func validateFieldTargets(entities []LoadedEntity, targets targetIndex, fieldTypes fieldtype.Registry, problems *[]string) {
 	for _, entity := range entities {
 		for _, field := range entity.Entity.Fields {
 			if field.Type != "link" && field.Type != "collection" {
@@ -339,8 +340,81 @@ func validateFieldTargets(entities []LoadedEntity, targets targetIndex, problems
 					continue
 				}
 			}
+			if field.Type == "link" {
+				validateLinkOptions(entity, field, target, fieldTypes, problems)
+			}
 		}
 	}
+}
+
+func validateLinkOptions(owner LoadedEntity, field schema.Field, target LoadedEntity, fieldTypes fieldtype.Registry, problems *[]string) {
+	if displayField := strings.TrimSpace(field.Options.DisplayField); displayField != "" {
+		if err := validateLinkTargetField(target, displayField, fieldTypes, false); err != nil {
+			*problems = append(*problems, fieldDiagnostic(owner, field, fmt.Sprintf("display-field: %v", err)))
+		}
+	}
+	for _, filter := range field.Options.Filters {
+		targetField, err := linkTargetField(target, filter.Field)
+		if err != nil {
+			*problems = append(*problems, fieldDiagnostic(owner, field, fmt.Sprintf("filter field: %v", err)))
+			continue
+		}
+		if filter.From != "" {
+			sourceField, ok := catalogField(owner, filter.From)
+			if !ok {
+				*problems = append(*problems, fieldDiagnostic(owner, field, fmt.Sprintf("filter source field %q does not exist", filter.From)))
+				continue
+			}
+			if sourceField.Type != targetField.Type {
+				*problems = append(*problems, fieldDiagnostic(owner, field, fmt.Sprintf("filter source field %q does not match target field %q", filter.From, filter.Field)))
+				continue
+			}
+		}
+		definition, ok := fieldTypes.Get(targetField.Type)
+		if !ok {
+			continue
+		}
+		operator := filter.Operator
+		if operator == "" {
+			operator = "eq"
+		}
+		if !recordfilter.Supports(targetField.Type, definition.Behavior.ValueKind, operator) {
+			*problems = append(*problems, fieldDiagnostic(owner, field, fmt.Sprintf("filter operator %q is not supported for target field %q", filter.Operator, filter.Field)))
+		}
+	}
+}
+
+func catalogField(entity LoadedEntity, name string) (schema.Field, bool) {
+	for _, field := range entity.Entity.Fields {
+		if field.Name == name {
+			return field, true
+		}
+	}
+	return schema.Field{}, false
+}
+
+func validateLinkTargetField(target LoadedEntity, name string, fieldTypes fieldtype.Registry, allowCollection bool) error {
+	field, err := linkTargetField(target, name)
+	if err != nil {
+		return err
+	}
+	definition, ok := fieldTypes.Get(field.Type)
+	if !ok || !definition.Behavior.Stored || definition.Behavior.WriteOnly || (!allowCollection && field.Type == "collection") {
+		return fmt.Errorf("target field %q is not a readable stored field", name)
+	}
+	return nil
+}
+
+func linkTargetField(target LoadedEntity, name string) (schema.Field, error) {
+	if name == "name" {
+		return schema.Field{Name: "name", Label: "Name", Type: "text", Required: true}, nil
+	}
+	for _, candidate := range target.Entity.Fields {
+		if candidate.Name == name {
+			return candidate, nil
+		}
+	}
+	return schema.Field{}, fmt.Errorf("target Entity %q has no field %q", target.Entity.Name, name)
 }
 
 func validateFieldFetches(entities []LoadedEntity, targets targetIndex, fieldTypes fieldtype.Registry, problems *[]string) {

@@ -1,0 +1,6 @@
+label: Process Import
+description: Creates Records from persisted CSV import rows.
+queue: default
+timeout: 30m
+retry:
+  attempts: 3

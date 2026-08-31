@@ -1,0 +1,15 @@
+kind: patch
+version: 1
+id: 0001_extend_activity_actions
+phase: pre-sync
+description: Replace Activity checks before action values are added.
+operations:
+  - type: sql
+    name: drop-activity-kind-check
+    reason: Metadata must recreate the check with the action value.
+    statement: ALTER TABLE "activity" DROP CONSTRAINT IF EXISTS "activity_kind_check";
+
+  - type: sql
+    name: drop-activity-operation-check
+    reason: Metadata must recreate the check with the action value.
+    statement: ALTER TABLE "activity" DROP CONSTRAINT IF EXISTS "activity_operation_check";

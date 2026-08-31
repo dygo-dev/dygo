@@ -13,11 +13,13 @@ const (
 	systemFieldName      = "name"
 	systemFieldCreatedAt = "created-at"
 	systemFieldUpdatedAt = "updated-at"
+	systemFieldOwner     = "owner"
 
 	systemColumnID             = "id"
 	systemColumnName           = "name"
 	systemColumnCreatedAt      = "created_at"
 	systemColumnUpdatedAt      = "updated_at"
+	systemColumnOwnerID        = "owner_id"
 	systemColumnParentEntityID = "parent_entity_id"
 	systemColumnParentRecordID = "parent_record_id"
 	systemColumnParentFieldID  = "parent_field_id"
@@ -34,13 +36,16 @@ type systemRecordField struct {
 	ValueKind     string
 	StudioEditor  string
 	StudioDisplay string
+	Required      bool
+	Selected      bool
 }
 
 var systemRecordFields = []systemRecordField{
-	{Name: systemFieldID, Label: "ID", Type: "bigint", Column: systemColumnID, Listable: true, ValueKind: fieldtype.ValueInteger, StudioEditor: "number", StudioDisplay: "number"},
-	{Name: systemFieldName, Label: "Name", Type: "text", Column: systemColumnName, Listable: true, Nameable: true, ValueKind: fieldtype.ValueString, StudioEditor: "text", StudioDisplay: "text"},
-	{Name: systemFieldCreatedAt, Label: "Created At", Type: "datetime", Column: systemColumnCreatedAt, Listable: true, ValueKind: fieldtype.ValueDatetime, StudioEditor: "datetime", StudioDisplay: "datetime"},
-	{Name: systemFieldUpdatedAt, Label: "Updated At", Type: "datetime", Column: systemColumnUpdatedAt, Listable: true, ValueKind: fieldtype.ValueDatetime, StudioEditor: "datetime", StudioDisplay: "datetime"},
+	{Name: systemFieldID, Label: "ID", Type: "bigint", Column: systemColumnID, Listable: true, ValueKind: fieldtype.ValueInteger, StudioEditor: "number", StudioDisplay: "number", Required: true, Selected: true},
+	{Name: systemFieldName, Label: "Name", Type: "text", Column: systemColumnName, Listable: true, Nameable: true, ValueKind: fieldtype.ValueString, StudioEditor: "text", StudioDisplay: "text", Required: true, Selected: true},
+	{Name: systemFieldCreatedAt, Label: "Created At", Type: "datetime", Column: systemColumnCreatedAt, Listable: true, ValueKind: fieldtype.ValueDatetime, StudioEditor: "datetime", StudioDisplay: "datetime", Required: true, Selected: true},
+	{Name: systemFieldUpdatedAt, Label: "Updated At", Type: "datetime", Column: systemColumnUpdatedAt, Listable: true, ValueKind: fieldtype.ValueDatetime, StudioEditor: "datetime", StudioDisplay: "datetime", Required: true, Selected: true},
+	{Name: systemFieldOwner, Label: "Owner", Type: "bigint", Column: systemColumnOwnerID, Listable: true, ValueKind: fieldtype.ValueInteger, StudioEditor: "number", StudioDisplay: "number"},
 }
 
 func systemRecordFieldByName(name string) (systemRecordField, bool) {
@@ -62,9 +67,11 @@ func systemRecordFieldByColumn(column string) (systemRecordField, bool) {
 }
 
 func systemRecordSelectColumns() []string {
-	columns := make([]string, len(systemRecordFields))
-	for index, field := range systemRecordFields {
-		columns[index] = field.Column
+	columns := []string{}
+	for _, field := range systemRecordFields {
+		if field.Selected {
+			columns = append(columns, field.Column)
+		}
 	}
 	return columns
 }

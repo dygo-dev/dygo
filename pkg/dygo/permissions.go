@@ -17,6 +17,7 @@ const (
 // Actor identifies the user asking for authorization.
 type Actor struct {
 	UserID        int64
+	Email         string
 	Administrator bool
 }
 

@@ -1,5 +1,6 @@
 <script setup lang="ts">
 import { computed } from 'vue'
+import { useRouter } from 'vue-router'
 
 import {
   PasswordField,
@@ -10,13 +11,19 @@ import {
   type FieldOption,
   type TextInputType,
 } from '@/design'
-import type { MetadataEntityMeta, MetadataField } from '@/features/metadata/metadata.api'
-import type { RecordData } from '@/features/records/records.api'
+import { linkOptions, type MetadataEntityMeta, type MetadataField } from '@/features/metadata/metadata.api'
+import { useMetadataEntitiesQuery } from '@/features/metadata/metadata.query'
+import { uploadRecordFile, type RecordData } from '@/features/records/records.api'
 import { isHiddenRecordFormField } from '@/features/records/system-fields'
 import RecordCollectionTable from './RecordCollectionTable.vue'
+import LinkPicker from './LinkPicker.vue'
+import AttachmentEditor from './AttachmentEditor.vue'
+import { RouteName } from '@/router/routes'
 
 const props = withDefaults(defineProps<{
   entity: string
+  appName: string
+  entityKey: string
   entityLabel: string
   fields: MetadataField[]
   systemFields?: MetadataField[]
@@ -36,6 +43,9 @@ const emit = defineEmits<{
   'update:modelValue': [value: RecordData]
 }>()
 
+const router = useRouter()
+const entitiesQuery = useMetadataEntitiesQuery()
+
 const visibleFields = computed(() => props.fields.filter((field) => !isHiddenRecordFormField(field.name, props.systemFields ?? [])))
 
 function updateField(field: MetadataField, value: unknown) {
@@ -43,6 +53,38 @@ function updateField(field: MetadataField, value: unknown) {
     ...props.modelValue,
     [field.name]: value,
   })
+}
+
+function attachmentUpload(field: MetadataField) {
+  const id = Number(props.record?.id)
+  if (props.mode !== 'record' || !Number.isInteger(id) || id <= 0) return undefined
+  return async (file: File) => String((await uploadRecordFile(props.appName, props.entityKey, id, field.name, file)).id)
+}
+
+function relatedEntityRoute(field: MetadataField): string {
+  const options = linkOptions(field)
+  if (!options) {
+    return ''
+  }
+  return (entitiesQuery.data.value ?? []).find((entity) => (
+    entity.key === options.entity && (!options.app || entity.app.name === options.app)
+  ))?.slug || options.entity
+}
+
+function openRelated(field: MetadataField, recordName: string) {
+  const entity = relatedEntityRoute(field)
+  if (!entity || !recordName) {
+    return
+  }
+  void router.push({ name: RouteName.RecordDetail, params: { entity, recordName } })
+}
+
+function createRelated(field: MetadataField) {
+  const entity = relatedEntityRoute(field)
+  if (!entity) {
+    return
+  }
+  void router.push({ name: RouteName.RecordNew, params: { entity } })
 }
 
 function fieldId(field: MetadataField): string {
@@ -133,7 +175,10 @@ function selectOptions(field: MetadataField): FieldOption[] {
         :required="field.required"
         :disabled="disabled"
         :error="fieldErrors[field.name]"
+        :upload="attachmentUpload(field)"
         @update:model-value="updateField(field, $event)"
+        @open-related="openRelated($event.field, $event.recordName)"
+        @create-related="createRelated($event)"
       />
 
       <PasswordField
@@ -179,6 +224,22 @@ function selectOptions(field: MetadataField): FieldOption[] {
         @update:model-value="updateField(field, $event)"
       />
 
+      <LinkPicker
+        v-else-if="editorForField(field) === 'link'"
+        :id="fieldId(field)"
+        :label="labelForField(field)"
+        :field="field"
+        :model-value="textValue(field)"
+        :current-values="modelValue"
+        :required="field.required"
+        :disabled="disabled"
+        :readonly="isReadonlyField(field)"
+        :error="fieldErrors[field.name]"
+        @update:model-value="updateField(field, $event)"
+        @open-related="openRelated(field, $event)"
+        @create-related="createRelated(field)"
+      />
+
       <TextareaField
         v-else-if="isTextareaField(field)"
         :id="fieldId(field)"
@@ -201,6 +262,17 @@ function selectOptions(field: MetadataField): FieldOption[] {
         :name="field.name"
         :type="inputTypeForField(field)"
         :required="field.required"
+        :disabled="disabled"
+        :readonly="isReadonlyField(field)"
+        :error="fieldErrors[field.name]"
+        @update:model-value="updateField(field, $event)"
+      />
+
+      <AttachmentEditor
+        v-else-if="field.type === 'attachment'"
+        :id="fieldId(field)"
+        :label="labelForField(field)"
+        :model-value="textValue(field)"
         :disabled="disabled"
         :readonly="isReadonlyField(field)"
         :error="fieldErrors[field.name]"

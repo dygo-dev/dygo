@@ -1,0 +1,60 @@
+label: File
+description: Private file stored by the framework and attached to a Record field.
+icon: paperclip
+is-system: true
+name:
+  strategy: random
+fields:
+  - name: filename
+    label: Filename
+    type: text
+    required: true
+  - name: storage-key
+    label: Storage Key
+    type: text
+    required: true
+    unique: true
+  - name: checksum
+    label: SHA-256 Checksum
+    type: text
+    required: true
+  - name: content-type
+    label: Content Type
+    type: text
+    required: true
+  - name: size
+    label: Size
+    type: bigint
+    required: true
+  - name: private
+    label: Private
+    type: boolean
+    required: true
+    default: true
+  - name: actor
+    label: Actor
+    type: link
+    required: true
+    options:
+      entity: user
+      foreign-key: false
+  - name: retired
+    label: Retired
+    type: boolean
+    required: true
+    default: false
+  - name: app
+    label: Target App
+    type: text
+  - name: entity
+    label: Target Entity
+    type: text
+  - name: record-id
+    label: Target Record ID
+    type: bigint
+  - name: field
+    label: Target Field
+    type: text
+indexes:
+  - name: by-target
+    fields: [app, entity, record-id, field]

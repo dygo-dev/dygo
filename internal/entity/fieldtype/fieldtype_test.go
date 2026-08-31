@@ -93,6 +93,25 @@ func TestBuiltInBehavior(t *testing.T) {
 	}
 }
 
+func TestLinkOptionsValidateDisplayFieldAndFilters(t *testing.T) {
+	t.Parallel()
+
+	if err := LinkOptions(Options{
+		Entity:       "employee",
+		DisplayField: "full-name",
+		Filters: []LinkFilter{{
+			Field:    "status",
+			Operator: "eq",
+			Value:    "Active",
+		}},
+	}); err != nil {
+		t.Fatalf("LinkOptions() error = %v, want nil", err)
+	}
+	if err := LinkOptions(Options{Entity: "employee", DisplayField: "Full Name"}); err == nil {
+		t.Fatal("LinkOptions() error = nil, want invalid display-field")
+	}
+}
+
 func TestRegister(t *testing.T) {
 	t.Parallel()
 

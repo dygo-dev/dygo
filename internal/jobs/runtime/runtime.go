@@ -386,15 +386,19 @@ func (w Worker) runExecution(ctx context.Context, execution jobstore.Execution, 
 	runCtx, cancel := context.WithTimeout(ctx, execution.Timeout)
 	runCtx = w.withJobLogContext(runCtx, execution)
 	defer cancel()
+	records := dygodata.NewRecordData(w.Queryer, w.RecordHooks).AsSystem(fmt.Sprintf("job:%s/%s:%d", execution.AppName, execution.JobName, execution.ID))
+	jobs := dygodata.NewJobData(w.Store)
 	err := runJobHandler(fn, runCtx, dygo.JobExecution{
-		ID:      execution.ID,
-		AppName: execution.AppName,
-		JobName: execution.JobName,
-		Queue:   execution.Queue,
-		Attempt: execution.Attempts,
-		Payload: execution.Payload,
-		Records: dygodata.NewRecordData(w.Queryer, w.RecordHooks),
-		Jobs:    dygodata.NewJobData(w.Store),
+		ID:            execution.ID,
+		AppName:       execution.AppName,
+		JobName:       execution.JobName,
+		Queue:         execution.Queue,
+		Attempt:       execution.Attempts,
+		Payload:       execution.Payload,
+		Records:       records,
+		Jobs:          jobs,
+		Timeline:      dygodata.NewTimelineData(w.Queryer),
+		Notifications: dygodata.NewNotificationData(records, jobs),
 	})
 	if err == nil && runCtx.Err() == context.DeadlineExceeded {
 		err = context.DeadlineExceeded

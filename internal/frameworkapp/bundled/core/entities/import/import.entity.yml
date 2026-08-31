@@ -1,0 +1,55 @@
+label: Import
+description: A durable CSV import request.
+icon: file-up
+is-system: true
+name:
+  strategy: random
+fields:
+  - name: app
+    label: Target App
+    type: text
+    required: true
+  - name: entity
+    label: Target Entity
+    type: text
+    required: true
+  - name: status
+    label: Status
+    type: select
+    required: true
+    default: queued
+    options:
+      values: [queued, running, succeeded, failed]
+  - name: actor
+    label: Actor
+    type: link
+    options:
+      entity: user
+      foreign-key: false
+  - name: headers
+    label: Headers
+    type: json
+    required: true
+  - name: total-rows
+    label: Total Rows
+    type: int
+    required: true
+    default: 0
+  - name: processed-rows
+    label: Processed Rows
+    type: int
+    required: true
+    default: 0
+  - name: succeeded-rows
+    label: Succeeded Rows
+    type: int
+    required: true
+    default: 0
+  - name: failed-rows
+    label: Failed Rows
+    type: int
+    required: true
+    default: 0
+  - name: error
+    label: Error
+    type: long-text

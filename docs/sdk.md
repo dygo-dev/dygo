@@ -28,6 +28,7 @@ The current SDK exposes:
 - durable Job handler types and registration
 - Job enqueueing from hooks and Jobs
 - best-effort and strict persisted Log helpers
+- durable in-app notifications with optional email delivery
 - project runner integration types
 
 ## Record Hooks
@@ -84,6 +85,17 @@ Do not use route slugs as SDK Entity identity.
 
 Hook Record writes run dygo framework hooks, such as Activity, but do not re-enter app hooks.
 
+`RecordData` also provides permission-aware `Count`, `Exists`, `Aggregate`,
+`GroupBy`, relationship filters, ordered `Lock`, and `Transaction`. Use
+`AsActor` for user access. Use `AsSystem` only with a non-empty audit reason.
+
+Entity actions receive the actor and transaction-scoped Records, Jobs, Files,
+Timeline, and Notifications services. Register one action on one Entity with
+`EntityActionRegistry.RegisterEntity`.
+
+`FileData` uploads, attaches, opens, and removes private files. `TimelineData`
+adds append-only comments and events to Core Activity.
+
 ## Jobs
 
 Generated Job files expose one `Run` function:
@@ -125,6 +137,23 @@ dygo.Error(ctx, "Customer import failed", err)
 
 The helper functions are best-effort. Use `dygo.Log(ctx, dygo.LogEntry{...})` when code needs to handle persistence errors. See [Logs](logs.md) for the Log Entity contract and field mapping.
 
+## Notifications
+
+Actions, Hooks, and Jobs send user notifications through their `Notifications` service:
+
+```go
+_, err := call.Notifications.Send(ctx, dygo.NotificationMessage{
+    Recipient:      "person@example.com",
+    Title:          "Leave approved",
+    Message:        "Your leave request was approved.",
+    DeepLink:       "/hr-leave-request/HRL-2026-00001",
+    Email:          true,
+    IdempotencyKey: "hr:leave-approved:HRL-2026-00001",
+})
+```
+
+`Recipient` is the Core User Record name. The idempotency key is unique for that recipient. `Send` creates the in-app Notification and, when requested, enqueues the Core email Job in the current transaction. SMTP delivery and retries happen after commit. Email failure does not remove the in-app Notification.
+
 ## Runtime Rules
 
 ```txt
@@ -139,9 +168,6 @@ reports - coming soon
 Planned SDK surfaces include:
 
 ```txt
-dygo.Files         - public/private file storage
-dygo.Permissions   - permission checks
-dygo.Actor         - current user/session identity
 dygo.Config        - app/runtime config reads
 dygo.Secrets       - controlled secret reads
 dygo.Metadata      - Entity, Field, and Page metadata reads

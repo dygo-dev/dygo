@@ -260,6 +260,10 @@ type JobData interface {
 
 App identity for SDK calls is `<app>, <job>`, not route, label, or display name. Enqueue options are intentionally small: idempotency key, priority, and `run-after`. Queue, timeout, and retry settings come from `job.yml`.
 
+## Framework Notification Email
+
+Core defines `core/send-notification-email`. `NotificationData.Send` queues this Job in the same transaction that creates the in-app Notification. The handler reads SMTP settings from `dygo.yml` and encrypted credential references for the selected worker environment. It retries independently through the normal Job policy and records `emailed-at` after a successful send.
+
 ## Implementation Map
 
 ```txt

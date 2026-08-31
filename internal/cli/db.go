@@ -177,8 +177,10 @@ func newDBMigrateCommand(ctx context.Context, stdin io.Reader, stdout, stderr io
 			if dryRun {
 				return nil
 			}
-			if err := plan.Schema.BlockerError(); err != nil {
-				return err
+			if len(plan.PreSync.Pending) == 0 {
+				if err := plan.Schema.BlockerError(); err != nil {
+					return err
+				}
 			}
 			if !yes {
 				ok, err := confirm(stdin, stderr, "Apply database migration? [y/N] ")
@@ -339,8 +341,10 @@ func newDBPrepareCommand(ctx context.Context, stdin io.Reader, stdout, stderr io
 			if dryRun {
 				return nil
 			}
-			if err := plan.Migration.Schema.BlockerError(); err != nil {
-				return err
+			if len(plan.Migration.PreSync.Pending) == 0 {
+				if err := plan.Migration.Schema.BlockerError(); err != nil {
+					return err
+				}
 			}
 			if status.Exists && !yes {
 				ok, err := confirm(stdin, stderr, "Apply database preparation? [y/N] ")

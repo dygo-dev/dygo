@@ -27,6 +27,7 @@ const (
 	RecordErrorValidation          = "validation_error"
 	RecordErrorNotFound            = "not_found"
 	RecordErrorConstraintViolation = "constraint_violation"
+	RecordErrorPermissionDenied    = "permission_denied"
 	RecordErrorSchemaNotReady      = "schema_not_ready"
 	RecordErrorInternal            = "internal_error"
 )
@@ -53,6 +54,7 @@ type RecordStore struct {
 	metadata             MetadataReader
 	hooks                *RecordHookRegistry
 	allowSystemMutations bool
+	scope                *RecordScope
 }
 
 // Record is one metadata-backed saved Entity instance.
@@ -169,6 +171,10 @@ func (s RecordStore) ListRecordsByIdentity(ctx context.Context, appName string, 
 }
 
 func (s RecordStore) listRecords(ctx context.Context, layout recordLayout, entity string, params RecordListParams) (RecordListResult, error) {
+	return s.listRecordsWithLock(ctx, layout, entity, params, false)
+}
+
+func (s RecordStore) listRecordsWithLock(ctx context.Context, layout recordLayout, entity string, params RecordListParams, lock bool) (RecordListResult, error) {
 	if layout.IsSingle {
 		return RecordListResult{}, singleRecordOperationError(layout, "list")
 	}
@@ -179,13 +185,32 @@ func (s RecordStore) listRecords(ctx context.Context, layout recordLayout, entit
 	if err != nil {
 		return RecordListResult{}, err
 	}
-	sql := fmt.Sprintf("SELECT %s, COUNT(*) OVER() FROM %s AS %s", layout.selectList(), quoteIdent(layout.Table), quoteIdent(recordSelectSourceAlias))
+	readFields := make([]string, 0, len(params.Filters)+len(params.Sort))
+	for _, filter := range params.Filters {
+		readFields = append(readFields, filter.Field)
+	}
+	for _, sortTerm := range params.Sort {
+		readFields = append(readFields, sortTerm.Field)
+	}
+	query.Where, query.Args = s.scopedReadWhere(query.Where, query.Args, readFields)
+	scopeOffset := len(query.Args)
+	if s.scope != nil {
+		scopeOffset -= len(s.scope.Args)
+	}
+	selectList := s.selectList(layout, scopeOffset)
+	if !lock {
+		selectList += ", COUNT(*) OVER()"
+	}
+	sql := fmt.Sprintf("SELECT %s FROM %s AS %s", selectList, quoteIdent(layout.Table), quoteIdent(recordSelectSourceAlias))
 	if query.Where != "" {
 		sql += " WHERE " + query.Where
 	}
 	sql += " ORDER BY " + query.OrderBy
 	args := append(query.Args, params.Limit, params.Offset)
 	sql += fmt.Sprintf(" LIMIT $%d OFFSET $%d", len(args)-1, len(args))
+	if lock {
+		sql += " FOR UPDATE"
+	}
 	rows, err := s.queryer.Query(ctx, sql, args...)
 	if err != nil {
 		return RecordListResult{}, classifyRecordDBError(err, entity)
@@ -199,14 +224,18 @@ func (s RecordStore) listRecords(ctx context.Context, layout recordLayout, entit
 		if err != nil {
 			return RecordListResult{}, recordError(RecordErrorInternal, "read record row failed", map[string]any{"entity": entity}, err)
 		}
-		if len(values) == layout.recordValueCount()+1 {
+		accessColumns := 0
+		if s.scope != nil {
+			accessColumns = len(s.scope.FieldRead)
+		}
+		if !lock && len(values) == layout.recordValueCount()+accessColumns+1 {
 			total, err = scanRecordTotal(values[len(values)-1], entity)
 			if err != nil {
 				return RecordListResult{}, err
 			}
 			values = values[:len(values)-1]
 		}
-		record, err := layout.recordFromValues(values)
+		record, err := s.scopedRecordFromValues(layout, values)
 		if err != nil {
 			return RecordListResult{}, err
 		}
@@ -342,8 +371,13 @@ func (s RecordStore) findRecordWithLayout(ctx context.Context, layout recordLayo
 	for i, column := range mutation.Columns {
 		clauses = append(clauses, fmt.Sprintf("%s = %s", quoteIdent(column), mutation.Placeholders[i]))
 	}
-	sql := fmt.Sprintf("SELECT %s FROM %s AS %s WHERE %s ORDER BY %s ASC LIMIT 2", layout.selectList(), quoteIdent(layout.Table), quoteIdent(recordSelectSourceAlias), strings.Join(clauses, " AND "), quoteIdent("id"))
-	rows, err := s.queryer.Query(ctx, sql, mutation.Values...)
+	where, args := s.scopedWhere(strings.Join(clauses, " AND "), mutation.Values)
+	scopeOffset := len(args)
+	if s.scope != nil {
+		scopeOffset -= len(s.scope.Args)
+	}
+	sql := fmt.Sprintf("SELECT %s FROM %s AS %s WHERE %s ORDER BY %s ASC LIMIT 2", s.selectList(layout, scopeOffset), quoteIdent(layout.Table), quoteIdent(recordSelectSourceAlias), where, quoteIdent("id"))
+	rows, err := s.queryer.Query(ctx, sql, args...)
 	if err != nil {
 		return nil, classifyRecordDBError(err, entity)
 	}
@@ -359,7 +393,7 @@ func (s RecordStore) findRecordWithLayout(ctx context.Context, layout recordLayo
 	if err != nil {
 		return nil, recordError(RecordErrorInternal, "read record row failed", map[string]any{"entity": entity}, err)
 	}
-	record, err := layout.recordFromValues(values)
+	record, err := s.scopedRecordFromValues(layout, values)
 	if err != nil {
 		return nil, err
 	}
@@ -428,6 +462,9 @@ func (s RecordStore) createRecordWithLayout(ctx context.Context, layout recordLa
 	if err := s.applyFetchedFields(ctx, layout, input, nil); err != nil {
 		return nil, err
 	}
+	if err := s.validateFilteredLinks(ctx, layout, input, nil); err != nil {
+		return nil, err
+	}
 	if err := layout.validateCreateInput(input); err != nil {
 		return nil, err
 	}
@@ -473,10 +510,22 @@ func (s RecordStore) insertRecordWithLayout(ctx context.Context, layout recordLa
 		if err != nil {
 			return nil, err
 		}
+		if err := s.validateProposedScope(ctx, layout, mutation, input); err != nil {
+			return nil, err
+		}
 		sql := insertRecordSQL(layout, mutation, returning)
 		if returning {
-			record, err := s.queryReturningRecord(ctx, layout, sql, mutation.Values, false)
+			unscoped := s
+			unscoped.scope = nil
+			record, err := unscoped.queryReturningRecord(ctx, layout, sql, mutation.Values, false)
 			if err == nil {
+				if s.scope != nil {
+					recordID, idErr := activityRecordID(record)
+					if idErr != nil {
+						return nil, idErr
+					}
+					return s.getRecordWithLayout(ctx, layout, recordID)
+				}
 				return record, nil
 			}
 			if layout.Naming.Strategy != schema.NamingStrategyRandom || !isRecordNameCollision(err, layout) || attempt == randomNameRetries {
@@ -582,6 +631,9 @@ func (s RecordStore) updateRecordWithLayout(ctx context.Context, layout recordLa
 	if err := s.applyFetchedFields(ctx, layout, input, oldRecord); err != nil {
 		return nil, err
 	}
+	if err := s.validateFilteredLinks(ctx, layout, input, oldRecord); err != nil {
+		return nil, err
+	}
 	if err := layout.validateUpdateFields(input); err != nil {
 		return nil, err
 	}
@@ -609,7 +661,15 @@ func (s RecordStore) updateRecordWithLayout(ctx context.Context, layout recordLa
 	setClauses = append(setClauses, fmt.Sprintf("%s = now()", quoteIdent("updated_at")))
 	args := append([]any(nil), mutation.Values...)
 	args = append(args, id)
-	sql := fmt.Sprintf("UPDATE %s AS %s SET %s WHERE %s = $%d RETURNING %s", quoteIdent(layout.Table), quoteIdent(recordSelectSourceAlias), strings.Join(setClauses, ", "), quoteIdent("id"), len(args), layout.selectList())
+	where, args := s.scopedWriteWhere(fmt.Sprintf("%s = $%d", quoteIdent("id"), len(args)), args, input)
+	scopeOffset := len(args)
+	if s.scope != nil {
+		scopeOffset -= len(s.scope.Args)
+		if proposed := s.proposedUpdatePredicate(layout, mutation, scopeOffset); proposed != "" {
+			where += " AND (" + proposed + ")"
+		}
+	}
+	sql := fmt.Sprintf("UPDATE %s AS %s SET %s WHERE %s RETURNING %s", quoteIdent(layout.Table), quoteIdent(recordSelectSourceAlias), strings.Join(setClauses, ", "), where, s.selectList(layout, scopeOffset))
 	record, err := s.queryReturningRecord(ctx, layout, sql, args, true)
 	if err != nil {
 		return nil, err
@@ -711,7 +771,12 @@ func (s RecordStore) deleteRecordWithLayout(ctx context.Context, layout recordLa
 	if err := s.deleteRecordCollections(ctx, layout, id); err != nil {
 		return err
 	}
-	tag, err := s.queryer.Exec(ctx, fmt.Sprintf("DELETE FROM %s WHERE %s = $1", quoteIdent(layout.Table), quoteIdent("id")), id)
+	where, args := s.scopedWhere(fmt.Sprintf("%s = $1", quoteIdent("id")), []any{id})
+	table := quoteIdent(layout.Table)
+	if s.scope != nil {
+		table += " AS " + quoteIdent(recordSelectSourceAlias)
+	}
+	tag, err := s.queryer.Exec(ctx, fmt.Sprintf("DELETE FROM %s WHERE %s", table, where), args...)
 	if err != nil {
 		return classifyRecordDBError(err, entity)
 	}
@@ -741,8 +806,13 @@ func (s RecordStore) getSingleRecordWithLayout(ctx context.Context, layout recor
 	if !layout.IsSingle {
 		return nil, recordError(RecordErrorInvalidRequest, "entity is not single", map[string]any{"entity": layout.Slug}, nil)
 	}
-	sql := fmt.Sprintf("SELECT %s FROM %s AS %s WHERE %s = $1", layout.selectList(), quoteIdent(layout.Table), quoteIdent(recordSelectSourceAlias), quoteIdent("name"))
-	record, err := s.queryOneRecord(ctx, layout, sql, SingleRecordName(layout.Entity))
+	where, args := s.scopedWhere(fmt.Sprintf("%s = $1", quoteIdent("name")), []any{SingleRecordName(layout.Entity)})
+	scopeOffset := len(args)
+	if s.scope != nil {
+		scopeOffset -= len(s.scope.Args)
+	}
+	sql := fmt.Sprintf("SELECT %s FROM %s AS %s WHERE %s", s.selectList(layout, scopeOffset), quoteIdent(layout.Table), quoteIdent(recordSelectSourceAlias), where)
+	record, err := s.queryOneRecord(ctx, layout, sql, args...)
 	if err != nil {
 		return nil, err
 	}
@@ -753,8 +823,13 @@ func (s RecordStore) getRecordWithLayout(ctx context.Context, layout recordLayou
 	if layout.IsCollection {
 		return nil, collectionRecordOperationError(layout, "read")
 	}
-	sql := fmt.Sprintf("SELECT %s FROM %s AS %s WHERE %s = $1", layout.selectList(), quoteIdent(layout.Table), quoteIdent(recordSelectSourceAlias), quoteIdent("id"))
-	record, err := s.queryOneRecord(ctx, layout, sql, id)
+	where, args := s.scopedWhere(fmt.Sprintf("%s = $1", quoteIdent("id")), []any{id})
+	scopeOffset := len(args)
+	if s.scope != nil {
+		scopeOffset -= len(s.scope.Args)
+	}
+	sql := fmt.Sprintf("SELECT %s FROM %s AS %s WHERE %s", s.selectList(layout, scopeOffset), quoteIdent(layout.Table), quoteIdent(recordSelectSourceAlias), where)
+	record, err := s.queryOneRecord(ctx, layout, sql, args...)
 	if err != nil {
 		var recordErr RecordError
 		if errors.As(err, &recordErr) && recordErr.Code == RecordErrorNotFound {
@@ -805,7 +880,7 @@ func (s RecordStore) queryReturningRecord(ctx context.Context, layout recordLayo
 	if err != nil {
 		return nil, recordError(RecordErrorInternal, "read record row failed", map[string]any{"entity": layout.Entity}, err)
 	}
-	record, err := layout.recordFromValues(values)
+	record, err := s.scopedRecordFromValues(layout, values)
 	if err != nil {
 		return nil, err
 	}
@@ -901,10 +976,12 @@ type recordField struct {
 }
 
 type recordFieldOptions struct {
-	App        string   `json:"app,omitempty"`
-	Values     []string `json:"values,omitempty"`
-	Entity     string   `json:"entity,omitempty"`
-	ForeignKey *bool    `json:"foreign-key,omitempty"`
+	App          string                 `json:"app,omitempty"`
+	Values       []string               `json:"values,omitempty"`
+	Entity       string                 `json:"entity,omitempty"`
+	DisplayField string                 `json:"display-field,omitempty"`
+	Filters      []fieldtype.LinkFilter `json:"filters,omitempty"`
+	ForeignKey   *bool                  `json:"foreign-key,omitempty"`
 }
 
 type recordFieldFetch struct {
@@ -1049,7 +1126,7 @@ func recordSourceColumn(column string) string {
 }
 
 func (l recordLayout) recordValueCount() int {
-	expected := 4
+	expected := len(systemRecordSelectColumns())
 	for _, field := range l.Fields {
 		if field.Storage && !field.WriteOnly && !field.SystemName {
 			expected++
@@ -1090,7 +1167,7 @@ func (l recordLayout) recordFromValues(values []any) (Record, error) {
 		systemFieldCreatedAt: normalizeRecordValue("datetime", values[2]),
 		systemFieldUpdatedAt: normalizeRecordValue("datetime", values[3]),
 	}
-	index := 4
+	index := len(systemRecordSelectColumns())
 	for _, field := range l.Fields {
 		if !field.Storage || field.WriteOnly || field.SystemName {
 			continue
@@ -1141,11 +1218,11 @@ func (s RecordStore) listWhere(ctx context.Context, layout recordLayout, filters
 		if fieldName == "" {
 			return "", nil, recordError(RecordErrorInvalidRequest, "filter field is required", map[string]any{"entity": layout.Entity}, nil)
 		}
-		field, err := layout.listField(fieldName, "filter")
+		path, err := s.recordFieldPath(ctx, layout, fieldName, "filter")
 		if err != nil {
 			return "", nil, err
 		}
-		clause, clauseArgs, err := s.recordFilterClause(ctx, layout, field, filter, len(args))
+		clause, clauseArgs, err := s.recordFilterClause(ctx, layout, path, filter, len(args))
 		if err != nil {
 			return "", nil, err
 		}
@@ -1155,7 +1232,8 @@ func (s RecordStore) listWhere(ctx context.Context, layout recordLayout, filters
 	return strings.Join(clauses, " AND "), args, nil
 }
 
-func (s RecordStore) recordFilterClause(ctx context.Context, layout recordLayout, field recordField, filter RecordFilter, argOffset int) (string, []any, error) {
+func (s RecordStore) recordFilterClause(ctx context.Context, layout recordLayout, path recordFieldPath, filter RecordFilter, argOffset int) (string, []any, error) {
+	field := path.Field
 	operator := strings.TrimSpace(filter.Operator)
 	if operator == "" {
 		return "", nil, recordError(RecordErrorInvalidRequest, "filter operator is required", map[string]any{"entity": layout.Entity, "field": field.Name}, nil)
@@ -1164,7 +1242,7 @@ func (s RecordStore) recordFilterClause(ctx context.Context, layout recordLayout
 		return "", nil, recordError(RecordErrorInvalidRequest, "filter operator is not supported for field", map[string]any{"entity": layout.Entity, "field": field.Name, "operator": operator}, nil)
 	}
 
-	column := quoteIdent(field.Column)
+	column := path.Expression
 	switch operator {
 	case recordfilter.OperatorEmpty:
 		if strings.TrimSpace(filter.Value) != "" {
@@ -1370,6 +1448,11 @@ func (s RecordStore) createMutation(ctx context.Context, layout recordLayout, in
 	mutation, err := s.writeMutation(ctx, layout, input)
 	if err != nil {
 		return recordMutation{}, err
+	}
+	if actor, ok := ActivityActorFromContext(ctx); ok {
+		mutation.Columns = append(mutation.Columns, systemColumnOwnerID)
+		mutation.Values = append(mutation.Values, actor.UserID)
+		mutation.Placeholders = append(mutation.Placeholders, fmt.Sprintf("$%d::bigint", len(mutation.Values)))
 	}
 	if mutation.hasColumn("name") {
 		return mutation, nil
@@ -1645,7 +1728,15 @@ func recordDBValue(field recordField, raw json.RawMessage) (any, error) {
 	case fieldtype.ValueBoolean:
 		var value bool
 		if err := json.Unmarshal(raw, &value); err != nil {
-			return nil, recordError(RecordErrorValidation, "field must be a boolean", map[string]any{"field": field.Name}, err)
+			var text string
+			if stringErr := json.Unmarshal(raw, &text); stringErr != nil {
+				return nil, recordError(RecordErrorValidation, "field must be a boolean", map[string]any{"field": field.Name}, err)
+			}
+			parsed, parseErr := strconv.ParseBool(text)
+			if parseErr != nil {
+				return nil, recordError(RecordErrorValidation, "field must be a boolean", map[string]any{"field": field.Name}, parseErr)
+			}
+			value = parsed
 		}
 		return value, nil
 	case fieldtype.ValueDate, fieldtype.ValueDatetime, fieldtype.ValueTime:
@@ -1715,7 +1806,11 @@ func jsonNumberValue(field recordField, raw json.RawMessage) (json.Number, error
 	}
 	number, ok := value.(json.Number)
 	if !ok {
-		return "", recordError(RecordErrorValidation, "field must be a number", map[string]any{"field": field.Name}, nil)
+		text, textOK := value.(string)
+		if !textOK {
+			return "", recordError(RecordErrorValidation, "field must be a number", map[string]any{"field": field.Name}, nil)
+		}
+		number = json.Number(text)
 	}
 	if _, err := strconv.ParseFloat(number.String(), 64); err != nil {
 		return "", recordError(RecordErrorValidation, "field must be a number", map[string]any{"field": field.Name}, err)
@@ -1764,7 +1859,7 @@ func recordIDFromDBValue(value any, entity string) (int64, error) {
 
 func isCollectionRowSystemInput(name string) bool {
 	switch name {
-	case systemFieldName, systemFieldCreatedAt, systemFieldUpdatedAt,
+	case systemFieldName, systemFieldCreatedAt, systemFieldUpdatedAt, systemFieldOwner,
 		"created_at", "updated_at",
 		"parent-entity-id", systemColumnParentEntityID,
 		"parent-record-id", systemColumnParentRecordID,

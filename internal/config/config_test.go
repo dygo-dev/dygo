@@ -102,6 +102,30 @@ func TestLoadFileMergesDefaults(t *testing.T) {
 	}
 }
 
+func TestDecodeReadsSMTPConfig(t *testing.T) {
+	t.Parallel()
+
+	cfg, err := Decode([]byte(`database:
+  url:
+    secret: DATABASE_URL
+email:
+  from: notifications@example.com
+  smtp:
+    host: smtp.example.com
+    port: 587
+    username:
+      secret: SMTP_USERNAME
+    password:
+      secret: SMTP_PASSWORD
+`))
+	if err != nil {
+		t.Fatalf("Decode(SMTP) error = %v", err)
+	}
+	if !cfg.Email.Enabled() || cfg.Email.SMTP.Host != "smtp.example.com" || cfg.Email.SMTP.Username.Secret != "SMTP_USERNAME" {
+		t.Fatalf("Decode(SMTP) = %+v", cfg.Email)
+	}
+}
+
 func TestLoadFileRequiresFile(t *testing.T) {
 	t.Parallel()
 

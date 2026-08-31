@@ -860,6 +860,12 @@ func fieldOptionsJSON(options fieldtype.Options) ([]byte, error) {
 	if options.Entity != "" {
 		values["entity"] = options.Entity
 	}
+	if options.DisplayField != "" {
+		values["display-field"] = options.DisplayField
+	}
+	if len(options.Filters) > 0 {
+		values["filters"] = options.Filters
+	}
 	if options.ForeignKey != nil {
 		values["foreign-key"] = *options.ForeignKey
 	}

@@ -143,7 +143,7 @@ func TestCheckerValidatesRequest(t *testing.T) {
 		{name: "empty resource", request: Request{Actor: Actor{UserID: 7}, Resource: Resource{Kind: ResourcePage, App: "studio"}, Action: ActionRead}},
 		{name: "page without app", request: Request{Actor: Actor{UserID: 7}, Resource: Resource{Kind: ResourcePage, Name: "home"}, Action: ActionRead}},
 		{name: "unknown resource kind", request: Request{Actor: Actor{UserID: 7}, Resource: Resource{Kind: "widget", Name: "home"}, Action: ActionRead}},
-		{name: "unsupported action", request: Request{Actor: Actor{UserID: 7}, Entity: "user", Action: Action("drop-table")}},
+		{name: "invalid action", request: Request{Actor: Actor{UserID: 7}, Entity: "user", Action: Action("drop_table")}},
 		{name: "invalid record id", request: Request{Actor: Actor{UserID: 7}, Entity: "user", Action: ActionRead, RecordID: -1}},
 	}
 
@@ -206,7 +206,7 @@ func TestCheckRoleValidatesRequest(t *testing.T) {
 	}{
 		{name: "empty role", role: " ", entity: "lead", action: ActionRead},
 		{name: "empty entity", role: "system-manager", entity: " ", action: ActionRead},
-		{name: "unsupported action", role: "system-manager", entity: "lead", action: Action("drop-table")},
+		{name: "invalid action", role: "system-manager", entity: "lead", action: Action("drop_table")},
 	}
 
 	for _, tt := range tests {
@@ -229,8 +229,12 @@ func TestParseAction(t *testing.T) {
 	if action != ActionRead {
 		t.Fatalf("ParseAction(read) = %q, want read", action)
 	}
-	if _, err := ParseAction("drop-table"); err == nil {
-		t.Fatal("ParseAction(drop-table) error = nil, want unsupported action")
+	custom, err := ParseAction("approve-leave")
+	if err != nil || custom != Action("approve-leave") {
+		t.Fatalf("ParseAction(approve-leave) = %q, %v, want custom action", custom, err)
+	}
+	if _, err := ParseAction("drop_table"); err == nil {
+		t.Fatal("ParseAction(drop_table) error = nil, want invalid action")
 	}
 }
 
@@ -238,6 +242,9 @@ func TestValidateMetadata(t *testing.T) {
 	meta := db.MetadataEntityMeta{
 		MetadataEntity: db.MetadataEntity{Name: "core.permission"},
 		Fields: []db.MetadataField{
+			{Name: "actions", Type: "json"},
+			{Name: "when", Type: "json"},
+			{Name: "field-rules", Type: "json"},
 			{Name: "read", Type: "boolean"},
 			{Name: "create", Type: "boolean"},
 			{Name: "update", Type: "boolean"},
@@ -250,7 +257,7 @@ func TestValidateMetadata(t *testing.T) {
 	if err := ValidateMetadata(meta); err != nil {
 		t.Fatalf("ValidateMetadata() error = %v, want nil", err)
 	}
-	meta.Fields[0].Type = "text"
+	meta.Fields[3].Type = "text"
 	err := ValidateMetadata(meta)
 	if err == nil || !strings.Contains(err.Error(), "must be boolean") {
 		t.Fatalf("ValidateMetadata() error = %v, want boolean field error", err)

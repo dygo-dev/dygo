@@ -28,6 +28,7 @@ type Config struct {
 	Name     string
 	Server   Server
 	Database Database
+	Email    Email
 }
 
 // Server contains HTTP server settings.
@@ -40,6 +41,25 @@ type Server struct {
 type Database struct {
 	Driver string
 	URL    SecretReference
+}
+
+// Email contains optional framework email delivery settings.
+type Email struct {
+	From string
+	SMTP SMTP
+}
+
+// SMTP contains the SMTP transport and encrypted credential references.
+type SMTP struct {
+	Host     string
+	Port     int
+	Username SecretReference
+	Password SecretReference
+}
+
+// Enabled reports whether SMTP email delivery is configured.
+func (e Email) Enabled() bool {
+	return strings.TrimSpace(e.From) != "" || strings.TrimSpace(e.SMTP.Host) != ""
 }
 
 // SecretReference names one encrypted secret value.
@@ -122,6 +142,30 @@ func (c Config) Validate() error {
 	} else if err := secrets.ValidateSecretName(c.Database.URL.Secret); err != nil {
 		problems = append(problems, fmt.Sprintf("database.url.secret is invalid: %v", err))
 	}
+	if c.Email.Enabled() {
+		if strings.TrimSpace(c.Email.From) == "" {
+			problems = append(problems, "email.from is required when email is configured")
+		}
+		if strings.TrimSpace(c.Email.SMTP.Host) == "" {
+			problems = append(problems, "email.smtp.host is required when email is configured")
+		}
+		if c.Email.SMTP.Port < 1 || c.Email.SMTP.Port > 65535 {
+			problems = append(problems, "email.smtp.port must be between 1 and 65535")
+		}
+		usernameSecret := strings.TrimSpace(c.Email.SMTP.Username.Secret)
+		passwordSecret := strings.TrimSpace(c.Email.SMTP.Password.Secret)
+		if (usernameSecret == "") != (passwordSecret == "") {
+			problems = append(problems, "email SMTP username and password secrets must be configured together")
+		}
+		for _, credential := range []struct{ label, name string }{{"username", usernameSecret}, {"password", passwordSecret}} {
+			label, name := credential.label, credential.name
+			if name != "" {
+				if err := secrets.ValidateSecretName(name); err != nil {
+					problems = append(problems, fmt.Sprintf("email.smtp.%s.secret is invalid: %v", label, err))
+				}
+			}
+		}
+	}
 	if len(problems) > 0 {
 		return ValidationError{Problems: problems}
 	}
@@ -146,6 +190,19 @@ type rawConfig struct {
 	Name     *string      `yaml:"name,omitempty"`
 	Server   *rawServer   `yaml:"server,omitempty"`
 	Database *rawDatabase `yaml:"database,omitempty"`
+	Email    *rawEmail    `yaml:"email,omitempty"`
+}
+
+type rawEmail struct {
+	From *string  `yaml:"from,omitempty"`
+	SMTP *rawSMTP `yaml:"smtp,omitempty"`
+}
+
+type rawSMTP struct {
+	Host     *string             `yaml:"host,omitempty"`
+	Port     *int                `yaml:"port,omitempty"`
+	Username *rawSecretReference `yaml:"username,omitempty"`
+	Password *rawSecretReference `yaml:"password,omitempty"`
 }
 
 type rawServer struct {
@@ -180,6 +237,25 @@ func (r rawConfig) apply(cfg *Config) {
 		}
 		if r.Database.URL != nil && r.Database.URL.Secret != nil {
 			cfg.Database.URL.Secret = *r.Database.URL.Secret
+		}
+	}
+	if r.Email != nil {
+		if r.Email.From != nil {
+			cfg.Email.From = strings.TrimSpace(*r.Email.From)
+		}
+		if r.Email.SMTP != nil {
+			if r.Email.SMTP.Host != nil {
+				cfg.Email.SMTP.Host = strings.TrimSpace(*r.Email.SMTP.Host)
+			}
+			if r.Email.SMTP.Port != nil {
+				cfg.Email.SMTP.Port = *r.Email.SMTP.Port
+			}
+			if r.Email.SMTP.Username != nil && r.Email.SMTP.Username.Secret != nil {
+				cfg.Email.SMTP.Username.Secret = strings.TrimSpace(*r.Email.SMTP.Username.Secret)
+			}
+			if r.Email.SMTP.Password != nil && r.Email.SMTP.Password.Secret != nil {
+				cfg.Email.SMTP.Password.Secret = strings.TrimSpace(*r.Email.SMTP.Password.Secret)
+			}
 		}
 	}
 }

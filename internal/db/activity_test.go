@@ -123,6 +123,15 @@ func TestActivityReaderValidationErrors(t *testing.T) {
 	}
 }
 
+func TestActivityReaderTimelineValidation(t *testing.T) {
+	if err := NewActivityReader(nil).AddComment(context.Background(), "user", 1, " "); err == nil {
+		t.Fatal("AddComment() error = nil, want required message error")
+	}
+	if err := NewActivityReader(nil).AddEvent(context.Background(), "user", 1, TimelineEvent{}); err == nil {
+		t.Fatal("AddEvent() error = nil, want missing queryer error")
+	}
+}
+
 func TestActivityReaderMapsEntityAndSchemaErrors(t *testing.T) {
 	tests := []struct {
 		name     string

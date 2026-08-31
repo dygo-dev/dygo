@@ -25,7 +25,12 @@ Current runtime still reads live Core `role`, `user-role`, and `permission` Reco
 - A v1 policy item requires `role` and `can`.
 - A v1 policy item may include `override`.
 - Do not add `description` to policy items in v1.
-- Future conditional access can add `when` to policy items instead of adding a separate `policies` section.
+- A policy item can use `when` for row access.
+- Dygo validates `when` as metadata and compiles it into the SQL scope for each Record operation.
+- Apps cannot provide permission SQL, Go callbacks, or JavaScript.
+- Relationship equality uses `record.<link-path>: actor.user`.
+- Assignment membership uses an ordinary app Entity through `in.entity`, `in.value`, and `in.where`.
+- The same compiled scope applies to list, direct read, count, aggregate, update, delete, action locks, and Link searches.
 - Policy items can use `override: true` for manual conflict resolution.
 - `override` applies to one policy item for one `(entity, role)`, not a whole Entity access file.
 - `override` is a full replacement of the conflicting policy item, not a merge.
@@ -75,8 +80,7 @@ Current runtime still reads live Core `role`, `user-role`, and `permission` Reco
 - User-role assignment fixtures are allowed for demo/setup data.
 - Administrator remains a `user.administrator` flag, not a role.
 - Base actions are `read`, `create`, `update`, `delete`, `export`, and `print`.
-- In this access sprint, `policy.can` validates built-in actions only.
-- Workflow-specific actions in `policy.can` are deferred to the Workflow sprint.
+- `policy.can` accepts built-in actions and registered Entity action names.
 - File-to-database sync happens through `dygo access apply`.
 - Database-to-file export happens through `dygo access export`.
 - `dygo db migrate` does not apply access files.
@@ -111,7 +115,7 @@ Current runtime still reads live Core `role`, `user-role`, and `permission` Reco
 - Do not add `dygo access import`.
 - Add `dygo access apply`.
 - Do not expose `dygo permission` as a public CLI command.
-- Do not add access `check` or `explain` commands in this sprint.
+- `dygo access explain <app>/<entity> --user <email> --action <action> [--record <id>]` reports roles, matching policies, row access, and denied fields without SQL.
 - The first access CLI surface is `validate`, `apply`, `list`, `show`, `roles`, and `export`.
 - `dygo generate app <app>` creates `apps/<app>/access/_roles.yml` by default.
 - `dygo generate app <app> --no-access` skips the access folder.
@@ -132,4 +136,35 @@ Current runtime still reads live Core `role`, `user-role`, and `permission` Reco
 - Reserved-name and fixture-eligibility extensions by apps are deferred beyond v1.
 - Track app-extendable reserved and fixture policies in Roadmap item `#261`.
 - Track broader metadata import conflict and versioning behavior in Roadmap item `#262`.
-- Row-level access is deferred beyond v1.
+- Row-level and field-level access use the same validated policy AST.
+- Use explicit app Entities for changing access assignments. Do not use a generic polymorphic User Permission table.
+
+## Conditional examples
+
+Manager relationship:
+
+```yaml
+policy:
+  - role: manager
+    can: [read, approve-leave]
+    when:
+      record.employee.reports-to.user: actor.user
+```
+
+Explicit department assignments:
+
+```yaml
+policy:
+  - role: hr-officer
+    can: [read, update]
+    when:
+      record.department:
+        in:
+          entity: user-department-access
+          value: department
+          where:
+            user: actor.user
+    fields:
+      deny-read: [private-notes]
+      deny-write: [status, approved-by]
+```

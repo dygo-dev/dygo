@@ -29,7 +29,48 @@ func newAccessCommand(ctx context.Context, stdin io.Reader, stdout, stderr io.Wr
 	cmd.AddCommand(newAccessShowCommand(ctx, stdout, runner))
 	cmd.AddCommand(newAccessRolesCommand(ctx, stdout, runner))
 	cmd.AddCommand(newAccessExportCommand(ctx, stdin, stdout, stderr, runner))
+	cmd.AddCommand(newAccessExplainCommand(ctx, stdout, runner))
 
+	return cmd
+}
+
+func newAccessExplainCommand(ctx context.Context, stdout io.Writer, runner accessRunner) *cobra.Command {
+	envName := string(secrets.EnvironmentDevelopment)
+	user := ""
+	actionName := ""
+	var recordID int64
+	cmd := &cobra.Command{
+		Use:   "explain <app>/<entity>",
+		Short: "Explain one user's compiled Record access",
+		Args:  cobra.ExactArgs(1),
+		RunE: func(_ *cobra.Command, args []string) error {
+			target, err := shape.ParseAppRef(args[0])
+			if err != nil {
+				return err
+			}
+			if strings.TrimSpace(user) == "" {
+				return fmt.Errorf("pass --user <email>")
+			}
+			action, err := permissions.ParseAction(actionName)
+			if err != nil {
+				return err
+			}
+			_, _, databaseURL, err := databaseInputs(envName)
+			if err != nil {
+				return err
+			}
+			explanation, err := runner.Explain(ctx, databaseURL, target, user, action, recordID)
+			if err != nil {
+				return fmt.Errorf("explain access: %w", err)
+			}
+			fmt.Fprintf(stdout, "user: %s\ntarget: %s/%s\naction: %s\nroles: %s\nmatched roles: %s\nrow allowed: %t\ndenied read fields: %s\ndenied write fields: %s\n", explanation.User, target.App, target.Name, action, strings.Join(explanation.Roles, ", "), strings.Join(explanation.MatchedRoles, ", "), explanation.RowAllowed, strings.Join(explanation.DeniedRead, ", "), strings.Join(explanation.DeniedWrite, ", "))
+			return nil
+		},
+	}
+	cmd.Flags().StringVar(&envName, "env", envName, "Environment: development, staging, or production")
+	cmd.Flags().StringVar(&user, "user", "", "User email")
+	cmd.Flags().StringVar(&actionName, "action", "", "Permission action")
+	cmd.Flags().Int64Var(&recordID, "record", 0, "Record ID")
 	return cmd
 }
 

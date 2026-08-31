@@ -106,6 +106,28 @@ func TestBuildMetadataRecords(t *testing.T) {
 	}
 }
 
+func TestFieldOptionsJSONStoresLinkPresentation(t *testing.T) {
+	options, err := fieldOptionsJSON(fieldtype.Options{
+		Entity:       "employee",
+		DisplayField: "full-name",
+		Filters:      []fieldtype.LinkFilter{{Field: "status", Operator: "eq", Value: "Active"}},
+	})
+	if err != nil {
+		t.Fatalf("fieldOptionsJSON() error = %v, want nil", err)
+	}
+	var decoded map[string]any
+	if err := json.Unmarshal(options, &decoded); err != nil {
+		t.Fatalf("json.Unmarshal() error = %v, want nil", err)
+	}
+	if decoded["display-field"] != "full-name" {
+		t.Fatalf("display-field = %#v, want full-name", decoded["display-field"])
+	}
+	filters, ok := decoded["filters"].([]any)
+	if !ok || len(filters) != 1 {
+		t.Fatalf("filters = %#v, want one filter", decoded["filters"])
+	}
+}
+
 func TestBuildMetadataRecordsStoresPageMetadata(t *testing.T) {
 	records, err := buildMetadataRecords(metadataCatalog{
 		Apps: []manifest.LoadedApp{{Manifest: manifest.Manifest{Name: "studio", Label: "Studio", Version: "0.1.0"}}},

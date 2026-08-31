@@ -89,17 +89,26 @@ type RecordListResult struct {
 // Writes run dygo framework hooks, such as Activity, but do not re-enter app hooks.
 type RecordData interface {
 	List(ctx context.Context, appName string, entity string, params RecordListParams) (RecordListResult, error)
+	Count(ctx context.Context, appName string, entity string, params RecordListParams) (int64, error)
+	Exists(ctx context.Context, appName string, entity string, params RecordListParams) (bool, error)
+	Aggregate(ctx context.Context, appName string, entity string, params AggregateParams) ([]AggregateResult, error)
+	GroupBy(ctx context.Context, appName string, entity string, params GroupByParams) ([]GroupByResult, error)
+	Lock(ctx context.Context, appName string, entity string, params RecordListParams) (RecordListResult, error)
 	Get(ctx context.Context, appName string, entity string, id int64) (Record, error)
 	Find(ctx context.Context, appName string, entity string, match RecordInput) (Record, error)
 	Create(ctx context.Context, appName string, entity string, input RecordInput) (Record, error)
 	Update(ctx context.Context, appName string, entity string, id int64, input RecordInput) (Record, error)
 	Delete(ctx context.Context, appName string, entity string, id int64) error
+	Transaction(ctx context.Context, fn RecordTransactionFunc) error
+	AsActor(actor Actor) RecordData
+	AsSystem(reason string) RecordData
 }
 
 // RecordHook contains the Record lifecycle state and services visible to app hooks.
 type RecordHook struct {
 	Event     RecordHookEvent
 	Operation string
+	Actor     Actor
 
 	EntityID    int64
 	AppName     string
@@ -118,6 +127,10 @@ type RecordHook struct {
 	Records RecordData
 	// Jobs enqueues durable background work in the current hook transaction when available.
 	Jobs JobData
+	// Timeline appends human-facing comments and events to the current Record timeline.
+	Timeline TimelineData
+	// Notifications persists in-app notifications and optional email delivery.
+	Notifications NotificationData
 }
 
 // RecordHookContext is kept as an alias for older hook code. Prefer RecordHook.

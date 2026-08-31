@@ -20,6 +20,7 @@ fields:
         - attachment
         - auth
         - system
+        - action
 
   - name: operation
     label: Operation
@@ -39,6 +40,7 @@ fields:
         - login
         - logout
         - system
+        - action
 
   - name: status
     label: Status

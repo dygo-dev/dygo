@@ -26,6 +26,15 @@ database:
   driver: postgres
   url:
     secret: DATABASE_URL
+email:
+  from: notifications@example.com
+  smtp:
+    host: smtp.example.com
+    port: 587
+    username:
+      secret: SMTP_USERNAME
+    password:
+      secret: SMTP_PASSWORD
 ```
 
 Queue config shape:
@@ -48,6 +57,8 @@ database.driver = postgres
 
 The database URL does not have a raw default. `database.url.secret` must name an encrypted secret.
 
+Email config is optional. When `email` is configured, `from`, `smtp.host`, and `smtp.port` are required. SMTP username and password secret references are optional, but you must configure them together. The worker uses SMTP with STARTTLS when the server offers it.
+
 Generated projects include `config/queues.yml` with the `default` queue and `concurrency: 4`.
 
 ## Validation
@@ -59,6 +70,8 @@ Generated projects include `config/queues.yml` with the `default` queue and `con
 `database.driver` must be `postgres`.
 
 `database.url.secret` must be a valid dygo secret name, such as `DATABASE_URL`.
+
+SMTP ports must be between `1` and `65535`. SMTP credential references must use valid dygo secret names.
 
 Unknown YAML fields and duplicate YAML keys are rejected.
 

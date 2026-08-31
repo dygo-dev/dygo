@@ -17,6 +17,10 @@ type JobExecution struct {
 
 	Records RecordData
 	Jobs    JobData
+	// Timeline appends human-facing comments and events to the referenced Record timeline.
+	Timeline TimelineData
+	// Notifications persists in-app notifications and optional email delivery.
+	Notifications NotificationData
 }
 
 // JobFunc handles one Job Execution.

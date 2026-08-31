@@ -137,6 +137,11 @@ func BuildMetadataSchemaPlan(entities []catalog.LoadedEntity, live LiveSchema) (
 			for _, column := range table.SystemColumns {
 				liveColumn, ok := liveTable.Columns[column.Name]
 				if !ok {
+					if column.Name == systemColumnOwnerID {
+						availableColumns[column.Name] = true
+						columns = append(columns, SchemaOperation{Classification: SchemaOperationSafe, Kind: "add-column", Table: table.Name, Column: column.Name, Description: "add column " + table.Name + "." + column.Name, Source: column.Source, SQL: fmt.Sprintf("ALTER TABLE %s ADD COLUMN %s", quoteIdent(table.Name), systemColumnDefinition(column))})
+						continue
+					}
 					plan.Diagnostics = append(plan.Diagnostics, unsupportedDiagnostic("missing-system-column", table.Name, column.Name, "", "system column is missing from existing table", table.Source))
 					continue
 				}
@@ -795,6 +800,7 @@ func systemColumnsForEntity(entity catalog.LoadedEntity) []desiredColumn {
 		{Name: systemColumnName, Type: "text", Required: true, Source: source},
 		{Name: systemColumnCreatedAt, Type: "timestamptz", Required: true, Source: source},
 		{Name: systemColumnUpdatedAt, Type: "timestamptz", Required: true, Source: source},
+		{Name: systemColumnOwnerID, Type: "bigint", Source: source},
 	}
 	if entity.IsCollection() {
 		columns = append(columns,
@@ -825,6 +831,8 @@ func systemColumnDefinition(column desiredColumn) string {
 		return fmt.Sprintf("%s timestamptz NOT NULL DEFAULT now()", quoteIdent(systemColumnCreatedAt))
 	case systemColumnUpdatedAt:
 		return fmt.Sprintf("%s timestamptz NOT NULL DEFAULT now()", quoteIdent(systemColumnUpdatedAt))
+	case systemColumnOwnerID:
+		return fmt.Sprintf("%s bigint", quoteIdent(systemColumnOwnerID))
 	case systemColumnParentEntityID:
 		return fmt.Sprintf("%s bigint NOT NULL", quoteIdent(systemColumnParentEntityID))
 	case systemColumnParentRecordID:

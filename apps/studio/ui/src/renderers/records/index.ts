@@ -1,5 +1,8 @@
 export { default as RecordListRenderer } from './RecordListRenderer.vue'
 export { default as RecordFormRenderer } from './RecordFormRenderer.vue'
 export { default as RecordCollectionTable } from './RecordCollectionTable.vue'
+export { default as LinkPicker } from './LinkPicker.vue'
+export { default as RecordTimeline } from './RecordTimeline.vue'
+export { default as AttachmentEditor } from './AttachmentEditor.vue'
 export { buildRecordListColumns } from './columns'
 export type { RecordListColumn, RecordListColumnSource } from './columns'

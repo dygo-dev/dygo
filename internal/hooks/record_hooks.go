@@ -49,9 +49,20 @@ func (r recordHookRegistry) RegisterEntity(appName string, entity string, event 
 			jobs = jobData
 		}
 		ctx = withRecordHookLogContext(ctx, hookCtx)
+		var actor dygo.Actor
+		if current, ok := db.ActivityActorFromContext(ctx); ok {
+			actor = dygo.Actor{UserID: current.UserID, Email: current.Email, Administrator: current.Administrator}
+		}
+		records := dygo.RecordData(dygodata.NewRecordDataWithHookPolicy(hookCtx.Queryer, db.RecordMutationHooksFrameworkOnly))
+		if actor.UserID > 0 {
+			records = records.AsActor(actor)
+		} else if reason, ok := db.ActivitySystemReasonFromContext(ctx); ok {
+			records = records.AsSystem(reason)
+		}
 		return fn(ctx, dygo.RecordHook{
 			Event:       dygo.RecordHookEvent(hookCtx.Event),
 			Operation:   hookCtx.Operation,
+			Actor:       actor,
 			EntityID:    hookCtx.EntityID,
 			AppName:     hookCtx.AppName,
 			Entity:      hookCtx.Entity,
@@ -63,8 +74,13 @@ func (r recordHookRegistry) RegisterEntity(appName string, entity string, event 
 			NewRecord:   dygo.Record(hookCtx.NewRecord),
 			Changes:     hookCtx.Changes,
 			Snapshot:    dygo.Record(hookCtx.Snapshot),
-			Records:     dygodata.NewRecordDataWithHookPolicy(hookCtx.Queryer, db.RecordMutationHooksFrameworkOnly),
+			Records:     records,
 			Jobs:        jobs,
+			Timeline:    dygodata.NewTimelineDataAsActor(hookCtx.Queryer, actor),
+			Notifications: dygodata.NewNotificationData(
+				dygodata.NewRecordDataWithHookPolicy(hookCtx.Queryer, db.RecordMutationHooksFrameworkOnly).AsSystem("notification-send"),
+				jobs,
+			),
 		})
 	})
 }

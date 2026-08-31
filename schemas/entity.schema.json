@@ -260,6 +260,11 @@
         },
         "app": { "$ref": "#/$defs/kebabName" },
         "entity": { "$ref": "#/$defs/kebabName" },
+        "display-field": { "$ref": "#/$defs/kebabName" },
+        "filters": {
+          "type": "array",
+          "items": { "$ref": "#/$defs/linkFilter" }
+        },
         "foreign-key": { "type": "boolean" }
       }
     },
@@ -286,7 +291,27 @@
       "properties": {
         "app": { "$ref": "#/$defs/kebabName" },
         "entity": { "$ref": "#/$defs/kebabName" },
+        "display-field": { "$ref": "#/$defs/kebabName" },
+        "filters": {
+          "type": "array",
+          "items": { "$ref": "#/$defs/linkFilter" }
+        },
         "foreign-key": { "type": "boolean" }
+      }
+    },
+    "linkFilter": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["field"],
+      "oneOf": [
+        { "required": ["value"] },
+        { "required": ["from"] }
+      ],
+      "properties": {
+        "field": { "$ref": "#/$defs/kebabName" },
+        "operator": { "type": "string", "minLength": 1 },
+        "value": { "$ref": "#/$defs/scalar" },
+        "from": { "$ref": "#/$defs/kebabName" }
       }
     },
     "entityOptions": {

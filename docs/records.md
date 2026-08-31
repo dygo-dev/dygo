@@ -23,6 +23,7 @@ GET    /api/v1/records/{entity}/{id}
 GET    /api/v1/records/{entity}/name/{name}
 GET    /api/v1/records/{entity}/single
 GET    /api/v1/records/{entity}/{id}/activity?limit=50&offset=0
+POST   /api/v1/records/{entity}/{id}/activity
 POST   /api/v1/records/{entity}
 PATCH  /api/v1/records/{entity}/{id}
 PATCH  /api/v1/records/{entity}/single
@@ -166,6 +167,15 @@ Scoped Activity can be read for one Entity/Record pair:
 ```txt
 GET /api/v1/records/{entity}/{id}/activity?limit=50&offset=0
 ```
+
+Comments can be added to the same timeline:
+
+```txt
+POST /api/v1/records/{entity}/{id}/activity
+{"message":"..."}
+```
+
+The caller must have `update` permission on the target Record. A successful request returns `201` with `{ "data": { "created": true } }`.
 
 The endpoint returns newest-first Activity ordered by `created-at DESC, id DESC`:
 

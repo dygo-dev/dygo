@@ -5,12 +5,14 @@ import { queryClient } from '@/app/query'
 import { recordListBaseQueryKey } from './record-list.query'
 import {
   createRecord,
+  addRecordComment,
   deleteRecord,
   getRecordByName,
   getSingleRecord,
   updateRecord,
   updateSingleRecord,
   type RecordData,
+  listRecordActivity,
 } from './records.api'
 
 type QueryToggle = MaybeRefOrGetter<boolean>
@@ -44,6 +46,34 @@ export function recordByNameQueryKey(entity: string, recordName: string) {
 
 export function singleRecordQueryKey(entity: string) {
   return ['records', 'single', entity] as const
+}
+
+export function recordActivityQueryKey(entity: string, recordID: string | number) {
+  return ['records', 'activity', entity, String(recordID)] as const
+}
+
+export function useRecordActivityQuery(
+  entity: MaybeRefOrGetter<string>,
+  recordID: MaybeRefOrGetter<string | number>,
+  options: { enabled?: QueryToggle } = {},
+) {
+  const currentEntity = computed(() => toValue(entity).trim())
+  const currentRecordID = computed(() => String(toValue(recordID)).trim())
+
+  return useQuery({
+    queryKey: computed(() => recordActivityQueryKey(currentEntity.value, currentRecordID.value)),
+    queryFn: ({ signal }) => listRecordActivity(currentEntity.value, currentRecordID.value, { signal }),
+    enabled: computed(() => currentEntity.value !== '' && currentRecordID.value !== '0' && toValue(options.enabled ?? true)),
+  })
+}
+
+export function useAddRecordCommentMutation() {
+  return useMutation({
+    mutationFn: ({ entity, recordID, message }: { entity: string; recordID: string | number; message: string }) => addRecordComment(entity, recordID, message),
+    onSuccess: (_result, variables) => {
+      void queryClient.invalidateQueries({ queryKey: recordActivityQueryKey(variables.entity, variables.recordID) })
+    },
+  })
 }
 
 export function useRecordByNameQuery(

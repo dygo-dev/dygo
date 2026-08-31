@@ -131,7 +131,7 @@ func NewChecker(queryer Queryer) Checker {
 
 // Check evaluates whether a user has an Entity permission action.
 func (c Checker) Check(ctx context.Context, request Request) (Decision, error) {
-	normalized, resource, column, err := normalizeRequest(request)
+	normalized, resource, err := normalizeRequest(request)
 	if err != nil {
 		return Decision{}, err
 	}
@@ -151,6 +151,16 @@ func (c Checker) Check(ctx context.Context, request Request) (Decision, error) {
 		targetSQL = "a.name = $2 AND e.key = $3"
 		args = []any{normalized.Actor.UserID, resource.App, resource.Name}
 	}
+	actionSQL := ""
+	if column, ok := actionColumn(normalized.Action); ok {
+		actionSQL = fmt.Sprintf("COALESCE(p.%s, false) = true", column)
+	} else {
+		if resource.Kind != ResourceEntity {
+			return Decision{}, permissionError(ErrorInvalidRequest, "custom actions require an Entity resource", decisionDetails(normalized), nil)
+		}
+		args = append(args, string(normalized.Action))
+		actionSQL = fmt.Sprintf("COALESCE(p.actions, '[]'::jsonb) ? $%d", len(args))
+	}
 
 	sql := fmt.Sprintf(`
 SELECT EXISTS (
@@ -167,9 +177,9 @@ SELECT EXISTS (
 		AND COALESCE(u.enabled, false) = true
 		AND %s
 		AND COALESCE(p.retired, false) = false
-		AND COALESCE(p.%s, false) = true
+		AND %s
 	LIMIT 1
-)`, targetSQL, column)
+)`, targetSQL, actionSQL)
 
 	var allowed bool
 	if err := c.queryer.QueryRow(ctx, sql, args...).Scan(&allowed); err != nil {
@@ -240,14 +250,21 @@ func CheckRole(ctx context.Context, queryer Queryer, role string, entity string,
 	if entity == "" {
 		return RoleDecision{}, permissionError(ErrorInvalidRequest, "entity is required", map[string]any{"entity": entity}, nil)
 	}
-	column, ok := actionColumn(action)
-	if !ok {
-		return RoleDecision{}, permissionError(ErrorInvalidRequest, "permission action is not supported", map[string]any{"action": action}, nil)
+	if _, err := ParseAction(string(action)); err != nil {
+		return RoleDecision{}, permissionError(ErrorInvalidRequest, err.Error(), map[string]any{"action": action}, err)
 	}
 	if queryer == nil {
 		return RoleDecision{}, permissionError(ErrorInternal, "permission queryer is required", nil, nil)
 	}
 
+	actionSQL := ""
+	args := []any{role, entity}
+	if column, ok := actionColumn(action); ok {
+		actionSQL = fmt.Sprintf("COALESCE(p.%s, false) = true", column)
+	} else {
+		args = append(args, string(action))
+		actionSQL = "COALESCE(p.actions, '[]'::jsonb) ? $3"
+	}
 	sql := fmt.Sprintf(`
 SELECT EXISTS (
 	SELECT 1
@@ -257,12 +274,12 @@ SELECT EXISTS (
 	WHERE r.name = $1
 		AND e.slug = $2
 		AND COALESCE(p.retired, false) = false
-		AND COALESCE(p.%s, false) = true
+		AND %s
 	LIMIT 1
-)`, column)
+)`, actionSQL)
 
 	var allowed bool
-	if err := queryer.QueryRow(ctx, sql, role, entity).Scan(&allowed); err != nil {
+	if err := queryer.QueryRow(ctx, sql, args...).Scan(&allowed); err != nil {
 		return RoleDecision{}, permissionError(ErrorInternal, "permission check failed", map[string]any{"role": role, "entity": entity, "action": action}, err)
 	}
 	if allowed {
@@ -283,7 +300,7 @@ func IsDenied(err error) bool {
 	return errors.As(err, &permissionErr) && permissionErr.Code == ErrorDenied
 }
 
-func normalizeRequest(request Request) (Request, Resource, string, error) {
+func normalizeRequest(request Request) (Request, Resource, error) {
 	entity := strings.TrimSpace(request.Entity)
 	resource := request.Resource
 	if resource.Kind == "" && resource.App == "" && resource.Name == "" && entity != "" {
@@ -297,31 +314,30 @@ func normalizeRequest(request Request) (Request, Resource, string, error) {
 		RecordID: request.RecordID,
 	}
 	if normalized.Actor.UserID <= 0 {
-		return Request{}, Resource{}, "", permissionError(ErrorInvalidRequest, "user id must be a positive integer", map[string]any{"user-id": request.Actor.UserID}, nil)
+		return Request{}, Resource{}, permissionError(ErrorInvalidRequest, "user id must be a positive integer", map[string]any{"user-id": request.Actor.UserID}, nil)
 	}
 	if normalized.Entity != "" && request.Resource != (Resource{}) {
-		return Request{}, Resource{}, "", permissionError(ErrorInvalidRequest, "entity and resource must not both be provided", nil, nil)
+		return Request{}, Resource{}, permissionError(ErrorInvalidRequest, "entity and resource must not both be provided", nil, nil)
 	}
 	if normalized.Resource.Kind != ResourceEntity && normalized.Resource.Kind != ResourcePage {
-		return Request{}, Resource{}, "", permissionError(ErrorInvalidRequest, "resource kind must be entity or page", map[string]any{"resource-kind": normalized.Resource.Kind}, nil)
+		return Request{}, Resource{}, permissionError(ErrorInvalidRequest, "resource kind must be entity or page", map[string]any{"resource-kind": normalized.Resource.Kind}, nil)
 	}
 	if normalized.Resource.Name == "" {
-		return Request{}, Resource{}, "", permissionError(ErrorInvalidRequest, "resource name is required", nil, nil)
+		return Request{}, Resource{}, permissionError(ErrorInvalidRequest, "resource name is required", nil, nil)
 	}
 	if normalized.Resource.Kind == ResourcePage && normalized.Resource.App == "" {
-		return Request{}, Resource{}, "", permissionError(ErrorInvalidRequest, "page resource app is required", nil, nil)
+		return Request{}, Resource{}, permissionError(ErrorInvalidRequest, "page resource app is required", nil, nil)
 	}
 	if normalized.RecordID < 0 {
-		return Request{}, Resource{}, "", permissionError(ErrorInvalidRequest, "record id must be greater than or equal to zero", map[string]any{"record-id": request.RecordID}, nil)
+		return Request{}, Resource{}, permissionError(ErrorInvalidRequest, "record id must be greater than or equal to zero", map[string]any{"record-id": request.RecordID}, nil)
 	}
-	column, ok := actionColumn(normalized.Action)
-	if !ok {
-		return Request{}, Resource{}, "", permissionError(ErrorInvalidRequest, "permission action is not supported", map[string]any{"action": request.Action}, nil)
+	if _, err := ParseAction(string(normalized.Action)); err != nil {
+		return Request{}, Resource{}, permissionError(ErrorInvalidRequest, err.Error(), map[string]any{"action": request.Action}, err)
 	}
 	if normalized.Resource.Kind == ResourceEntity {
 		normalized.Entity = normalized.Resource.Name
 	}
-	return normalized, normalized.Resource, column, nil
+	return normalized, normalized.Resource, nil
 }
 
 func allowedDecision(request Request, resource Resource) Decision {

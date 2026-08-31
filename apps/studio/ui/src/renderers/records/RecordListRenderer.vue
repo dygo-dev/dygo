@@ -3,7 +3,7 @@ import { computed, onBeforeUnmount, ref, watch } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import { useInfiniteQuery } from '@tanstack/vue-query'
 import { useDebounceFn, useStorage } from '@vueuse/core'
-import { ArrowDown, ArrowUp, Check, FunnelPlus, MessageSquare, PanelRightClose, PanelRightOpen, Settings2, X } from '@lucide/vue'
+import { ArrowDown, ArrowUp, Check, Download, FunnelPlus, PanelRightClose, PanelRightOpen, Play, Settings2, X } from '@lucide/vue'
 import {
   PopoverContent,
   PopoverPortal,
@@ -11,15 +11,18 @@ import {
   PopoverTrigger,
 } from 'reka-ui'
 
-import { Checkbox, IconButton, Input } from '@/design'
+import { Button, Checkbox, IconButton, Input } from '@/design'
 import DataTable from '@/design/organisms/DataTable.vue'
 import DropdownMenu from '@/design/primitives/DropdownMenu.vue'
 import type { DataTableRowKey, DataTableSort, DataTableState, DropdownMenuItem } from '@/design/types'
-import type { MetadataField, MetadataFilterOperator } from '@/features/metadata/metadata.api'
+import type { EntityActionDefinition, MetadataField, MetadataFilterOperator } from '@/features/metadata/metadata.api'
 import type { RecordListPolicy } from '@/features/platform/platform.api'
 import { usePlatformConfigQuery } from '@/features/platform/platform.query'
+import { useToast } from '@/features/toasts/use-toast'
+import { queryClient } from '@/app/query'
 import { recordListQueryKey } from '@/features/records/record-list.query'
-import { listRecords, type RecordData } from '@/features/records/records.api'
+import { exportRecordsCSV, listRecords, type RecordData } from '@/features/records/records.api'
+import { useExecuteRecordActionMutation } from '@/features/records/record-actions.query'
 import {
   buildRecordListRouteQuery,
   canonicalizeRecordListRouteQuery,
@@ -32,6 +35,7 @@ import {
 import PageToolbar from '@/shell/PageToolbar.vue'
 import { statusForError, storeError, type LoadStatus } from '@/stores/status'
 import { buildRecordListColumns } from './columns'
+import CSVImportPanel from './CSVImportPanel.vue'
 
 const props = defineProps<{
   entity: string
@@ -39,6 +43,9 @@ const props = defineProps<{
   fields: MetadataField[]
   systemFields?: MetadataField[]
   readOnly?: boolean
+  actions?: EntityActionDefinition[]
+  appName: string
+  entityKey: string
 }>()
 
 const emit = defineEmits<{
@@ -71,6 +78,11 @@ const storedPageSize = useStorage(PAGE_SIZE_STORAGE_KEY, 0, undefined, {
 })
 const pageSize = ref(0)
 const selectedRowKeys = ref<DataTableRowKey[]>([])
+const selectedAction = ref('')
+const exporting = ref(false)
+const importOpen = ref(false)
+const actionMutation = useExecuteRecordActionMutation()
+const toast = useToast()
 const viewOptionsOpen = ref(false)
 const listSidebarOpen = useStorage(LIST_SIDEBAR_STORAGE_KEY, false, undefined, {
   onError: () => {},
@@ -97,6 +109,16 @@ type OrderingOption = {
 }
 
 const columns = computed(() => buildRecordListColumns(props.fields, props.systemFields ?? []))
+const availableActions = computed(() => (props.actions ?? []).filter((action) => action.selection !== 'collection'))
+const selectedRecordIDs = computed(() => selectedRowKeys.value.flatMap((key) => {
+  const id = Number(key)
+  return Number.isInteger(id) && id > 0 ? [id] : []
+}))
+const selectedActionDefinition = computed(() => availableActions.value.find((action) => action.name === selectedAction.value) ?? null)
+const canRunSelectedAction = computed(() => {
+  if (!selectedActionDefinition.value || selectedRecordIDs.value.length === 0 || actionMutation.isPending.value) return false
+  return selectedActionDefinition.value.selection === 'selection' || selectedRecordIDs.value.length === 1
+})
 const recordListPolicy = computed(() => platformConfigQuery.data.value?.['record-list'] ?? null)
 const pageSizeOptions = computed(() => recordListPolicy.value?.['page-sizes'] ?? [])
 const filterableFields = computed(() => (
@@ -260,7 +282,7 @@ const hasMore = computed(() => (
   recordListReady.value && recordsQuery.hasNextPage.value && !platformConfigError.value
 ))
 const showToolbar = computed(() => (
-  rows.value.length > 0 || listQuery.value.filters.length > 0 || idSearch.value !== '' || filterTokens.value.length > 0
+  rows.value.length > 0 || listQuery.value.filters.length > 0 || idSearch.value !== '' || filterTokens.value.length > 0 || !props.readOnly
 ))
 const debouncedFilterRecordListRouteReplace = useDebounceFn(applyScheduledRecordListRouteReplace, FILTER_ROUTE_REPLACE_DEBOUNCE_MS)
 const debouncedIDSearchRecordListRouteReplace = useDebounceFn(applyScheduledRecordListRouteReplace, ID_SEARCH_DEBOUNCE_MS)
@@ -789,81 +811,40 @@ function filterTokenKey(filter: Omit<ActiveRecordFilter, 'id'>): string {
   return `${filter.field}\u0000${filter.operator}`
 }
 
-function updatedAtAge(row: Record<string, unknown>): string {
-  const date = recordDate(row['updated-at'])
-  if (!date) {
-    return '-'
-  }
+async function runSelectedAction() {
+  const action = selectedActionDefinition.value
+  const records = selectedRecordIDs.value
+  if (!action || !canRunSelectedAction.value) return
 
-  const elapsedMs = Math.max(0, Date.now() - date.getTime())
-  const elapsedMinutes = Math.floor(elapsedMs / 60_000)
-  if (elapsedMinutes < 1) {
-    return 'now'
+  try {
+    await actionMutation.mutateAsync({ entity: props.entity, action: action.name, records })
+    selectedRowKeys.value = []
+    await queryClient.invalidateQueries({ queryKey: recordListQueryKey(props.entity, { pageSize: pageSize.value, sort: effectiveListSort.value, filters: listQuery.value.filters }) })
+    toast.success(`${action.label} complete`)
+  } catch (error) {
+    toast.error(`${action.label} failed`, error instanceof Error ? error.message : 'The action could not be completed.')
   }
-
-  if (elapsedMinutes < 60) {
-    return `${elapsedMinutes}m`
-  }
-
-  const elapsedHours = Math.floor(elapsedMinutes / 60)
-  if (elapsedHours < 24) {
-    return `${elapsedHours}h`
-  }
-
-  const elapsedDays = Math.floor(elapsedHours / 24)
-  if (elapsedDays < 7) {
-    return `${elapsedDays}d`
-  }
-
-  const elapsedWeeks = Math.floor(elapsedDays / 7)
-  if (elapsedWeeks < 8) {
-    return `${elapsedWeeks}w`
-  }
-
-  if (elapsedDays < 365) {
-    return `${Math.max(2, Math.round(elapsedDays / 30))}mo`
-  }
-
-  return `${Math.floor(elapsedDays / 365)}y`
 }
 
-function updatedAtISO(row: Record<string, unknown>): string | undefined {
-  return recordDate(row['updated-at'])?.toISOString()
-}
-
-function updatedAtTitle(row: Record<string, unknown>): string | undefined {
-  const date = recordDate(row['updated-at'])
-  if (!date) {
-    return undefined
+async function exportCSV() {
+  if (exporting.value) return
+  exporting.value = true
+  try {
+    const csv = await exportRecordsCSV(props.entity, { limit: 1, offset: 0, sort: effectiveListSort.value, filters: listQuery.value.filters })
+    const url = URL.createObjectURL(csv)
+    const link = document.createElement('a')
+    link.href = url
+    link.download = `${props.entity}-records.csv`
+    link.click()
+    URL.revokeObjectURL(url)
+    toast.success('CSV export ready')
+  } catch (error) {
+    toast.error('CSV export failed', error instanceof Error ? error.message : 'The records could not be exported.')
+  } finally {
+    exporting.value = false
   }
-
-  return [
-    date.getFullYear(),
-    padDatePart(date.getMonth() + 1),
-    padDatePart(date.getDate()),
-  ].join('-') + ' ' + [
-    padDatePart(date.getHours()),
-    padDatePart(date.getMinutes()),
-    padDatePart(date.getSeconds()),
-  ].join(':')
 }
 
-function recordDate(value: unknown): Date | null {
-  if (value instanceof Date) {
-    return Number.isNaN(value.getTime()) ? null : value
-  }
-
-  if (typeof value !== 'string' && typeof value !== 'number') {
-    return null
-  }
-
-  const date = new Date(value)
-  return Number.isNaN(date.getTime()) ? null : date
-}
-
-function padDatePart(value: number): string {
-  return String(value).padStart(2, '0')
-}
 </script>
 
 <template>
@@ -959,6 +940,35 @@ function padDatePart(value: number): string {
       </template>
 
       <template #right>
+        <select
+          v-if="availableActions.length > 0"
+          v-model="selectedAction"
+          class="record-list-renderer__action-select"
+          aria-label="Entity action"
+        >
+          <option value="">Action</option>
+          <option v-for="action in availableActions" :key="action.name" :value="action.name">
+            {{ action.label }}
+          </option>
+        </select>
+        <Button
+          v-if="availableActions.length > 0"
+          variant="secondary"
+          size="sm"
+          :disabled="!canRunSelectedAction"
+          :loading="actionMutation.isPending.value"
+          @click="runSelectedAction"
+        >
+          <Play :size="13" :stroke-width="1.9" aria-hidden="true" />
+          Run
+        </Button>
+        <Button variant="ghost" size="sm" :disabled="exporting || loading" :loading="exporting" @click="exportCSV">
+          <Download :size="13" :stroke-width="1.9" aria-hidden="true" />
+          Export CSV
+        </Button>
+        <Button v-if="!readOnly" variant="ghost" size="sm" @click="importOpen = !importOpen">
+          Import CSV
+        </Button>
         <PopoverRoot
           :open="viewOptionsOpen"
           @update:open="updateViewOptionsOpen"
@@ -1069,6 +1079,16 @@ function padDatePart(value: number): string {
       </template>
     </PageToolbar>
 
+    <CSVImportPanel
+      v-if="importOpen"
+      :entity="entity"
+      :app-name="appName"
+      :entity-key="entityKey"
+      :fields="fields"
+      @close="importOpen = false"
+      @imported="() => recordsQuery.refetch()"
+    />
+
     <div class="record-list-renderer__content" :data-sidebar-open="listSidebarOpen ? '' : undefined">
       <DataTable
         :columns="visibleColumns"
@@ -1096,21 +1116,6 @@ function padDatePart(value: number): string {
         @load-more="recordsQuery.fetchNextPage()"
         @empty-action="createRecord"
       >
-        <template #row-side="{ row }">
-          <div class="record-list-renderer__activity-rail-item">
-            <time
-              class="record-list-renderer__activity-age"
-              :datetime="updatedAtISO(row)"
-              :title="updatedAtTitle(row)"
-            >
-              {{ updatedAtAge(row) }}
-            </time>
-            <span class="record-list-renderer__comment-count" aria-label="0 comments">
-              <MessageSquare :size="13" :stroke-width="1.8" aria-hidden="true" />
-              <span>0</span>
-            </span>
-          </div>
-        </template>
       </DataTable>
 
       <aside
@@ -1153,38 +1158,21 @@ function padDatePart(value: number): string {
   background: var(--studio-surface);
 }
 
-.record-list-renderer__activity-rail-item {
-  display: inline-flex;
-  min-width: 0;
-  align-items: center;
-  justify-content: flex-end;
-  gap: 10px;
-  color: var(--studio-text-muted);
-  font-size: 12px;
-  font-weight: 600;
-  line-height: 1;
-}
-
-.record-list-renderer__activity-age {
-  min-width: 28px;
-  color: var(--studio-text-muted);
-  font: inherit;
-  text-align: right;
-}
-
-.record-list-renderer__comment-count {
-  display: inline-flex;
-  min-width: 28px;
-  align-items: center;
-  justify-content: flex-end;
-  gap: 3px;
-  color: var(--studio-text-subtle);
-}
-
 .record-list-renderer__name-search {
   width: 180px;
   flex: 0 0 180px;
   min-width: 0;
+}
+
+.record-list-renderer__action-select {
+  min-height: var(--studio-control-height-sm);
+  max-width: 180px;
+  border: 1px solid var(--studio-border);
+  border-radius: var(--studio-radius-control);
+  background: var(--studio-control-bg);
+  color: var(--studio-text);
+  padding: 0 8px;
+  font-size: 12px;
 }
 
 .record-list-renderer__filter-controls {

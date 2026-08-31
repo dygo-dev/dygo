@@ -1,0 +1,6 @@
+label: Delete File Blob
+description: Removes a private file blob after its Core File record is deleted.
+queue: default
+timeout: 30s
+retry:
+  attempts: 5

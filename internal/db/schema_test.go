@@ -56,6 +56,7 @@ func TestBuildMetadataSchemaPlanForMatchingDatabase(t *testing.T) {
 				"id":         {Name: "id", Type: "bigint", Nullable: false},
 				"created_at": {Name: "created_at", Type: "timestamptz", Nullable: false},
 				"updated_at": {Name: "updated_at", Type: "timestamptz", Nullable: false},
+				"owner_id":   {Name: "owner_id", Type: "bigint", Nullable: true},
 				"name":       {Name: "name", Type: "text", Nullable: false},
 				"status":     {Name: "status", Type: "text", Nullable: false, HasDefault: true, DefaultSQL: "'active'::text"},
 			},

@@ -836,7 +836,7 @@ func newFakeStore() *fakeStore {
 }
 
 func seedEntityRecords(store *fakeStore) {
-	names := []string{"activity", "app", "configuration", "constraint", "country", "currency", "entity", "field", "index", "language", "naming-series", "patch-run", "permission", "role", "session", "user", "user-role"}
+	names := []string{"activity", "app", "configuration", "constraint", "country", "currency", "entity", "field", "file", "import", "import-row", "index", "language", "naming-series", "notification", "patch-run", "permission", "role", "session", "user", "user-role"}
 	for i, name := range names {
 		store.records["entity"] = append(store.records["entity"], db.Record{"id": int64(i + 1), "name": "core." + name})
 	}

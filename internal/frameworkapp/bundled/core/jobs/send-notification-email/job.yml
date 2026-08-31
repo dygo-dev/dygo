@@ -1,0 +1,9 @@
+label: Send Notification Email
+description: Delivers the email copy of an in-app notification.
+queue: default
+timeout: 30s
+retry:
+  attempts: 5
+  initial-delay: 30s
+  max-delay: 15m
+

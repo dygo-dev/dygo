@@ -307,6 +307,26 @@ options:
   foreign-key: false
 ```
 
+Link options may select a readable field for Studio labels and limit the
+choices shown by the link picker. Use `from` for a value from the current form:
+
+```yaml
+options:
+  entity: employee
+  display-field: full-name
+  filters:
+    - field: department
+      from: department
+    - field: status
+      operator: eq
+      value: Active
+```
+
+The runtime validates `display-field` and filter fields against the target
+Entity. Studio resolves the target route and uses the permission-aware Record
+list API for search results. An unresolved dependent value omits that filter
+until the parent form has a value.
+
 `collection` fields use the same `{app, entity}` target shape as `link` fields. They must target a collection Entity; normal and Single Entities are rejected.
 
 ## Built-In Field Types

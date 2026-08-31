@@ -79,6 +79,35 @@ func (w SystemRecordWriter) InsertReturningByIdentity(ctx context.Context, appNa
 	return store.createRecordByIdentity(ctx, appName, entity, input)
 }
 
+// UpdateByIdentity updates one framework-owned Record without exposing the
+// system mutation flag to app code.
+func (w SystemRecordWriter) UpdateByIdentity(ctx context.Context, appName string, entity string, id int64, input RecordInput, policy SystemMutationPolicy) (Record, error) {
+	if err := w.store.requireQueryer(); err != nil {
+		return nil, err
+	}
+	store, err := w.mutationStore(appName, entity, policy)
+	if err != nil {
+		return nil, err
+	}
+	return store.updateRecordByIdentity(ctx, appName, entity, id, input)
+}
+
+// DeleteByIdentity deletes one framework-owned Record without exposing the
+// system mutation flag to app code.
+func (w SystemRecordWriter) DeleteByIdentity(ctx context.Context, appName string, entity string, id int64, policy SystemMutationPolicy) error {
+	if err := w.store.requireQueryer(); err != nil {
+		return err
+	}
+	store, err := w.mutationStore(appName, entity, policy)
+	if err != nil {
+		return err
+	}
+	_, err = store.withRecordMutation(ctx, func(txStore RecordStore) (Record, error) {
+		return nil, txStore.deleteRecordByIdentity(ctx, appName, entity, id)
+	})
+	return err
+}
+
 // UpsertByIdentity creates or updates one app-scoped system Record by a metadata-backed match without returning it.
 func (w SystemRecordWriter) UpsertByIdentity(ctx context.Context, appName string, entity string, match RecordInput, input RecordInput, policy SystemMutationPolicy) error {
 	_, err := w.upsertByIdentity(ctx, appName, entity, match, input, policy)

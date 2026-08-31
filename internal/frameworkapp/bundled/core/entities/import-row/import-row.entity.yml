@@ -1,0 +1,39 @@
+label: Import Row
+description: One persisted CSV row in a durable import.
+icon: rows-3
+is-system: true
+name:
+  strategy: random
+fields:
+  - name: import
+    label: Import
+    type: link
+    required: true
+    index: true
+    options:
+      entity: import
+      foreign-key: false
+  - name: row-number
+    label: Row Number
+    type: int
+    required: true
+  - name: status
+    label: Status
+    type: select
+    required: true
+    default: queued
+    options:
+      values: [queued, running, succeeded, failed]
+  - name: data
+    label: Data
+    type: json
+    required: true
+  - name: error
+    label: Error
+    type: long-text
+  - name: record-id
+    label: Record ID
+    type: bigint
+indexes:
+  - name: by-import
+    fields: [import, row-number]

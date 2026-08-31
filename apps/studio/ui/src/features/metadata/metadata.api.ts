@@ -61,12 +61,32 @@ export type MetadataField = {
   options?: unknown
 }
 
+export type MetadataLinkFilter = {
+  field: string
+  operator: string
+  value?: unknown
+}
+
+export type MetadataLinkOptions = {
+  app?: string
+  entity: string
+  displayField?: string
+  filters: MetadataLinkFilter[]
+}
+
 export type MetadataEntityMeta = MetadataEntity & {
   fields: MetadataField[]
   'system-fields': MetadataField[]
   indexes: unknown[]
   constraints: unknown[]
   collections?: Record<string, MetadataEntityMeta>
+  actions?: EntityActionDefinition[]
+}
+
+export type EntityActionDefinition = {
+  name: string
+  label: string
+  selection: 'record' | 'selection' | 'collection'
 }
 
 type MetadataRequestOptions = {
@@ -76,6 +96,38 @@ type MetadataRequestOptions = {
 export class MetadataApiError extends ApiClientError {
   constructor(code: string, message: string, details?: Record<string, unknown>) {
     super('MetadataApiError', code, message, details)
+  }
+}
+
+export function linkOptions(field: MetadataField): MetadataLinkOptions | null {
+  if (field.type !== 'link' || !field.options || typeof field.options !== 'object') {
+    return null
+  }
+
+  const options = field.options as Record<string, unknown>
+  if (typeof options.entity !== 'string' || options.entity.trim() === '') {
+    return null
+  }
+
+  const filters = Array.isArray(options.filters)
+    ? options.filters.flatMap((filter): MetadataLinkFilter[] => {
+      if (!filter || typeof filter !== 'object') {
+        return []
+      }
+      const value = filter as Record<string, unknown>
+      if (typeof value.field !== 'string') {
+        return []
+      }
+      const filterValue = typeof value.from === 'string' ? `$${value.from}` : value.value
+      return [{ field: value.field, operator: typeof value.operator === 'string' ? value.operator : 'eq', value: filterValue }]
+    })
+    : []
+
+  return {
+    app: typeof options.app === 'string' ? options.app : undefined,
+    entity: options.entity,
+    displayField: typeof options['display-field'] === 'string' ? options['display-field'] : undefined,
+    filters,
   }
 }
 

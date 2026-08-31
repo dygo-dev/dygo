@@ -84,6 +84,17 @@ GET  /api/v1/boot
 
 `POST /api/v1/auth/login` is public. Boot, metadata, and Record API routes require a valid session. Metadata and Record APIs use the same permission engine. Metadata list endpoints filter unreadable Entities; Record API routes require the relevant Entity action.
 
+Authenticated Studio notification routes are:
+
+```txt
+GET  /api/v1/notifications?limit=20
+GET  /api/v1/notifications/unread-count
+POST /api/v1/notifications/{id}/read
+GET  /api/v1/notifications/{id}/deep-link
+```
+
+These routes always scope data to the current Core User. Deep links are local Studio paths; external URLs are rejected.
+
 ## Metadata API
 
 The first runtime API is read-only and powered by persisted Core metadata records:
@@ -123,7 +134,10 @@ GET    /api/v1/records/{entity}/{id}
 GET    /api/v1/records/{entity}/name/{name}
 GET    /api/v1/records/{entity}/single
 GET    /api/v1/records/{entity}/{id}/activity?limit=50&offset=0
+GET    /api/v1/records/{entity}/export
 POST   /api/v1/records/{entity}
+POST   /api/v1/records/{entity}/actions/{action}
+POST   /api/v1/records/{entity}/{id}/activity
 PATCH  /api/v1/records/{entity}/{id}
 PATCH  /api/v1/records/{entity}/single
 DELETE /api/v1/records/{entity}/{id}
@@ -157,16 +171,27 @@ List responses include pagination metadata:
 
 Record lists support direct `field:operator=value` params and multi-field sorting through `sort`. Empty checks use `field:empty` or `field:not-empty`; range checks use `start..end` as the value. `limit`, `offset`, and `sort` are reserved query params. Sorting uses `-field` for descending order and appends `id ASC` as a deterministic tie-breaker.
 
-Coming soon:
-
-- saved views
-- field-level permissions
-- row-level filters
-- richer Studio list UI
+The runtime compiles conditional `when` policies into the list, direct Record,
+mutation, action, Activity, file, and export queries. Denied fields do not
+appear in Record or CSV output.
 
 `PATCH` is the update operation and only changes fields provided in the request body. `DELETE` performs a hard delete in v1.
 
-Scoped Record Activity is read through `GET /api/v1/records/{entity}/{id}/activity`. It returns newest-first Activity for the target Entity/Record pair and does not require the live Record row to still exist.
+Scoped Record Activity is read through `GET /api/v1/records/{entity}/{id}/activity`. It returns newest-first Activity only when the actor can read the live target Record. Use `POST` on the same path to add an append-only comment when the actor can update the target.
+
+Private files and durable CSV imports use these authenticated routes:
+
+```txt
+POST   /api/v1/files
+GET    /api/v1/files/{id}
+DELETE /api/v1/files/{id}
+POST   /api/v1/imports
+GET    /api/v1/imports/{id}
+```
+
+File requests include a target App, Entity, Record ID, and field. Import
+requests accept CSV multipart data and return a Core Import ID for progress
+and row-error polling.
 
 Record API permissions are checked through the single internal permission engine:
 
@@ -188,4 +213,4 @@ The CLI listens for interrupt and termination signals, asks the HTTP server to s
 
 ## Boundaries
 
-The current server includes health, session auth, read-only metadata APIs, generic Record CRUD APIs with parent-owned collection rows, Entity permission enforcement for Records, static serving for generated-project or bundled Studio assets, and a development proxy for Studio when run through `dygo dev`. The server does not include per-Entity controllers, row-level sharing rules, workflow hooks, or audit logging yet.
+The current server includes health, session auth, metadata APIs, scoped Record CRUD and Entity actions, Activity, private files, notifications, CSV import/export, static Studio serving, and the development proxy. It does not include per-Entity controllers or arbitrary permission SQL.

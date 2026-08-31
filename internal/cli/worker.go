@@ -8,9 +8,11 @@ import (
 	"strings"
 	"time"
 
+	"github.com/hapyco/dygo/internal/config"
 	"github.com/hapyco/dygo/internal/db"
 	jobruntime "github.com/hapyco/dygo/internal/jobs/runtime"
 	jobstore "github.com/hapyco/dygo/internal/jobs/store"
+	"github.com/hapyco/dygo/internal/notifications"
 	"github.com/hapyco/dygo/internal/queues"
 	"github.com/hapyco/dygo/internal/secrets"
 	"github.com/jackc/pgx/v5"
@@ -47,6 +49,13 @@ func newWorkerCommand(ctx context.Context, stdout, stderr io.Writer, recordHooks
 			env, root, databaseURL, err := databaseInputs(envName)
 			if err != nil {
 				return err
+			}
+			mailer, err := notificationMailer(root, env)
+			if err != nil {
+				return err
+			}
+			if err := jobRegistry.RegisterJob("core", "send-notification-email", notifications.EmailJob(mailer, time.Now)); err != nil {
+				return fmt.Errorf("register notification email Job: %w", err)
 			}
 			queueConfig, err := queues.Load(root)
 			if err != nil {
@@ -118,6 +127,36 @@ func newWorkerCommand(ctx context.Context, stdout, stderr io.Writer, recordHooks
 	cmd.Flags().DurationVar(&shutdownTimeout, "shutdown-timeout", shutdownTimeout, "How long to wait for running executions during shutdown")
 
 	return cmd
+}
+
+func notificationMailer(root string, env secrets.Environment) (notifications.Mailer, error) {
+	cfg, err := config.Load(root)
+	if err != nil {
+		return nil, fmt.Errorf("load SMTP config: %w", err)
+	}
+	if !cfg.Email.Enabled() {
+		return notifications.UnavailableMailer{}, nil
+	}
+	mailer := notifications.SMTPMailer{
+		Host: cfg.Email.SMTP.Host,
+		Port: cfg.Email.SMTP.Port,
+		From: cfg.Email.From,
+	}
+	if cfg.Email.SMTP.Username.Secret == "" {
+		return mailer, nil
+	}
+	store := secrets.NewStore(root)
+	username, err := store.Get(env, cfg.Email.SMTP.Username.Secret)
+	if err != nil {
+		return nil, fmt.Errorf("read SMTP username secret: %w", err)
+	}
+	password, err := store.Get(env, cfg.Email.SMTP.Password.Secret)
+	if err != nil {
+		return nil, fmt.Errorf("read SMTP password secret: %w", err)
+	}
+	mailer.Username = username.Value
+	mailer.Password = password.Value
+	return mailer, nil
 }
 
 func effectiveWorkerQueues(queueConfig queues.Config, requested []string, override int, overrideSet bool) ([]jobruntime.Queue, error) {

@@ -56,6 +56,18 @@ fields:
     type: boolean
     default: false
 
+  - name: actions
+    label: Custom Actions
+    type: json
+
+  - name: when
+    label: Row Conditions
+    type: json
+
+  - name: field-rules
+    label: Field Rules
+    type: json
+
   - name: retired
     label: Retired
     type: boolean

@@ -8,6 +8,7 @@ import (
 
 	"github.com/hapyco/dygo/internal/entity/fieldtype"
 	"github.com/hapyco/dygo/internal/recordfilter"
+	"github.com/hapyco/dygo/pkg/dygo"
 	"github.com/jackc/pgx/v5"
 )
 
@@ -68,6 +69,7 @@ type MetadataEntityMeta struct {
 	Indexes      []MetadataIndex               `json:"indexes"`
 	Constraints  []MetadataConstraint          `json:"constraints"`
 	Collections  map[string]MetadataEntityMeta `json:"collections,omitempty"`
+	Actions      []dygo.EntityActionDefinition `json:"actions,omitempty"`
 }
 
 // MetadataField is one persisted Field definition.
@@ -322,7 +324,7 @@ func metadataSystemFields() []MetadataField {
 			Name:           systemField.Name,
 			Label:          systemField.Label,
 			Type:           systemField.Type,
-			Required:       true,
+			Required:       systemField.Required,
 			Stored:         true,
 			WriteOnly:      false,
 			Listable:       systemField.Listable,

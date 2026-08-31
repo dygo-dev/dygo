@@ -12,11 +12,13 @@ import (
 	"testing"
 
 	"github.com/hapyco/dygo/internal/access"
+	actionruntime "github.com/hapyco/dygo/internal/actions"
 	"github.com/hapyco/dygo/internal/auth"
 	"github.com/hapyco/dygo/internal/db"
 	"github.com/hapyco/dygo/internal/fixtures"
 	recordhooks "github.com/hapyco/dygo/internal/hooks"
 	jobruntime "github.com/hapyco/dygo/internal/jobs/runtime"
+	"github.com/hapyco/dygo/internal/permissions"
 	"github.com/hapyco/dygo/internal/secrets"
 	"github.com/hapyco/dygo/internal/server"
 	"github.com/hapyco/dygo/internal/shape"
@@ -1192,6 +1194,44 @@ func TestDBMigrateYesAppliesSchemaOnly(t *testing.T) {
 	}
 	if fakeDB.operations[0] != "exists" {
 		t.Fatalf("database operations = %#v, want existence check", fakeDB.operations)
+	}
+}
+
+func TestDBMigrateRunsPendingPreSyncPatchBeforeSchemaBlockers(t *testing.T) {
+	root := t.TempDir()
+	writeCLIProjectRoot(t, root)
+	writeCLIConfig(t, root)
+	const databaseURL = "postgres://user:secret-password@localhost:5432/dygo"
+	writeCLIDatabaseSecret(t, root, secrets.EnvironmentDevelopment, databaseURL)
+	t.Chdir(root)
+
+	fakeSync := &fakeSchemaSyncRunner{
+		patchPlan: db.PatchPlan{Pending: []db.PlannedPatch{{AppName: "core", PatchID: "001_checks"}}},
+		plan: db.SchemaPlan{Diagnostics: []db.SchemaDiagnostic{{
+			Classification: db.SchemaDiagnosticUnsafe,
+			Table:          "activity",
+			Column:         "kind",
+			Message:        "check constraint differs",
+		}}},
+	}
+	var stdout bytes.Buffer
+	err := runWithServicesAndSetupAndFixtures(
+		context.Background(),
+		[]string{"db", "migrate", "--yes"},
+		strings.NewReader(""),
+		&stdout,
+		io.Discard,
+		noopServeRunner,
+		noopDatabaseRunner(),
+		fakeSync,
+		&fakeAdminSetupRunner{},
+		&fakeFixtureRunner{},
+	)
+	if err != nil {
+		t.Fatalf("Run(db migrate --yes) error = %v, want pending pre-sync patch to run", err)
+	}
+	if fakeSync.patchApplyCalls != 2 || fakeSync.calls != 1 {
+		t.Fatalf("apply calls = patch %d sync %d, want 2 patch phases and 1 schema sync", fakeSync.patchApplyCalls, fakeSync.calls)
 	}
 }
 
@@ -2631,7 +2671,11 @@ func runWithOptionsForTest(ctx context.Context, args []string, stdin io.Reader, 
 	if err != nil {
 		return err
 	}
-	return runWithServicesAndSetupAndFixturesAndAccessAndHooks(ctx, args, stdin, stdout, stderr, serve, noopDatabaseRunner(), migrator, &fakeAdminSetupRunner{}, &fakeFixtureRunner{}, defaultAccessRunner{}, recordHooks, jobRegistry)
+	actionRegistry, err := actionruntime.NewRegistry(options.EntityActions)
+	if err != nil {
+		return err
+	}
+	return runWithServicesAndSetupAndFixturesAndAccessAndHooks(ctx, args, stdin, stdout, stderr, serve, noopDatabaseRunner(), migrator, &fakeAdminSetupRunner{}, &fakeFixtureRunner{}, defaultAccessRunner{}, recordHooks, actionRegistry, jobRegistry)
 }
 
 func recordhooksForTest(registrars []dygo.RecordHookRegistrar) (*db.RecordHookRegistry, error) {
@@ -2840,6 +2884,10 @@ func (r *fakeAccessRunner) WriteExportPlan(_ context.Context, plan access.Export
 	r.exportCalls++
 	r.exportPlan = plan
 	return r.exportResult, r.exportErr
+}
+
+func (r *fakeAccessRunner) Explain(_ context.Context, _ string, target shape.AppRef, user string, action permissions.Action, recordID int64) (access.Explanation, error) {
+	return access.Explanation{User: user, Target: target, Action: action, RecordID: recordID, Roles: []string{"employee"}, MatchedRoles: []string{"employee"}, RowAllowed: true}, nil
 }
 
 type fakeDatabaseRunner struct {

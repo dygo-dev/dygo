@@ -10,13 +10,20 @@ import (
 	"net/http"
 	"net/http/httputil"
 	"net/url"
+	"path/filepath"
 	"strconv"
 	"strings"
 	"time"
 
 	"github.com/go-chi/chi/v5"
+	entityactions "github.com/hapyco/dygo/internal/actions"
 	"github.com/hapyco/dygo/internal/auth"
 	"github.com/hapyco/dygo/internal/db"
+	"github.com/hapyco/dygo/internal/dygodata"
+	filedata "github.com/hapyco/dygo/internal/files"
+	importsvc "github.com/hapyco/dygo/internal/imports"
+	jobstore "github.com/hapyco/dygo/internal/jobs/store"
+	"github.com/hapyco/dygo/internal/notifications"
 	"github.com/hapyco/dygo/internal/permissions"
 	"github.com/hapyco/dygo/internal/recordquery"
 	"github.com/hapyco/dygo/internal/reserved"
@@ -28,17 +35,23 @@ const sessionCookieName = "dygo_session"
 
 // Options configures the dygo HTTP server.
 type Options struct {
-	Address     string
-	DatabaseURL string
-	Auth        AuthStore
-	Metadata    MetadataStore
-	Pages       PageStore
-	Records     RecordStore
-	Activity    ActivityStore
-	Permissions PermissionChecker
-	RecordHooks *db.RecordHookRegistry
-	Studio      http.Handler
-	OnReady     func(string) error
+	Address         string
+	DatabaseURL     string
+	FileStorageRoot string
+	Auth            AuthStore
+	Metadata        MetadataStore
+	Pages           PageStore
+	Records         RecordStore
+	Activity        ActivityStore
+	Notifications   NotificationStore
+	Permissions     PermissionChecker
+	RecordHooks     *db.RecordHookRegistry
+	ActionRegistry  *entityactions.Registry
+	EntityActions   EntityActionExecutor
+	Files           dygo.FileData
+	Imports         ImportStore
+	Studio          http.Handler
+	OnReady         func(string) error
 }
 
 // AuthStore is the runtime auth behavior used by HTTP handlers.
@@ -79,6 +92,24 @@ type ActivityStore interface {
 	ListRecordActivity(context.Context, string, int64, db.RecordListParams) (db.ActivityListResult, error)
 }
 
+// NotificationStore is the authenticated user's notification inbox behavior.
+type NotificationStore interface {
+	ListUnread(context.Context, int64, int) ([]notifications.Notification, error)
+	UnreadCount(context.Context, int64) (int64, error)
+	MarkRead(context.Context, int64, int64, time.Time) (notifications.Notification, error)
+	DeepLink(context.Context, int64, int64) (string, error)
+}
+
+// ActivityCommentStore appends user comments to a Record timeline.
+type ActivityCommentStore interface {
+	AddComment(context.Context, string, int64, string) error
+}
+
+// EntityActionExecutor runs one registered Entity action.
+type EntityActionExecutor interface {
+	Execute(context.Context, string, string, dygo.Actor, []int64, json.RawMessage) (any, error)
+}
+
 // PermissionChecker is the authorization behavior used by HTTP handlers.
 type PermissionChecker interface {
 	Can(context.Context, permissions.Request) error
@@ -99,9 +130,12 @@ func NewRouter(options ...Options) http.Handler {
 			protected.Use(authMiddleware(opts.Auth))
 			registerBootRoutes(protected, opts.Records, opts.Pages, opts.Permissions)
 			registerPlatformRoutes(protected)
-			registerMetadataRoutes(protected, opts.Metadata, opts.Permissions)
+			registerMetadataRoutes(protected, opts.Metadata, opts.Permissions, opts.ActionRegistry)
 			registerPageRoutes(protected, opts.Pages, opts.Permissions)
-			registerRecordRoutes(protected, opts.Records, opts.Activity, opts.Permissions)
+			registerNotificationRoutes(protected, opts.Notifications)
+			registerRecordRoutes(protected, opts.Records, opts.Activity, opts.Permissions, opts.EntityActions)
+			registerFileRoutes(protected, opts.Files)
+			registerImportRoutes(protected, opts.Imports)
 		})
 	})
 	if opts.Studio != nil {
@@ -164,7 +198,30 @@ func Serve(ctx context.Context, options Options) error {
 			options.Records = db.NewRecordStore(pool)
 		}
 		options.Activity = db.NewActivityReader(pool)
-		options.Permissions = permissions.NewChecker(pool)
+		options.Notifications = notifications.NewStore(pool)
+		checker := permissions.NewChecker(pool)
+		options.Permissions = checker
+		jobs, jobErr := jobstore.New(pool)
+		if jobErr != nil {
+			return fmt.Errorf("configure jobs: %w", jobErr)
+		}
+		if options.Files == nil {
+			storageRoot := options.FileStorageRoot
+			if storageRoot == "" {
+				storageRoot = filepath.Join(".dygo", "files")
+			}
+			blobs, blobErr := filedata.NewLocalBlobStore(storageRoot)
+			if blobErr != nil {
+				return fmt.Errorf("configure file storage: %w", blobErr)
+			}
+			options.Files = filedata.NewService(pool, blobs, dygodata.NewJobData(jobs), checker)
+		}
+		if options.Imports == nil {
+			options.Imports = importsvc.NewService(pool, dygodata.NewJobData(jobs), checker)
+		}
+		if options.ActionRegistry != nil {
+			options.EntityActions = entityactions.Executor{DB: pool, Registry: options.ActionRegistry, RecordHooks: options.RecordHooks, Authorizer: checker, Files: options.Files}
+		}
 	}
 
 	listener, err := net.Listen("tcp", options.Address)
@@ -584,10 +641,11 @@ func writeErrorEnvelope(w http.ResponseWriter, status int, code string, message 
 type metadataHandler struct {
 	store       MetadataStore
 	permissions PermissionChecker
+	actions     *entityactions.Registry
 }
 
-func registerMetadataRoutes(router chi.Router, store MetadataStore, checker PermissionChecker) {
-	handler := metadataHandler{store: store, permissions: checker}
+func registerMetadataRoutes(router chi.Router, store MetadataStore, checker PermissionChecker, actions *entityactions.Registry) {
+	handler := metadataHandler{store: store, permissions: checker, actions: actions}
 	router.Get("/apps", handler.listApps)
 	router.Get("/apps/{app}", handler.getApp)
 	router.Get("/entities", handler.listEntities)
@@ -803,6 +861,9 @@ func (h metadataHandler) getEntityMeta(w http.ResponseWriter, r *http.Request) {
 		writePermissionError(w, permissions.Error{Code: permissions.ErrorDenied, Message: "permission denied", Details: map[string]any{"entity": name, "action": permissions.ActionRead}})
 		return
 	}
+	if h.actions != nil {
+		meta.Actions = h.actions.Definitions(meta.App.Name, meta.Key)
+	}
 	writeJSON(w, http.StatusOK, dataEnvelope{Data: meta})
 }
 
@@ -889,14 +950,18 @@ type recordHandler struct {
 	store       RecordStore
 	activity    ActivityStore
 	permissions PermissionChecker
+	actions     EntityActionExecutor
 }
 
-func registerRecordRoutes(router chi.Router, store RecordStore, activity ActivityStore, checker PermissionChecker) {
-	handler := recordHandler{store: store, activity: activity, permissions: checker}
+func registerRecordRoutes(router chi.Router, store RecordStore, activity ActivityStore, checker PermissionChecker, actions EntityActionExecutor) {
+	handler := recordHandler{store: store, activity: activity, permissions: checker, actions: actions}
 	router.Route("/records/{entity}", func(records chi.Router) {
 		records.Get("/", handler.listRecords)
+		records.Get("/export", handler.exportRecords)
 		records.Post("/", handler.createRecord)
+		records.Post("/actions/{action}", handler.executeAction)
 		records.Get("/{id}/activity", handler.listRecordActivity)
+		records.Post("/{id}/activity", handler.addRecordComment)
 		records.Get("/name/{name}", handler.getRecordByName)
 		records.Get("/single", handler.getSingleRecord)
 		records.Get("/{id}", handler.getRecord)
@@ -904,6 +969,99 @@ func registerRecordRoutes(router chi.Router, store RecordStore, activity Activit
 		records.Patch("/{id}", handler.updateRecord)
 		records.Delete("/{id}", handler.deleteRecord)
 	})
+}
+
+func (h recordHandler) executeAction(w http.ResponseWriter, r *http.Request) {
+	if h.actions == nil {
+		writeErrorEnvelope(w, http.StatusServiceUnavailable, "service_unavailable", "Entity action service is unavailable", nil)
+		return
+	}
+	user, ok := CurrentUserFromContext(r.Context())
+	if !ok {
+		writeAuthError(w, auth.Error{Code: auth.ErrorUnauthenticated, Message: "authentication required"})
+		return
+	}
+	request, err := decodeEntityActionRequest(r)
+	if err != nil {
+		writeEntityActionError(w, err)
+		return
+	}
+	result, err := h.actions.Execute(
+		r.Context(),
+		chi.URLParam(r, "entity"),
+		chi.URLParam(r, "action"),
+		dygo.Actor{UserID: user.ID, Email: user.Email, Administrator: user.Administrator},
+		request.Records,
+		request.Input,
+	)
+	if err != nil {
+		writeEntityActionError(w, err)
+		return
+	}
+	writeJSON(w, http.StatusOK, dataEnvelope{Data: result})
+}
+
+type entityActionRequest struct {
+	Records []int64         `json:"records"`
+	Input   json.RawMessage `json:"input"`
+}
+
+func decodeEntityActionRequest(r *http.Request) (entityActionRequest, error) {
+	var request entityActionRequest
+	decoder := json.NewDecoder(r.Body)
+	decoder.DisallowUnknownFields()
+	if err := decoder.Decode(&request); err != nil {
+		if errors.Is(err, io.EOF) {
+			return request, dygo.ActionError{Code: "invalid_request", Message: "request body is required"}
+		}
+		return request, dygo.ActionError{Code: "invalid_request", Message: "request body must be valid JSON"}
+	}
+	if err := decoder.Decode(&struct{}{}); !errors.Is(err, io.EOF) {
+		return request, dygo.ActionError{Code: "invalid_request", Message: "request body must contain one JSON object"}
+	}
+	if len(request.Input) == 0 {
+		request.Input = json.RawMessage(`{}`)
+	}
+	return request, nil
+}
+
+func writeEntityActionError(w http.ResponseWriter, err error) {
+	var permissionErr permissions.Error
+	if errors.As(err, &permissionErr) {
+		writePermissionError(w, err)
+		return
+	}
+	var recordErr db.RecordError
+	if errors.As(err, &recordErr) {
+		writeRecordError(w, err)
+		return
+	}
+	if db.IsMetadataNotFound(err) {
+		writeErrorEnvelope(w, http.StatusNotFound, "not_found", "Entity not found", nil)
+		return
+	}
+	var actionErr dygo.ActionError
+	if !errors.As(err, &actionErr) {
+		writeErrorEnvelope(w, http.StatusInternalServerError, "internal_error", "Entity action failed", nil)
+		return
+	}
+	status := http.StatusInternalServerError
+	switch actionErr.Code {
+	case "invalid_request":
+		status = http.StatusBadRequest
+	case "validation_error":
+		status = http.StatusUnprocessableEntity
+	case "not_found":
+		status = http.StatusNotFound
+	case "constraint_violation", "conflict":
+		status = http.StatusConflict
+	case "permission_denied":
+		status = http.StatusForbidden
+	case "internal_error":
+		actionErr.Message = "Entity action failed"
+		actionErr.Details = nil
+	}
+	writeErrorEnvelope(w, status, actionErr.Code, actionErr.Message, actionErr.Details)
 }
 
 func (h recordHandler) listRecords(w http.ResponseWriter, r *http.Request) {
@@ -919,7 +1077,12 @@ func (h recordHandler) listRecords(w http.ResponseWriter, r *http.Request) {
 		writeRecordError(w, err)
 		return
 	}
-	result, err := h.store.ListRecords(r.Context(), entity, params)
+	store, err := h.storeFor(r, entity, permissions.ActionRead)
+	if err != nil {
+		writePermissionError(w, err)
+		return
+	}
+	result, err := store.ListRecords(r.Context(), entity, params)
 	if err != nil {
 		writeRecordError(w, err)
 		return
@@ -943,7 +1106,12 @@ func (h recordHandler) getRecord(w http.ResponseWriter, r *http.Request) {
 	if !h.authorize(w, r, entity, permissions.ActionRead, id) {
 		return
 	}
-	record, err := h.store.GetRecord(r.Context(), entity, id)
+	store, err := h.storeFor(r, entity, permissions.ActionRead)
+	if err != nil {
+		writePermissionError(w, err)
+		return
+	}
+	record, err := store.GetRecord(r.Context(), entity, id)
 	if err != nil {
 		writeRecordError(w, err)
 		return
@@ -973,7 +1141,12 @@ func (h recordHandler) getRecordByName(w http.ResponseWriter, r *http.Request) {
 		writeRecordError(w, db.RecordError{Code: db.RecordErrorInvalidRequest, Message: "record name must be valid JSON", Details: map[string]any{"entity": entity, "name": name}, Err: err})
 		return
 	}
-	record, err := h.store.FindRecord(r.Context(), entity, db.RecordInput{"name": rawName})
+	store, err := h.storeFor(r, entity, permissions.ActionRead)
+	if err != nil {
+		writePermissionError(w, err)
+		return
+	}
+	record, err := store.FindRecord(r.Context(), entity, db.RecordInput{"name": rawName})
 	if err != nil {
 		writeRecordError(w, err)
 		return
@@ -989,7 +1162,12 @@ func (h recordHandler) getSingleRecord(w http.ResponseWriter, r *http.Request) {
 	if !h.authorize(w, r, entity, permissions.ActionRead, 0) {
 		return
 	}
-	record, err := h.store.GetSingleRecord(r.Context(), entity)
+	store, err := h.storeFor(r, entity, permissions.ActionRead)
+	if err != nil {
+		writePermissionError(w, err)
+		return
+	}
+	record, err := store.GetSingleRecord(r.Context(), entity)
 	if err != nil {
 		writeRecordError(w, err)
 		return
@@ -1010,7 +1188,12 @@ func (h recordHandler) createRecord(w http.ResponseWriter, r *http.Request) {
 		writeRecordError(w, err)
 		return
 	}
-	record, err := h.store.CreateRecord(activityRequestContext(r), entity, input)
+	store, err := h.storeFor(r, entity, permissions.ActionCreate)
+	if err != nil {
+		writePermissionError(w, err)
+		return
+	}
+	record, err := store.CreateRecord(activityRequestContext(r), entity, input)
 	if err != nil {
 		writeRecordError(w, err)
 		return
@@ -1036,7 +1219,12 @@ func (h recordHandler) updateRecord(w http.ResponseWriter, r *http.Request) {
 		writeRecordError(w, err)
 		return
 	}
-	record, err := h.store.UpdateRecord(activityRequestContext(r), entity, id, input)
+	store, err := h.storeFor(r, entity, permissions.ActionUpdate)
+	if err != nil {
+		writePermissionError(w, err)
+		return
+	}
+	record, err := store.UpdateRecord(activityRequestContext(r), entity, id, input)
 	if err != nil {
 		writeRecordError(w, err)
 		return
@@ -1057,7 +1245,12 @@ func (h recordHandler) updateSingleRecord(w http.ResponseWriter, r *http.Request
 		writeRecordError(w, err)
 		return
 	}
-	record, err := h.store.UpdateSingleRecord(activityRequestContext(r), entity, input)
+	store, err := h.storeFor(r, entity, permissions.ActionUpdate)
+	if err != nil {
+		writePermissionError(w, err)
+		return
+	}
+	record, err := store.UpdateSingleRecord(activityRequestContext(r), entity, input)
 	if err != nil {
 		writeRecordError(w, err)
 		return
@@ -1078,7 +1271,12 @@ func (h recordHandler) deleteRecord(w http.ResponseWriter, r *http.Request) {
 	if !h.authorize(w, r, entity, permissions.ActionDelete, id) {
 		return
 	}
-	if err := h.store.DeleteRecord(activityRequestContext(r), entity, id); err != nil {
+	store, err := h.storeFor(r, entity, permissions.ActionDelete)
+	if err != nil {
+		writePermissionError(w, err)
+		return
+	}
+	if err := store.DeleteRecord(activityRequestContext(r), entity, id); err != nil {
 		writeRecordError(w, err)
 		return
 	}
@@ -1094,6 +1292,17 @@ func (h recordHandler) listRecordActivity(w http.ResponseWriter, r *http.Request
 	}
 	if !h.authorize(w, r, entity, permissions.ActionRead, id) {
 		return
+	}
+	if h.store != nil {
+		store, err := h.storeFor(r, entity, permissions.ActionRead)
+		if err != nil {
+			writePermissionError(w, err)
+			return
+		}
+		if _, err := store.GetRecord(activityRequestContext(r), entity, id); err != nil {
+			writeRecordError(w, err)
+			return
+		}
 	}
 	if h.requireActivityStore(w) {
 		return
@@ -1112,6 +1321,60 @@ func (h recordHandler) listRecordActivity(w http.ResponseWriter, r *http.Request
 		Data: result.Activities,
 		Meta: recordListMeta{Limit: result.Limit, Offset: result.Offset, Count: result.Count},
 	})
+}
+
+func (h recordHandler) addRecordComment(w http.ResponseWriter, r *http.Request) {
+	entity := chi.URLParam(r, "entity")
+	id, err := recordIDParam(entity, chi.URLParam(r, "id"))
+	if err != nil {
+		writeRecordError(w, err)
+		return
+	}
+	if !h.authorize(w, r, entity, permissions.ActionUpdate, id) {
+		return
+	}
+	if h.requireStore(w) {
+		return
+	}
+	store, err := h.storeFor(r, entity, permissions.ActionUpdate)
+	if err != nil {
+		writePermissionError(w, err)
+		return
+	}
+	if _, err := store.GetRecord(activityRequestContext(r), entity, id); err != nil {
+		writeRecordError(w, err)
+		return
+	}
+	if h.requireActivityStore(w) {
+		return
+	}
+	comments, ok := h.activity.(ActivityCommentStore)
+	if !ok {
+		writeJSON(w, http.StatusServiceUnavailable, errorEnvelope{Error: apiError{Code: "service_unavailable", Message: "activity comments are unavailable"}})
+		return
+	}
+	var request struct {
+		Message string `json:"message"`
+	}
+	decoder := json.NewDecoder(r.Body)
+	decoder.DisallowUnknownFields()
+	if err := decoder.Decode(&request); err != nil {
+		writeRecordError(w, db.RecordError{Code: db.RecordErrorInvalidRequest, Message: "request body must be valid JSON", Err: err})
+		return
+	}
+	if err := decoder.Decode(&struct{}{}); !errors.Is(err, io.EOF) {
+		writeRecordError(w, db.RecordError{Code: db.RecordErrorInvalidRequest, Message: "request body must contain one JSON object", Err: err})
+		return
+	}
+	if strings.TrimSpace(request.Message) == "" {
+		writeRecordError(w, db.RecordError{Code: db.RecordErrorInvalidRequest, Message: "comment message is required"})
+		return
+	}
+	if err := comments.AddComment(activityRequestContext(r), entity, id, request.Message); err != nil {
+		writeRecordError(w, err)
+		return
+	}
+	writeJSON(w, http.StatusCreated, dataEnvelope{Data: map[string]any{"created": true}})
 }
 
 func (h recordHandler) requireStore(w http.ResponseWriter) bool {
@@ -1162,10 +1425,32 @@ func (h recordHandler) authorize(w http.ResponseWriter, r *http.Request, entity 
 	return true
 }
 
+func (h recordHandler) storeFor(r *http.Request, entity string, action permissions.Action) (RecordStore, error) {
+	store, ok := h.store.(db.RecordStore)
+	if !ok {
+		return h.store, nil
+	}
+	user, ok := CurrentUserFromContext(r.Context())
+	if !ok || user.Administrator {
+		return store, nil
+	}
+	scoper, ok := h.permissions.(interface {
+		RecordScope(context.Context, permissions.Request) (permissions.Scope, error)
+	})
+	if !ok {
+		return nil, permissions.Error{Code: permissions.ErrorInternal, Message: "permission scope is unavailable"}
+	}
+	scope, err := scoper.RecordScope(r.Context(), permissions.Request{Actor: permissions.Actor{UserID: user.ID, Email: user.Email}, Entity: entity, Action: action})
+	if err != nil {
+		return nil, err
+	}
+	return store.WithScope(db.RecordScope{Where: scope.Where, Args: scope.Args, FieldRead: scope.FieldRead, FieldWrite: scope.FieldWrite}), nil
+}
+
 func activityRequestContext(r *http.Request) context.Context {
 	ctx := db.WithActivitySource(r.Context(), db.ActivitySourceAPI)
 	if user, ok := CurrentUserFromContext(r.Context()); ok {
-		ctx = db.WithActivityActorName(ctx, user.Email)
+		ctx = db.WithActivityActor(ctx, user.ID, user.Email, user.Administrator)
 	}
 	return ctx
 }
@@ -1277,6 +1562,8 @@ func writeRecordError(w http.ResponseWriter, err error) {
 		status = http.StatusNotFound
 	case db.RecordErrorConstraintViolation, db.RecordErrorSchemaNotReady:
 		status = http.StatusConflict
+	case db.RecordErrorPermissionDenied:
+		status = http.StatusForbidden
 	case db.RecordErrorInternal:
 		status = http.StatusInternalServerError
 		message = "record request failed"

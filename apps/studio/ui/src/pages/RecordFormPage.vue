@@ -10,15 +10,17 @@ import type { MetadataEntityMeta, MetadataField } from '@/features/metadata/meta
 import { useMetadataEntityMetaQuery } from '@/features/metadata/metadata.query'
 import {
   useCreateRecordMutation,
+  useAddRecordCommentMutation,
   useDeleteRecordMutation,
   useRecordByNameQuery,
   useSingleRecordQuery,
   useUpdateRecordMutation,
   useUpdateSingleRecordMutation,
+  useRecordActivityQuery,
 } from '@/features/records/record-form.query'
 import type { RecordData } from '@/features/records/records.api'
 import { isHiddenRecordSubmitField } from '@/features/records/system-fields'
-import { RecordFormRenderer } from '@/renderers/records'
+import { RecordFormRenderer, RecordTimeline } from '@/renderers/records'
 import { RouteName } from '@/router/routes'
 import FormToolbar from '@/shell/FormToolbar.vue'
 import PageHeader from '@/shell/PageHeader.vue'
@@ -89,6 +91,7 @@ const createRecordMutation = useCreateRecordMutation()
 const updateRecordMutation = useUpdateRecordMutation()
 const updateSingleRecordMutation = useUpdateSingleRecordMutation()
 const deleteRecordMutation = useDeleteRecordMutation()
+const addCommentMutation = useAddRecordCommentMutation()
 const record = computed(() => {
   if (isSingle.value) {
     return singleRecordQuery.data.value ?? null
@@ -100,6 +103,18 @@ const record = computed(() => {
 
   return null
 })
+const timelineRecordID = computed(() => {
+  const id = record.value?.id
+  return !isNew.value && (typeof id === 'string' || typeof id === 'number') ? id : 0
+})
+const timelineQuery = useRecordActivityQuery(
+  () => props.entity,
+  timelineRecordID,
+  { enabled: computed(() => Number(timelineRecordID.value) > 0) },
+)
+const commentDraft = ref('')
+const timelineError = computed(() => timelineQuery.error.value?.message || addCommentMutation.error.value?.message || '')
+const timelineEntries = computed(() => timelineQuery.data.value?.data ?? [])
 const recordError = computed(() => {
   if (isSingle.value && singleRecordQuery.error.value) {
     return storeError(singleRecordQuery.error.value, 'Studio could not load these settings.')
@@ -283,6 +298,21 @@ function resetRecordActionErrors() {
   updateRecordMutation.reset()
   updateSingleRecordMutation.reset()
   deleteRecordMutation.reset()
+  addCommentMutation.reset()
+}
+
+async function addComment() {
+  const recordID = timelineRecordID.value
+  const message = commentDraft.value.trim()
+  if (!recordID || !message || addCommentMutation.isPending.value) return
+
+  try {
+    await addCommentMutation.mutateAsync({ entity: props.entity, recordID, message })
+    commentDraft.value = ''
+    toast.success('Comment added')
+  } catch {
+    // TanStack owns the mutation error for display.
+  }
 }
 
 async function saveRecord() {
@@ -778,7 +808,9 @@ function humanizeEntity(value: string): string {
         />
 
         <RecordFormRenderer
-          :entity="props.entity"
+      :entity="props.entity"
+      :app-name="entityMeta?.app.name ?? ''"
+      :entity-key="entityMeta?.key ?? ''"
           :entity-label="entityLabel"
           :fields="fields"
           :system-fields="systemFields"
@@ -789,6 +821,16 @@ function humanizeEntity(value: string): string {
           :field-errors="fieldErrors"
           :disabled="saving || isSystem"
           @update:model-value="updateDraft"
+        />
+        <RecordTimeline
+          v-if="Number(timelineRecordID) > 0"
+          :entries="timelineEntries"
+          :loading="timelineQuery.isPending.value"
+          :error="timelineError"
+          :comment="commentDraft"
+          :submitting="addCommentMutation.isPending.value"
+          @update:comment="commentDraft = $event"
+          @comment="addComment"
         />
       </template>
     </div>

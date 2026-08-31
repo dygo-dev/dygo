@@ -20,7 +20,35 @@ const (
 )
 
 type activityActorNameContextKey struct{}
+type activityActorContextKey struct{}
 type activitySourceContextKey struct{}
+type activitySystemReasonContextKey struct{}
+
+// ActivityContextActor identifies the user that caused framework Activity.
+type ActivityContextActor struct {
+	UserID        int64
+	Email         string
+	Administrator bool
+}
+
+// WithActivityActor attaches the current user to Record hooks and Activity.
+func WithActivityActor(ctx context.Context, userID int64, email string, administrator bool) context.Context {
+	if ctx == nil || userID <= 0 {
+		return ctx
+	}
+	email = strings.TrimSpace(email)
+	ctx = context.WithValue(ctx, activityActorContextKey{}, ActivityContextActor{UserID: userID, Email: email, Administrator: administrator})
+	return WithActivityActorName(ctx, email)
+}
+
+// ActivityActorFromContext returns the current Activity actor.
+func ActivityActorFromContext(ctx context.Context) (ActivityContextActor, bool) {
+	if ctx == nil {
+		return ActivityContextActor{}, false
+	}
+	actor, ok := ctx.Value(activityActorContextKey{}).(ActivityContextActor)
+	return actor, ok && actor.UserID > 0
+}
 
 type recordBeginner interface {
 	Begin(context.Context) (pgx.Tx, error)
@@ -74,6 +102,27 @@ func ActivitySourceFromContext(ctx context.Context) (string, bool) {
 	return source, true
 }
 
+// WithActivitySystemReason marks framework mutations performed on behalf of the system.
+func WithActivitySystemReason(ctx context.Context, reason string) context.Context {
+	if ctx == nil {
+		return ctx
+	}
+	reason = strings.TrimSpace(reason)
+	if reason == "" {
+		return ctx
+	}
+	return context.WithValue(ctx, activitySystemReasonContextKey{}, reason)
+}
+
+// ActivitySystemReasonFromContext returns the reason attached to a system mutation.
+func ActivitySystemReasonFromContext(ctx context.Context) (string, bool) {
+	if ctx == nil {
+		return "", false
+	}
+	reason, ok := ctx.Value(activitySystemReasonContextKey{}).(string)
+	return reason, ok && strings.TrimSpace(reason) != ""
+}
+
 func (s RecordStore) withRecordMutation(ctx context.Context, fn func(RecordStore) (Record, error)) (Record, error) {
 	beginner, ok := s.queryer.(recordBeginner)
 	if !ok {
@@ -86,6 +135,7 @@ func (s RecordStore) withRecordMutation(ctx context.Context, fn func(RecordStore
 	txStore := NewRecordStoreWithHooks(tx, s.hooks)
 	txStore.allowSystemMutations = s.allowSystemMutations
 	txStore.logQueryer = s.logQueryer
+	txStore.scope = s.scope
 	record, err := fn(txStore)
 	if err != nil {
 		_ = tx.Rollback(ctx)
@@ -180,11 +230,19 @@ func activityRecordID(record Record) (int64, error) {
 }
 
 func activityDetails(ctx context.Context) map[string]any {
+	details := map[string]any{}
 	source, ok := ActivitySourceFromContext(ctx)
-	if !ok {
+	if ok {
+		details["source"] = source
+	}
+	reason, ok := ActivitySystemReasonFromContext(ctx)
+	if ok {
+		details["system-reason"] = reason
+	}
+	if len(details) == 0 {
 		return nil
 	}
-	return map[string]any{"source": source}
+	return details
 }
 
 func activityJSONRaw(value any) (json.RawMessage, error) {

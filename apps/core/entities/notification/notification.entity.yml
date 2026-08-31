@@ -1,0 +1,58 @@
+label: Notification
+description: User-facing in-app notification with optional email delivery.
+icon: bell
+route:
+  slug: core-notification
+name:
+  strategy: random
+fields:
+  - name: recipient
+    label: Recipient
+    type: link
+    required: true
+    index: true
+    options:
+      entity: user
+
+  - name: title
+    label: Title
+    type: text
+    required: true
+
+  - name: message
+    label: Message
+    type: long-text
+    required: true
+
+  - name: deep-link
+    label: Deep Link
+    type: text
+    required: true
+    default: /
+
+  - name: read-at
+    label: Read At
+    type: datetime
+    index: true
+
+  - name: send-email
+    label: Send Email
+    type: boolean
+    required: true
+    default: false
+
+  - name: emailed-at
+    label: Emailed At
+    type: datetime
+
+  - name: idempotency-key
+    label: Idempotency Key
+    type: text
+    required: true
+constraints:
+  - type: unique
+    fields: [recipient, idempotency-key]
+indexes:
+  - name: by-recipient-read-at
+    fields: [recipient, read-at]
+

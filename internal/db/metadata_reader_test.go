@@ -104,7 +104,7 @@ func TestMetadataReaderGetEntityMeta(t *testing.T) {
 	if string(meta.Fields[0].Fetch) != `{"from":"profile.email"}` {
 		t.Fatalf("email fetch = %q, want profile.email", string(meta.Fields[0].Fetch))
 	}
-	if len(meta.SystemFields) != 4 || meta.SystemFields[1].Name != "name" || !meta.SystemFields[1].NameRenderable {
+	if len(meta.SystemFields) != 5 || meta.SystemFields[1].Name != "name" || !meta.SystemFields[1].NameRenderable || meta.SystemFields[4].Name != "owner" {
 		t.Fatalf("GetEntityMeta() system fields = %+v, want framework system field metadata", meta.SystemFields)
 	}
 	if string(meta.Fields[1].Default) != "true" {

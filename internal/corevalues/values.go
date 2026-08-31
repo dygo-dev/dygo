@@ -46,6 +46,7 @@ const (
 	ActivityKindAttachment = "attachment"
 	ActivityKindAuth       = "auth"
 	ActivityKindSystem     = "system"
+	ActivityKindAction     = "action"
 )
 
 // ActivityKinds returns Core activity kind values in metadata order.
@@ -59,6 +60,7 @@ func ActivityKinds() []string {
 		ActivityKindAttachment,
 		ActivityKindAuth,
 		ActivityKindSystem,
+		ActivityKindAction,
 	}
 }
 
@@ -75,6 +77,7 @@ const (
 	ActivityOperationLogin              = "login"
 	ActivityOperationLogout             = "logout"
 	ActivityOperationSystem             = "system"
+	ActivityOperationAction             = "action"
 )
 
 // ActivityOperations returns Core activity operation values in metadata order.
@@ -92,6 +95,7 @@ func ActivityOperations() []string {
 		ActivityOperationLogin,
 		ActivityOperationLogout,
 		ActivityOperationSystem,
+		ActivityOperationAction,
 	}
 }
 

@@ -5,6 +5,7 @@ import { ArrowDown, ArrowUp, Plus, Trash2 } from '@lucide/vue'
 import { Button, IconButton, Input, Select, Switch, Textarea, type FieldOption, type TextInputType } from '@/design'
 import type { MetadataEntityMeta, MetadataField } from '@/features/metadata/metadata.api'
 import type { RecordData } from '@/features/records/records.api'
+import LinkPicker from './LinkPicker.vue'
 
 const props = withDefaults(defineProps<{
   id: string
@@ -25,6 +26,8 @@ const props = withDefaults(defineProps<{
 
 const emit = defineEmits<{
   'update:modelValue': [value: RecordData[]]
+  'open-related': [payload: { field: MetadataField; recordName: string }]
+  'create-related': [field: MetadataField]
 }>()
 
 const rows = computed<RecordData[]>(() => {
@@ -224,8 +227,22 @@ function isHiddenCollectionField(field: MetadataField): boolean {
         <tbody>
           <tr v-for="(row, rowIndex) in rows" :key="rowKey(row, rowIndex)">
             <td v-for="column in columns" :key="column.name">
+              <LinkPicker
+                v-if="editorForField(column) === 'link'"
+                :id="fieldId(column, rowIndex)"
+                :label="labelForField(column)"
+                :field="column"
+                :model-value="textValue(row, column)"
+                :current-values="row"
+                :required="column.required"
+                :disabled="disabled"
+                @update:model-value="updateCell(rowIndex, column, $event)"
+                @open-related="emit('open-related', { field: column, recordName: $event })"
+                @create-related="emit('create-related', column)"
+              />
+
               <Select
-                v-if="editorForField(column) === 'select'"
+                v-else-if="editorForField(column) === 'select'"
                 :id="fieldId(column, rowIndex)"
                 :model-value="textValue(row, column)"
                 :name="`${field.name}.${rowIndex}.${column.name}`"
