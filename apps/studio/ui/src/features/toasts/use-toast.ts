@@ -1,3 +1,4 @@
+import { studioSounds } from '@/features/sounds'
 import { useToastStore, type StudioToastRequest } from './toasts.store'
 
 export function useToast() {
@@ -6,7 +7,10 @@ export function useToast() {
   return {
     show: (request: StudioToastRequest) => store.show(request),
     success: (title: string, content?: string) => store.show({ title, content, type: 'success' }),
-    error: (title: string, content?: string) => store.show({ title, content, type: 'danger' }),
+    error: (title: string, content?: string) => {
+      studioSounds.error()
+      store.show({ title, content, type: 'danger' })
+    },
     warning: (title: string, content?: string) => store.show({ title, content, type: 'warning' }),
     info: (title: string, content?: string) => store.show({ title, content, type: 'info' }),
   }
