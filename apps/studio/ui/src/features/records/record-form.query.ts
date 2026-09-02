@@ -2,6 +2,7 @@ import { computed, toValue, type MaybeRefOrGetter } from 'vue'
 import { useMutation, useQuery } from '@tanstack/vue-query'
 
 import { queryClient } from '@/app/query'
+import { studioSounds } from '@/features/sounds'
 import { recordListBaseQueryKey } from './record-list.query'
 import {
   createRecord,
@@ -40,6 +41,12 @@ type DeleteRecordVariables = {
   id: string | number
 }
 
+type AddRecordCommentVariables = {
+  entity: string
+  recordID: string | number
+  message: string
+}
+
 export function recordByNameQueryKey(entity: string, recordName: string) {
   return ['records', 'detail', entity, recordName] as const
 }
@@ -69,10 +76,10 @@ export function useRecordActivityQuery(
 
 export function useAddRecordCommentMutation() {
   return useMutation({
-    mutationFn: ({ entity, recordID, message }: { entity: string; recordID: string | number; message: string }) => addRecordComment(entity, recordID, message),
-    onSuccess: (_result, variables) => {
+    mutationFn: ({ entity, recordID, message }: AddRecordCommentVariables) => addRecordComment(entity, recordID, message),
+    ...studioMutationSoundHandlers<{ created: boolean }, AddRecordCommentVariables>('save', (_result, variables) => {
       void queryClient.invalidateQueries({ queryKey: recordActivityQueryKey(variables.entity, variables.recordID) })
-    },
+    }),
   })
 }
 
@@ -111,46 +118,68 @@ export function useSingleRecordQuery(
 export function useCreateRecordMutation() {
   return useMutation({
     mutationFn: ({ entity, data }: CreateRecordVariables) => createRecord(entity, data),
-    onSuccess: (record, variables) => {
+    ...studioMutationSoundHandlers<RecordData, CreateRecordVariables>('save', (record, variables) => {
       cacheNamedRecord(variables.entity, record)
       invalidateRecordLists(variables.entity)
-    },
+    }),
   })
 }
 
 export function useUpdateRecordMutation() {
   return useMutation({
     mutationFn: ({ entity, id, data }: UpdateRecordVariables) => updateRecord(entity, id, data),
-    onSuccess: (record, variables) => {
+    ...studioMutationSoundHandlers<RecordData, UpdateRecordVariables>('save', (record, variables) => {
       queryClient.setQueryData(recordByNameQueryKey(variables.entity, variables.recordName), record)
       cacheNamedRecord(variables.entity, record)
       invalidateRecordLists(variables.entity)
-    },
+    }),
   })
 }
 
 export function useUpdateSingleRecordMutation() {
   return useMutation({
     mutationFn: ({ entity, data }: UpdateSingleRecordVariables) => updateSingleRecord(entity, data),
-    onSuccess: (record, variables) => {
+    ...studioMutationSoundHandlers<RecordData, UpdateSingleRecordVariables>('save', (record, variables) => {
       queryClient.setQueryData(singleRecordQueryKey(variables.entity), record)
       cacheNamedRecord(variables.entity, record)
       invalidateRecordLists(variables.entity)
-    },
+    }),
   })
 }
 
 export function useDeleteRecordMutation() {
   return useMutation({
     mutationFn: ({ entity, id }: DeleteRecordVariables) => deleteRecord(entity, id),
-    onSuccess: (_result, variables) => {
+    ...studioMutationSoundHandlers<void, DeleteRecordVariables>('delete', (_result, variables) => {
       queryClient.removeQueries({
         queryKey: recordByNameQueryKey(variables.entity, variables.recordName),
         exact: true,
       })
       invalidateRecordLists(variables.entity)
-    },
+    }),
   })
+}
+
+type StudioMutationSound = 'save' | 'delete'
+
+function studioMutationSoundHandlers<TData, TVariables>(
+  sound: StudioMutationSound,
+  onSuccess?: (data: TData, variables: TVariables) => void,
+) {
+  return {
+    onSuccess: (data: TData, variables: TVariables) => {
+      if (sound === 'delete') {
+        studioSounds.delete()
+      } else {
+        studioSounds.save()
+      }
+
+      onSuccess?.(data, variables)
+    },
+    onError: () => {
+      studioSounds.error()
+    },
+  }
 }
 
 function cacheNamedRecord(entity: string, record: RecordData) {
