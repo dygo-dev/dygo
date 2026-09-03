@@ -51,10 +51,6 @@ function toggleOpen() {
   open.value = !open.value
 }
 
-function hideIndicator() {
-  open.value = false
-}
-
 function toggleErrorExpanded(index: number) {
   errorExpanded.value = errorExpanded.value === index ? null : index
 }
