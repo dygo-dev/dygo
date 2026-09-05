@@ -14,6 +14,8 @@ Write accurate technical information in ASD-STE100 style.
 - Use the exact terms from `docs/nomenclature.md`.
 - Call the main UI Studio. Use Entity, Record, Field, App, Hook, Fixture, Patch, Job, and Schedule with their defined meanings.
 - Separate current behavior from proposed behavior and coming-soon behavior.
+- For SDK or runtime changes, check adjacent guides for stale claims about access modes, transaction scope, and available services. Verify examples against the actual service wiring, not only the public interface.
+- When code and documentation disagree during a review, report the conflict. Do not silently select the more permissive contract.
 - Verify commands, flags, paths, metadata keys, and examples against current code.
 - Put source-of-truth details in the canonical document and link to them from related documents.
 - Do not copy the same contract into many files.

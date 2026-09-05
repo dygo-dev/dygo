@@ -15,7 +15,10 @@ Read the relevant sections of `docs/jobs.md`, `docs/schedule.md`, `docs/queues.m
 
 - Identify a Job by `<app>/<job>`. Do not use its label as identity.
 - Keep the Job payload explicit, stable, and safe to persist.
-- Use an idempotency key when duplicate execution can harm the business.
+- Use an idempotency key when duplicate execution can harm the business. Define how retries recover partial completion; a deduplication key alone does not ensure completion.
+- Job handlers run outside request transactions. A Record transaction does not automatically bind the Job or Notification service to that transaction. Trace the supplied services before relying on atomic writes.
+- For a Record plus queued-work operation, check failure between persistence and enqueueing. A retry must complete the missing work or observe a complete prior operation.
+- For transaction or retry changes, use a focused failure-path check that can detect partial commits. A success-only fake does not prove rollback or concurrency behavior.
 - Make retry behavior match the failure type. Do not retry permanent validation failures.
 - Keep handlers observable through result data, errors, timing, and persisted Logs.
 - Keep queue and concurrency choices explicit when ordering or resource limits matter.

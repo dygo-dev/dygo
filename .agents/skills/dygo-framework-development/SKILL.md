@@ -15,10 +15,14 @@ Read `AGENTS.md`, `docs/doctrine.md`, `docs/app-model.md`, `docs/sdk.md`, `docs/
 
 - Keep implementation details under `internal/`.
 - Expose stable App capability only through `pkg/dygo`.
-- Any reusable capability used by Core must be available to Business Apps through a supported SDK contract when practical.
-- Make bootstrap exceptions explicit, small, and documented in the code path.
+- Expose reusable App capability used by Core through a supported SDK contract. Keep storage and bootstrap privileges internal.
+- Trace one Core caller and one Business App caller through the shared primitive. A public interface alone does not prove dogfooding.
+- For a direct SQL or private Core path, identify why the shared primitive is insufficient. Bootstrap metadata writes and worker claim SQL can require separate paths. Ordinary Record changes need an explicit reason to bypass shared behavior.
+- Keep each exception small. Document its scope and its permission, Hook, and Activity behavior at the call site.
 - Prefer shared contracts and registries for naming, Field types, metadata, permissions, Hooks, queries, and API envelopes.
-- Dogfood metadata-backed Records and framework primitives where metadata exists.
+- Dogfood metadata-backed Records and framework primitives where metadata exists. Extend the canonical owner before adding a parallel service.
+- Trace transaction ownership and access mode through Actions, Hooks, and Jobs. Services supplied together do not necessarily share a transaction.
+- When a service claims atomic behavior across Records and Jobs, verify that both use the same transaction in each supported entry point.
 - Consider permissions, Logs, audit behavior, health, failure states, CLI support, documentation, and Studio visibility.
 - Keep public APIs small. A public API is a compatibility promise.
 - Prefer boring, explicit implementation over hidden magic.

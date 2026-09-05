@@ -16,6 +16,8 @@ Read `docs/studio.md`, `docs/app-model.md`, and the affected UI contract. Inspec
 - Let Business Apps provide metadata and behavior. Let Studio render supported contracts consistently.
 - Prefer shared renderers and design components over feature-local copies.
 - Keep server state in TanStack Query and cross-feature client state in Pinia only when it has a clear owner.
+- Give applied route state, draft filter input, persisted preferences, and server results distinct owners. Do not add another synchronized copy of the same state.
+- When a renderer mixes route synchronization, data fetching, actions, import/export, and presentation, separate the affected responsibility with a small contract. Avoid a mechanical file split or a new generic controller.
 - Keep route identity aligned with the server route registry and boot payload.
 - Enforce permissions on the server. Use client checks only for presentation and guidance.
 - Handle loading, empty, error, forbidden, and retry states.

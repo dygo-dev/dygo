@@ -18,6 +18,8 @@ Read `docs/access.md`, `docs/auth.md`, and the current permission actions in `in
 - Use canonical App and Entity identities. Do not use labels or route slugs as permission identity.
 - Keep the built-in action set small. Do not model business lifecycle verbs as global CRUD actions.
 - Enforce access on the server before you add UI visibility rules.
+- Trace the effective Record access mode for each caller: actor-scoped, trusted action, or system. Actor attribution in Activity does not prove permission enforcement.
+- Use `AsActor` for user-scoped access and a non-empty `AsSystem` reason for intentional system access. Do not copy an unscoped constructor into a new caller without establishing its trust boundary.
 - Treat Administrator bypass as a narrow framework rule, not an App authorization shortcut.
 - Do not add a second permission engine or a private Core-only permission path.
 - Preserve database-owned Studio access Records when the documented sync contract requires it.
