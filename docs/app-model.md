@@ -28,7 +28,7 @@ The first Core Entity contracts live under `apps/core/entities/`. dygo creates C
 
 After schema sync succeeds, dygo persists discovered App, Entity, Field, Index, and Constraint metadata into Core records. YAML metadata stays the source of truth; the Core records are the runtime registry that APIs and Studio read.
 
-The first generic Record API uses this runtime registry. Auth resolves an Administrator account and session identity from Core records. Record APIs ask the single permission engine before reading or mutating Records. The engine allows Administrator users first, then evaluates flat Core role permissions. App lifecycle patches, sharing rules, row-level permissions, field-level permissions, and Studio screens are separate follow-up layers.
+The first generic Record API uses this runtime registry. Auth resolves an Administrator account and session identity from Core records. Record APIs ask the single permission engine before reading or mutating Records. The engine allows Administrator users first, then evaluates role grants, row conditions, and field restrictions. App lifecycle patches use a transactional ledger. See [Access](access.md) and [Explicit Patches](patches.md) for these contracts.
 
 `apps/studio` is the first-party UI app.
 

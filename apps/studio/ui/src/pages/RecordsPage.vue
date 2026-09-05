@@ -9,6 +9,7 @@ import PageHeader from '@/shell/PageHeader.vue'
 import type { PageHeaderAction } from '@/shell/types'
 import { RecordListRenderer } from '@/renderers/records'
 import { RouteName } from '@/router/routes'
+import { humanizeEntity } from '@/stores/metadata.identity'
 import { statusForError, storeError, type LoadStatus } from '@/stores/status'
 import RecordFormPage from './RecordFormPage.vue'
 
@@ -75,11 +76,6 @@ const actions = computed<PageHeaderAction[]>(() => {
   return next
 })
 
-function humanizeEntity(value: string): string {
-  return value
-    .replace(/[-_]+/g, ' ')
-    .replace(/\b\w/g, (letter) => letter.toUpperCase())
-}
 </script>
 
 <template>

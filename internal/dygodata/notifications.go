@@ -3,9 +3,12 @@ package dygodata
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"strings"
 
+	"github.com/hapyco/dygo/internal/db"
+	jobstore "github.com/hapyco/dygo/internal/jobs/store"
 	notificationstore "github.com/hapyco/dygo/internal/notifications"
 	"github.com/hapyco/dygo/pkg/dygo"
 )
@@ -25,6 +28,33 @@ func NewNotificationData(records dygo.RecordData, jobs dygo.JobData) Notificatio
 
 // Send creates one notification or returns the existing notification for the same recipient and key.
 func (d NotificationData) Send(ctx context.Context, message dygo.NotificationMessage) (dygo.NotificationReceipt, error) {
+	if records, ok := d.records.(RecordData); ok {
+		if _, ok := records.queryer.(jobstore.Beginner); !ok {
+			return dygo.NotificationReceipt{}, fmt.Errorf("notification transaction is unavailable")
+		}
+		var receipt dygo.NotificationReceipt
+		err := records.Transaction(ctx, func(txCtx context.Context, txRecords dygo.RecordData) error {
+			transactional, ok := txRecords.(RecordData)
+			if !ok {
+				return fmt.Errorf("notification transaction is unavailable")
+			}
+			beginner, ok := transactional.queryer.(jobstore.Beginner)
+			if !ok {
+				return fmt.Errorf("notification transaction job store is unavailable")
+			}
+			jobs, err := NewJobDataFromBeginner(beginner)
+			if err != nil {
+				return err
+			}
+			receipt, err = NotificationData{records: txRecords, jobs: jobs}.send(txCtx, message)
+			return err
+		})
+		return receipt, err
+	}
+	return d.send(ctx, message)
+}
+
+func (d NotificationData) send(ctx context.Context, message dygo.NotificationMessage) (dygo.NotificationReceipt, error) {
 	message.Recipient = strings.TrimSpace(message.Recipient)
 	message.Title = strings.TrimSpace(message.Title)
 	message.Message = strings.TrimSpace(message.Message)
@@ -51,6 +81,8 @@ func (d NotificationData) Send(ctx context.Context, message dygo.NotificationMes
 	match := notificationMatch(message)
 	if existing, err := d.records.Find(ctx, "core", "notification", match); err == nil {
 		return notificationReceipt(existing, false), nil
+	} else if !isRecordNotFound(err) {
+		return dygo.NotificationReceipt{}, err
 	}
 
 	record, err := d.records.Create(ctx, "core", "notification", notificationInput(message))
@@ -58,6 +90,8 @@ func (d NotificationData) Send(ctx context.Context, message dygo.NotificationMes
 		// A concurrent sender can win the unique recipient/key constraint.
 		if existing, findErr := d.records.Find(ctx, "core", "notification", match); findErr == nil {
 			return notificationReceipt(existing, false), nil
+		} else if !isRecordNotFound(findErr) {
+			return dygo.NotificationReceipt{}, findErr
 		}
 		return dygo.NotificationReceipt{}, err
 	}
@@ -111,6 +145,11 @@ func notificationReceipt(record dygo.Record, created bool) dygo.NotificationRece
 	}
 	receipt.Name, _ = record["name"].(string)
 	return receipt
+}
+
+func isRecordNotFound(err error) bool {
+	var recordErr db.RecordError
+	return errors.As(err, &recordErr) && recordErr.Code == db.RecordErrorNotFound
 }
 
 func recordInput(values map[string]any) dygo.RecordInput {

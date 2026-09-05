@@ -30,7 +30,7 @@ func TestRunDryRunInsideProjectPlansProject(t *testing.T) {
 
 	result, err := Run(context.Background(), Options{
 		CurrentVersion: "v1.0.0",
-		TargetVersion:  "v1.2.3",
+		TargetVersion:  "v1.0.0",
 		DryRun:         true,
 		WorkingDir:     root,
 	})
@@ -40,8 +40,24 @@ func TestRunDryRunInsideProjectPlansProject(t *testing.T) {
 	if result.Project == nil {
 		t.Fatalf("Run(dry-run project) result = %+v, want project plan", result)
 	}
-	if result.Project.CurrentVersion != "v0.0.0" || result.Project.TargetVersion != "v1.2.3" {
+	if result.Project.CurrentVersion != "v0.0.0" || result.Project.TargetVersion != "v1.0.0" {
 		t.Fatalf("Project result = %+v, want current and target versions", result.Project)
+	}
+}
+
+func TestRunRejectsTargetDifferentFromRunningDygo(t *testing.T) {
+	root := newUpgradeTestProject(t)
+
+	_, err := Run(context.Background(), Options{
+		CurrentVersion: "v1.0.0",
+		TargetVersion:  "v1.2.3",
+		WorkingDir:     root,
+	})
+	if err == nil {
+		t.Fatal("Run(mismatched target) error = nil, want version mismatch")
+	}
+	if !strings.Contains(err.Error(), "does not match the running dygo version") {
+		t.Fatalf("Run(mismatched target) error = %q, want version mismatch", err.Error())
 	}
 }
 
@@ -101,6 +117,22 @@ func TestRunDevBinaryRequiresExplicitTarget(t *testing.T) {
 	}
 	if got := err.Error(); got != "dygo upgrade requires --to when running an unreleased dev binary" {
 		t.Fatalf("Run(dev upgrade) error = %q, want explicit target", got)
+	}
+}
+
+func TestRunDevBinaryRejectsReleasedTarget(t *testing.T) {
+	root := newUpgradeTestProject(t)
+
+	_, err := Run(context.Background(), Options{
+		CurrentVersion: "dev",
+		TargetVersion:  "v1.2.3",
+		WorkingDir:     root,
+	})
+	if err == nil {
+		t.Fatal("Run(dev released target) error = nil, want asset-version error")
+	}
+	if !strings.Contains(err.Error(), "requires a matching released dygo binary") {
+		t.Fatalf("Run(dev released target) error = %q, want asset-version error", err.Error())
 	}
 }
 

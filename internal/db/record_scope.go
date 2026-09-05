@@ -26,8 +26,11 @@ func (s RecordStore) WithScope(scope RecordScope) RecordStore {
 }
 
 func (s RecordStore) scopedWhere(where string, args []any) (string, []any) {
-	if s.scope == nil || s.scope.Where == "" || s.scope.Where == "TRUE" {
+	if s.scope == nil {
 		return where, args
+	}
+	if s.scope.Where == "" || s.scope.Where == "TRUE" {
+		return where, append(args, s.scope.Args...)
 	}
 	scopeWhere := shiftPlaceholders(s.scope.Where, len(args))
 	if where == "" {
@@ -88,13 +91,17 @@ func (s RecordStore) AuthorizeField(ctx context.Context, appName string, entity 
 	if !restricted || predicate == "" || predicate == "TRUE" {
 		return nil
 	}
+	if predicate == "FALSE" {
+		return recordError(RecordErrorPermissionDenied, "permission denied", map[string]any{"entity": entity, "field": field}, nil)
+	}
 	layout, err := s.recordLayoutByIdentity(ctx, appName, entity)
 	if err != nil {
 		return err
 	}
 	var allowed bool
-	query := fmt.Sprintf("SELECT EXISTS (SELECT 1 FROM %s AS %s WHERE %s.id = $1 AND (%s))", quoteIdent(layout.Table), quoteIdent(recordSelectSourceAlias), quoteIdent(recordSelectSourceAlias), shiftPlaceholders(predicate, 1))
-	if err := s.queryer.QueryRow(ctx, query, append([]any{id}, s.scope.Args...)...).Scan(&allowed); err != nil {
+	where, args := s.scopedWhere(quoteIdent(recordSelectSourceAlias)+".id = $1", []any{id})
+	query := fmt.Sprintf("SELECT EXISTS (SELECT 1 FROM %s AS %s WHERE %s AND (%s))", quoteIdent(layout.Table), quoteIdent(recordSelectSourceAlias), where, shiftPlaceholders(predicate, 1))
+	if err := s.queryer.QueryRow(ctx, query, args...).Scan(&allowed); err != nil {
 		return recordError(RecordErrorInternal, "evaluate field access failed", map[string]any{"entity": layout.Entity, "field": field}, err)
 	}
 	if !allowed {
@@ -104,7 +111,7 @@ func (s RecordStore) AuthorizeField(ctx context.Context, appName string, entity 
 }
 
 func (s RecordStore) validateProposedScope(ctx context.Context, layout recordLayout, mutation recordMutation, input RecordInput) error {
-	if s.scope == nil || s.scope.Where == "" || s.scope.Where == "TRUE" {
+	if s.scope == nil || ((s.scope.Where == "" || s.scope.Where == "TRUE") && len(s.scope.FieldWrite) == 0) {
 		return nil
 	}
 	values := map[string]string{}
@@ -120,13 +127,17 @@ func (s RecordStore) validateProposedScope(ctx context.Context, layout recordLay
 		}
 		selects = append(selects, expression+" AS "+quoteIdent(column))
 	}
-	predicates := []string{s.scope.Where}
+	where := s.scope.Where
+	if where == "" {
+		where = "TRUE"
+	}
+	predicates := []string{where}
 	for field := range input {
 		if predicate, restricted := s.scope.FieldWrite[field]; restricted {
 			predicates = append(predicates, predicate)
 		}
 	}
-	where := shiftPlaceholders("("+strings.Join(predicates, ") AND (")+")", len(mutation.Values))
+	where = shiftPlaceholders("("+strings.Join(predicates, ") AND (")+")", len(mutation.Values))
 	args := append(append([]any{}, mutation.Values...), s.scope.Args...)
 	var allowed bool
 	query := fmt.Sprintf("SELECT EXISTS (SELECT 1 FROM (SELECT %s) AS %s WHERE %s)", strings.Join(selects, ", "), quoteIdent(recordSelectSourceAlias), where)

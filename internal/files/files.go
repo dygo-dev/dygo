@@ -14,6 +14,8 @@ import (
 
 	"github.com/hapyco/dygo/internal/corevalues"
 	"github.com/hapyco/dygo/internal/db"
+	"github.com/hapyco/dygo/internal/dygodata"
+	jobstore "github.com/hapyco/dygo/internal/jobs/store"
 	"github.com/hapyco/dygo/internal/permissions"
 	"github.com/hapyco/dygo/pkg/dygo"
 )
@@ -54,6 +56,7 @@ type Service struct {
 	checker      scopeChecker
 	actor        *dygo.Actor
 	rollbackKeys *[]string
+	bindingErr   error
 }
 
 var _ dygo.FileData = Service{}
@@ -65,11 +68,28 @@ func NewService(queryer db.RecordQueryer, blobs BlobStore, jobs jobEnqueuer, che
 
 // WithQueryer returns a file view backed by a caller-owned transaction.
 func (s Service) WithQueryer(queryer db.RecordQueryer) dygo.FileData {
+	bound, err := s.bindQueryer(queryer)
+	if err != nil {
+		bound.bindingErr = err
+	}
+	keys := []string{}
+	bound.rollbackKeys = &keys
+	return bound
+}
+
+func (s Service) bindQueryer(queryer db.RecordQueryer) (Service, error) {
 	s.queryer = queryer
 	s.store = db.NewRecordStoreWithHookPolicy(queryer, db.RecordMutationHooksNone)
-	keys := []string{}
-	s.rollbackKeys = &keys
-	return s
+	beginner, ok := queryer.(jobstore.Beginner)
+	if !ok {
+		return s, fmt.Errorf("file transaction does not support job enqueueing")
+	}
+	jobs, err := dygodata.NewJobDataFromBeginner(beginner)
+	if err != nil {
+		return s, err
+	}
+	s.jobs = jobs
+	return s, nil
 }
 
 // AsActor returns a view that applies the actor's conditional Record scopes.
@@ -85,6 +105,9 @@ func (s Service) Upload(ctx context.Context, upload dygo.FileUpload) (dygo.File,
 		return dygo.File{}, err
 	}
 	if err := validateUpload(upload); err != nil {
+		return dygo.File{}, err
+	}
+	if err := validateTarget(upload.Target); err != nil {
 		return dygo.File{}, err
 	}
 	if hasTarget(upload.Target) {
@@ -172,8 +195,11 @@ func (s Service) Attach(ctx context.Context, id int64, target dygo.FileTarget) (
 	if err := s.require(); err != nil {
 		return dygo.File{}, err
 	}
-	if id <= 0 || !hasTarget(target) {
+	if id <= 0 || !targetProvided(target) {
 		return dygo.File{}, fileError("invalid_request", "file and target are required")
+	}
+	if err := validateTarget(target); err != nil {
+		return dygo.File{}, err
 	}
 	if err := s.authorizeTarget(ctx, target, permissions.ActionUpdate, true); err != nil {
 		return dygo.File{}, err
@@ -219,6 +245,32 @@ func (s Service) Remove(ctx context.Context, id int64) error {
 	if err := s.require(); err != nil {
 		return err
 	}
+	if s.jobs == nil {
+		return fmt.Errorf("file cleanup job service is unavailable")
+	}
+	beginner, ok := s.queryer.(jobstore.Beginner)
+	if !ok {
+		return fmt.Errorf("file removal transaction is unavailable")
+	}
+	tx, err := beginner.Begin(ctx)
+	if err != nil {
+		return fmt.Errorf("begin file removal: %w", err)
+	}
+	defer tx.Rollback(ctx)
+	transactional, err := s.bindQueryer(tx)
+	if err != nil {
+		return err
+	}
+	if err := transactional.remove(ctx, id); err != nil {
+		return err
+	}
+	if err := tx.Commit(ctx); err != nil {
+		return fmt.Errorf("commit file removal: %w", err)
+	}
+	return nil
+}
+
+func (s Service) remove(ctx context.Context, id int64) error {
 	file, err := s.get(ctx, id)
 	if err != nil {
 		return err
@@ -228,9 +280,6 @@ func (s Service) Remove(ctx context.Context, id int64) error {
 	}
 	if err := s.authorizeTarget(ctx, file.Target, permissions.ActionUpdate, true); err != nil {
 		return err
-	}
-	if s.jobs == nil {
-		return fmt.Errorf("file cleanup job service is unavailable")
 	}
 	if err := s.store.SystemWriter().DeleteByIdentity(ctx, coreApp, coreEntity, id, db.SystemMutationSilent); err != nil {
 		return err
@@ -245,6 +294,9 @@ func (s Service) Remove(ctx context.Context, id int64) error {
 }
 
 func (s Service) require() error {
+	if s.bindingErr != nil {
+		return s.bindingErr
+	}
 	if s.queryer == nil || s.blobs == nil {
 		return fmt.Errorf("file service is unavailable")
 	}
@@ -333,6 +385,17 @@ func targetInput(target dygo.FileTarget) db.RecordInput {
 
 func hasTarget(target dygo.FileTarget) bool {
 	return strings.TrimSpace(target.App) != "" && strings.TrimSpace(target.Entity) != "" && target.RecordID > 0 && strings.TrimSpace(target.Field) != ""
+}
+
+func validateTarget(target dygo.FileTarget) error {
+	if !targetProvided(target) || hasTarget(target) {
+		return nil
+	}
+	return fileError("invalid_request", "file target must include app, entity, record id, and field")
+}
+
+func targetProvided(target dygo.FileTarget) bool {
+	return strings.TrimSpace(target.App) != "" || strings.TrimSpace(target.Entity) != "" || target.RecordID != 0 || strings.TrimSpace(target.Field) != ""
 }
 
 func fileFromRecord(record db.Record) (dygo.File, error) {

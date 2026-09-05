@@ -16,12 +16,16 @@ export function isHiddenRecordSubmitField(name: string, systemFields: MetadataFi
   return isRecordSystemField(name, systemFields) && submitHiddenSystemFields.has(name)
 }
 
+export function recordFieldLabel(field: MetadataField): string {
+  return field.label || field.name
+}
+
 export function recordSystemListColumns(fields: MetadataField[] = []) {
   return fields
     .filter((field) => !listHiddenSystemFields.has(field.name) && field.listable && !field['write-only'])
     .map((field) => ({
       key: field.name,
-      label: field.name === 'name' ? 'ID' : field.label || field.name,
+      label: field.name === 'name' ? 'ID' : recordFieldLabel(field),
       source: field.name === 'name' ? 'name' as const : 'system' as const,
       cellType: field.studio?.display || 'text',
       sortable: true,

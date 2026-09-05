@@ -27,9 +27,6 @@ func TestGenerateEntityCreatesStandardBundle(t *testing.T) {
 		"file: apps/sales/entities/lead/lead.entity.yml (created)",
 		"file: apps/sales/access/lead.access.yml (created)",
 		"file: apps/sales/entities/lead/fixtures.yml (created)",
-		"file: apps/sales/entities/lead/hooks_test.go (created)",
-		"hook: apps/sales/entities/lead/hooks.go (created)",
-		"runner: cmd/dygo/main.go (created)",
 	} {
 		if !strings.Contains(stdout.String(), want) {
 			t.Fatalf("generate entity stdout = %q, want substring %q", stdout.String(), want)
@@ -40,9 +37,6 @@ func TestGenerateEntityCreatesStandardBundle(t *testing.T) {
 		"apps/sales/entities/lead/lead.entity.yml",
 		"apps/sales/access/lead.access.yml",
 		"apps/sales/entities/lead/fixtures.yml",
-		"apps/sales/entities/lead/hooks.go",
-		"apps/sales/entities/lead/hooks_test.go",
-		"cmd/dygo/main.go",
 	} {
 		if _, err := os.Stat(filepath.Join(root, filepath.FromSlash(path))); err != nil {
 			t.Fatalf("Stat(%s) error = %v, want generated file", path, err)
@@ -58,11 +52,6 @@ func TestGenerateEntityCreatesStandardBundle(t *testing.T) {
 	stderr.Reset()
 	if err := Run(context.Background(), []string{"fixture", "validate"}, strings.NewReader(""), &stdout, &stderr); err != nil {
 		t.Fatalf("Run(fixture validate) error = %v, want generated fixture valid", err)
-	}
-	stdout.Reset()
-	stderr.Reset()
-	if err := Run(context.Background(), []string{"hook", "validate"}, strings.NewReader(""), &stdout, &stderr); err != nil {
-		t.Fatalf("Run(hook validate) error = %v, want generated hook wiring valid", err)
 	}
 }
 
@@ -81,8 +70,6 @@ func TestGenerateEntityDryRunDoesNotWrite(t *testing.T) {
 	for _, want := range []string{
 		"file: apps/sales/entities/lead/lead.entity.yml (would create)",
 		"file: apps/sales/access/lead.access.yml (would create)",
-		"hook: apps/sales/entities/lead/hooks.go (would create)",
-		"runner: cmd/dygo/main.go (would update)",
 	} {
 		if !strings.Contains(stdout.String(), want) {
 			t.Fatalf("generate entity dry-run stdout = %q, want substring %q", stdout.String(), want)
@@ -90,6 +77,9 @@ func TestGenerateEntityDryRunDoesNotWrite(t *testing.T) {
 	}
 	if _, err := os.Stat(filepath.Join(root, "apps", "sales", "entities", "lead", "lead.entity.yml")); !os.IsNotExist(err) {
 		t.Fatalf("dry-run entity stat error = %v, want missing generated file", err)
+	}
+	if _, err := os.Stat(filepath.Join(root, "apps", "sales", "entities", "lead", "hooks.go")); !os.IsNotExist(err) {
+		t.Fatalf("dry-run hook stat error = %v, want missing generated file", err)
 	}
 }
 
@@ -126,9 +116,6 @@ func Register(registry dygo.RecordHookRegistry) error {
 	}
 	if got := readCLIFile(t, hookPath); got != existing {
 		t.Fatalf("hooks.go changed after generate entity --force:\n%s", got)
-	}
-	if !strings.Contains(stdout.String(), "hook: apps/sales/entities/lead/hooks.go (existing)") {
-		t.Fatalf("generate entity --force stdout = %q, want hook existing", stdout.String())
 	}
 }
 

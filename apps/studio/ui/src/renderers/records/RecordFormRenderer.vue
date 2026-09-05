@@ -14,7 +14,7 @@ import {
 import { linkOptions, type MetadataEntityMeta, type MetadataField } from '@/features/metadata/metadata.api'
 import { useMetadataEntitiesQuery } from '@/features/metadata/metadata.query'
 import { uploadRecordFile, type RecordData } from '@/features/records/records.api'
-import { isHiddenRecordFormField } from '@/features/records/system-fields'
+import { isHiddenRecordFormField, recordFieldLabel } from '@/features/records/system-fields'
 import RecordCollectionTable from './RecordCollectionTable.vue'
 import LinkPicker from './LinkPicker.vue'
 import AttachmentEditor from './AttachmentEditor.vue'
@@ -91,10 +91,6 @@ function fieldId(field: MetadataField): string {
   return `record-${props.entity}-${field.name}`.replace(/[^a-zA-Z0-9_-]+/g, '-')
 }
 
-function labelForField(field: MetadataField): string {
-  return field.label || field.name
-}
-
 function isReadonlyField(field: MetadataField): boolean {
   return props.mode !== 'new' && field.name === 'name'
 }
@@ -168,14 +164,13 @@ function selectOptions(field: MetadataField): FieldOption[] {
       <RecordCollectionTable
         v-if="editorForField(field) === 'collection'"
         :id="fieldId(field)"
-        :label="labelForField(field)"
+        :label="recordFieldLabel(field)"
         :field="field"
         :child-meta="collections?.[field.name]"
         :model-value="modelValue[field.name]"
         :required="field.required"
         :disabled="disabled"
         :error="fieldErrors[field.name]"
-        :upload="attachmentUpload(field)"
         @update:model-value="updateField(field, $event)"
         @open-related="openRelated($event.field, $event.recordName)"
         @create-related="createRelated($event)"
@@ -184,7 +179,7 @@ function selectOptions(field: MetadataField): FieldOption[] {
       <PasswordField
         v-else-if="editorForField(field) === 'password'"
         :id="fieldId(field)"
-        :label="labelForField(field)"
+        :label="recordFieldLabel(field)"
         :model-value="textValue(field)"
         :name="field.name"
         :required="mode === 'new' && field.required"
@@ -199,7 +194,7 @@ function selectOptions(field: MetadataField): FieldOption[] {
       <SwitchField
         v-else-if="editorForField(field) === 'switch'"
         :id="fieldId(field)"
-        :label="labelForField(field)"
+        :label="recordFieldLabel(field)"
         :model-value="booleanValue(field)"
         :name="field.name"
         :required="field.required"
@@ -212,7 +207,7 @@ function selectOptions(field: MetadataField): FieldOption[] {
       <SelectField
         v-else-if="editorForField(field) === 'select'"
         :id="fieldId(field)"
-        :label="labelForField(field)"
+        :label="recordFieldLabel(field)"
         :model-value="textValue(field)"
         :name="field.name"
         :options="selectOptions(field)"
@@ -227,7 +222,7 @@ function selectOptions(field: MetadataField): FieldOption[] {
       <LinkPicker
         v-else-if="editorForField(field) === 'link'"
         :id="fieldId(field)"
-        :label="labelForField(field)"
+        :label="recordFieldLabel(field)"
         :field="field"
         :model-value="textValue(field)"
         :current-values="modelValue"
@@ -243,7 +238,7 @@ function selectOptions(field: MetadataField): FieldOption[] {
       <TextareaField
         v-else-if="isTextareaField(field)"
         :id="fieldId(field)"
-        :label="labelForField(field)"
+        :label="recordFieldLabel(field)"
         :model-value="textValue(field)"
         :name="field.name"
         :required="field.required"
@@ -257,7 +252,7 @@ function selectOptions(field: MetadataField): FieldOption[] {
       <TextField
         v-else-if="isTextField(field)"
         :id="fieldId(field)"
-        :label="labelForField(field)"
+        :label="recordFieldLabel(field)"
         :model-value="textValue(field)"
         :name="field.name"
         :type="inputTypeForField(field)"
@@ -271,8 +266,9 @@ function selectOptions(field: MetadataField): FieldOption[] {
       <AttachmentEditor
         v-else-if="field.type === 'attachment'"
         :id="fieldId(field)"
-        :label="labelForField(field)"
+        :label="recordFieldLabel(field)"
         :model-value="textValue(field)"
+        :upload="attachmentUpload(field)"
         :disabled="disabled"
         :readonly="isReadonlyField(field)"
         :error="fieldErrors[field.name]"
@@ -282,7 +278,7 @@ function selectOptions(field: MetadataField): FieldOption[] {
       <TextareaField
         v-else
         :id="fieldId(field)"
-        :label="labelForField(field)"
+        :label="recordFieldLabel(field)"
         :model-value="textValue(field)"
         :name="field.name"
         readonly

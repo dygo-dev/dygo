@@ -525,6 +525,16 @@ func userRecordRow(email string, fullName string, enabled bool) []any {
 }
 
 func (q *recordDataMutationQueryer) Query(_ context.Context, sql string, args ...any) (pgx.Rows, error) {
+	if strings.HasPrefix(sql, `INSERT INTO "activity"`) || strings.HasPrefix(sql, `INSERT INTO "log"`) {
+		_, err := q.Exec(context.Background(), sql, args...)
+		columns := 12
+		if strings.HasPrefix(sql, `INSERT INTO "log"`) {
+			columns = 4 + len(hookLogFieldRows())
+		}
+		values := make([]any, columns)
+		values[0], values[1] = int64(1), "activity"
+		return newRecordDataMutationRows([][]any{values}), err
+	}
 	q.queries = append(q.queries, sql)
 	q.args = append(q.args, args)
 	if rows, ok := hookActivityMetadataRows(sql, args...); ok {

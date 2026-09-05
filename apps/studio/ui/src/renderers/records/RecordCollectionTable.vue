@@ -5,6 +5,7 @@ import { ArrowDown, ArrowUp, Plus, Trash2 } from '@lucide/vue'
 import { Button, IconButton, Input, Select, Switch, Textarea, type FieldOption, type TextInputType } from '@/design'
 import type { MetadataEntityMeta, MetadataField } from '@/features/metadata/metadata.api'
 import type { RecordData } from '@/features/records/records.api'
+import { recordFieldLabel } from '@/features/records/system-fields'
 import LinkPicker from './LinkPicker.vue'
 
 const props = withDefaults(defineProps<{
@@ -120,10 +121,6 @@ function fieldId(field: MetadataField, index: number): string {
   return `${props.id}-${index}-${field.name}`.replace(/[^a-zA-Z0-9_-]+/g, '-')
 }
 
-function labelForField(field: MetadataField): string {
-  return field.label || field.name
-}
-
 function textValue(row: RecordData, field: MetadataField): string {
   const value = row[field.name]
   if (value === null || value === undefined) {
@@ -218,7 +215,7 @@ function isHiddenCollectionField(field: MetadataField): boolean {
         <thead>
           <tr>
             <th v-for="column in columns" :key="column.name" scope="col">
-              {{ labelForField(column) }}
+              {{ recordFieldLabel(column) }}
               <span v-if="column.required" class="record-collection-table__required" aria-hidden="true">*</span>
             </th>
             <th class="record-collection-table__actions" scope="col"></th>
@@ -230,7 +227,7 @@ function isHiddenCollectionField(field: MetadataField): boolean {
               <LinkPicker
                 v-if="editorForField(column) === 'link'"
                 :id="fieldId(column, rowIndex)"
-                :label="labelForField(column)"
+                :label="recordFieldLabel(column)"
                 :field="column"
                 :model-value="textValue(row, column)"
                 :current-values="row"

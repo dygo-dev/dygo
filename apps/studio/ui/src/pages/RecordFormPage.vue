@@ -19,12 +19,13 @@ import {
   useRecordActivityQuery,
 } from '@/features/records/record-form.query'
 import type { RecordData } from '@/features/records/records.api'
-import { isHiddenRecordSubmitField } from '@/features/records/system-fields'
+import { isHiddenRecordSubmitField, recordFieldLabel } from '@/features/records/system-fields'
 import { RecordFormRenderer, RecordTimeline } from '@/renderers/records'
 import { RouteName } from '@/router/routes'
 import FormToolbar from '@/shell/FormToolbar.vue'
 import PageHeader from '@/shell/PageHeader.vue'
 import type { PageHeaderAction } from '@/shell/types'
+import { humanizeEntity } from '@/stores/metadata.identity'
 import { statusForError, storeError, type LoadStatus } from '@/stores/status'
 
 const props = defineProps<{
@@ -272,8 +273,8 @@ watch(
     }
 
     const nextDraft = mode === 'new'
-      ? draftFromDefaults(meta.fields)
-      : draftFromRecord(meta.fields, nextRecord)
+      ? draftFromDefaults(fields.value)
+      : draftFromRecord(fields.value, nextRecord)
 
     draft.value = nextDraft
     baseline.value = { ...nextDraft }
@@ -434,7 +435,7 @@ function convertSubmitValue(field: MetadataField, value: unknown, errors: Record
   }
 
   if (field.type === 'link') {
-    return stringSubmitValue(field, value)
+    return stringSubmitValue(field, value, errors)
   }
 
   if (field.studio?.editor === 'select' && (value === undefined || value === null || value === '') && field.required) {
@@ -460,7 +461,7 @@ function convertSubmitValue(field: MetadataField, value: unknown, errors: Record
     case 'datetime':
     case 'time':
     case 'string':
-      return stringSubmitValue(field, value)
+      return stringSubmitValue(field, value, errors)
     default:
       return { skip: true }
   }
@@ -536,7 +537,7 @@ function collectionRowSubmitValue(parentField: MetadataField, childMeta: Metadat
 function collectionCellSubmitValue(parentField: MetadataField, field: MetadataField, value: unknown, rowIndex: number, existing: boolean, errors: Record<string, string>): ConvertedValue {
   if (isBlankValue(value)) {
     if (field.required) {
-      setCollectionError(errors, parentField, rowIndex, `${labelForField(field)} is required.`)
+      setCollectionError(errors, parentField, rowIndex, `${recordFieldLabel(field)} is required.`)
       return { skip: true }
     }
     if (existing && ['string', 'date', 'datetime', 'time'].includes(field['value-kind'])) {
@@ -555,7 +556,7 @@ function collectionCellSubmitValue(parentField: MetadataField, field: MetadataFi
     case 'integer': {
       const number = Number(value)
       if (!Number.isInteger(number)) {
-        setCollectionError(errors, parentField, rowIndex, `${labelForField(field)} must be an integer.`)
+        setCollectionError(errors, parentField, rowIndex, `${recordFieldLabel(field)} must be an integer.`)
         return { skip: true }
       }
       return { value: number }
@@ -563,7 +564,7 @@ function collectionCellSubmitValue(parentField: MetadataField, field: MetadataFi
     case 'number': {
       const number = Number(value)
       if (!Number.isFinite(number)) {
-        setCollectionError(errors, parentField, rowIndex, `${labelForField(field)} must be a number.`)
+        setCollectionError(errors, parentField, rowIndex, `${recordFieldLabel(field)} must be a number.`)
         return { skip: true }
       }
       return { value: number }
@@ -577,7 +578,7 @@ function collectionCellSubmitValue(parentField: MetadataField, field: MetadataFi
       try {
         return { value: JSON.parse(value) }
       } catch {
-        setCollectionError(errors, parentField, rowIndex, `${labelForField(field)} must be valid JSON.`)
+        setCollectionError(errors, parentField, rowIndex, `${recordFieldLabel(field)} must be valid JSON.`)
         return { skip: true }
       }
     case 'date':
@@ -596,8 +597,13 @@ function setCollectionError(errors: Record<string, string>, field: MetadataField
   }
 }
 
-function stringSubmitValue(field: MetadataField, value: unknown): ConvertedValue {
+function stringSubmitValue(field: MetadataField, value: unknown, errors: Record<string, string>): ConvertedValue {
   const text = value === null || value === undefined ? '' : String(value)
+  if (text === '' && field.required) {
+    errors[field.name] = 'Enter a value.'
+    return { skip: true }
+  }
+
   if (isNew.value && text === '' && !field.required) {
     return { skip: true }
   }
@@ -709,10 +715,6 @@ function editorForField(field: MetadataField): string {
   return field.studio?.editor || field.type
 }
 
-function labelForField(field: MetadataField): string {
-  return field.label || field.name
-}
-
 function isBlankValue(value: unknown): boolean {
   return value === null || value === undefined || value === ''
 }
@@ -771,11 +773,6 @@ function draftValuesEqual(left: unknown, right: unknown): boolean {
   return JSON.stringify(left ?? '') === JSON.stringify(right ?? '')
 }
 
-function humanizeEntity(value: string): string {
-  return value
-    .replace(/[-_]+/g, ' ')
-    .replace(/\b\w/g, (letter) => letter.toUpperCase())
-}
 </script>
 
 <template>

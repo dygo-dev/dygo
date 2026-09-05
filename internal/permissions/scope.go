@@ -4,11 +4,13 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"slices"
 	"sort"
 	"strings"
 
 	"github.com/hapyco/dygo/internal/accesspolicy"
 	"github.com/hapyco/dygo/internal/db"
+	"github.com/hapyco/dygo/internal/entity/fieldtype"
 )
 
 // Scope is the row and field predicate for one actor, Entity, and action.
@@ -79,7 +81,7 @@ FROM "user" u
 JOIN user_role ur ON ur.user_id = u.id
 JOIN "role" r ON r.id = ur.role_id AND COALESCE(r.enabled, false) = true
 JOIN "permission" p ON p.role_id = r.id
-JOIN entity e ON e.id = p.entity_id
+JOIN entity e ON e.id = p.entity_id AND e.retired = false
 JOIN app a ON a.id = e.app_id
 WHERE u.id = $1
 	AND COALESCE(u.enabled, false) = true
@@ -153,10 +155,10 @@ func (c *scopeCompiler) compile(grants []scopeGrant) (Scope, error) {
 		var read, write []string
 		for _, grant := range grants {
 			predicate := grantPredicates[grant.role]
-			if !contains(grant.fields.DenyRead, field) {
+			if !slices.Contains(grant.fields.DenyRead, field) {
 				read = append(read, predicate)
 			}
-			if !contains(grant.fields.DenyRead, field) && !contains(grant.fields.DenyWrite, field) {
+			if !slices.Contains(grant.fields.DenyRead, field) && !slices.Contains(grant.fields.DenyWrite, field) {
 				write = append(write, predicate)
 			}
 		}
@@ -313,24 +315,13 @@ func (c *scopeCompiler) nextAlias() string {
 
 func storageColumn(field db.MetadataField) string {
 	column := strings.ReplaceAll(field.Name, "-", "_")
-	if field.Type == "link" {
-		column += "_id"
-	} else if field.Type == "password" {
-		column += "_hash"
+	if definition, ok := fieldtype.DefaultDefinition(field.Type); ok {
+		column += definition.Behavior.ColumnSuffix
 	}
 	return column
 }
 
 func quote(value string) string { return `"` + strings.ReplaceAll(value, `"`, `""`) + `"` }
-
-func contains(values []string, target string) bool {
-	for _, value := range values {
-		if value == target {
-			return true
-		}
-	}
-	return false
-}
 
 func orPredicate(parts []string) string {
 	if len(parts) == 0 {

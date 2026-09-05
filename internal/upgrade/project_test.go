@@ -2,12 +2,15 @@ package upgrade
 
 import (
 	"context"
+	"errors"
 	"os"
 	"os/exec"
 	"path/filepath"
 	"strings"
 	"testing"
 	"testing/fstest"
+
+	"github.com/hapyco/dygo/internal/runnergen"
 )
 
 func TestUpgradeProjectUpdatesGoModAndGeneratedRunner(t *testing.T) {
@@ -159,6 +162,154 @@ func TestUpgradeProjectRefusesCustomRunnerBeforeGoModWrite(t *testing.T) {
 	goMod := readUpgradeTestFile(t, filepath.Join(root, "go.mod"))
 	if strings.Contains(goMod, "v1.2.3") {
 		t.Fatalf("go.mod = %q, want no writes after custom runner refusal", goMod)
+	}
+}
+
+func TestUpgradeProjectRestoresGoModWhenTidyFails(t *testing.T) {
+	root := newUpgradeTestProject(t)
+	goModPath := filepath.Join(root, "go.mod")
+	original := readUpgradeTestFile(t, goModPath)
+	commandRunner := func(_ context.Context, dir string, name string, args ...string) ([]byte, error) {
+		switch {
+		case name == "git" && len(args) > 0 && args[0] == "rev-parse":
+			return nil, nil
+		case name == "git" && len(args) > 0 && args[0] == "status":
+			return nil, nil
+		case name == "go" && len(args) > 1 && args[0] == "mod" && args[1] == "tidy":
+			if err := os.WriteFile(filepath.Join(root, "go.sum"), []byte("temporary checksum\n"), 0o644); err != nil {
+				return nil, err
+			}
+			return nil, errors.New("tidy failed")
+		case name == "go" && len(args) > 1 && args[0] == "mod" && args[1] == "edit":
+			if err := os.WriteFile(goModPath, []byte("module example.com/acme\n\nrequire github.com/hapyco/dygo v1.2.3\n"), 0o644); err != nil {
+				return nil, err
+			}
+			return nil, nil
+		default:
+			return nil, nil
+		}
+	}
+
+	_, err := UpgradeProject(context.Background(), ProjectOptions{
+		Root:          root,
+		TargetVersion: "v1.2.3",
+		Yes:           true,
+		CommandRunner: commandRunner,
+		StudioAssets: fstest.MapFS{
+			"index.html": {Data: []byte("<html>studio</html>")},
+		},
+	})
+	if err == nil {
+		t.Fatal("UpgradeProject() error = nil, want tidy failure")
+	}
+	if got := readUpgradeTestFile(t, goModPath); got != original {
+		t.Fatalf("go.mod after failed upgrade = %q, want original %q", got, original)
+	}
+	if _, err := os.Stat(filepath.Join(root, "go.sum")); !os.IsNotExist(err) {
+		t.Fatalf("go.sum stat error = %v, want absent after failed upgrade", err)
+	}
+}
+
+func TestRunCanRetryAfterTidyFailure(t *testing.T) {
+	root := newUpgradeTestProject(t)
+	runUpgradeTestCommand(t, root, "git", "init")
+	runUpgradeTestCommand(t, root, "git", "config", "user.email", "test@example.com")
+	runUpgradeTestCommand(t, root, "git", "config", "user.name", "Dygo Test")
+	runUpgradeTestCommand(t, root, "git", "add", ".")
+	runUpgradeTestCommand(t, root, "git", "commit", "-m", "initial")
+
+	tidyAttempts := 0
+	commandRunner := func(ctx context.Context, dir string, name string, args ...string) ([]byte, error) {
+		if name == "git" {
+			return defaultCommandRunner(ctx, dir, name, args...)
+		}
+		if name == "go" && len(args) > 1 && args[0] == "mod" && args[1] == "edit" {
+			if err := os.WriteFile(filepath.Join(root, "go.mod"), []byte("module example.com/acme\n\nrequire github.com/hapyco/dygo v1.0.0\n"), 0o644); err != nil {
+				return nil, err
+			}
+			return nil, nil
+		}
+		if name == "go" && len(args) > 1 && args[0] == "mod" && args[1] == "tidy" {
+			tidyAttempts++
+			if tidyAttempts == 1 {
+				return nil, errors.New("tidy failed")
+			}
+		}
+		return nil, nil
+	}
+	options := Options{CurrentVersion: "v1.0.0", TargetVersion: "v1.0.0", WorkingDir: root, Yes: true, CommandRunner: commandRunner}
+	if _, err := Run(context.Background(), options); err == nil {
+		t.Fatal("Run(first upgrade) error = nil, want tidy failure")
+	}
+	result, err := Run(context.Background(), options)
+	if err != nil {
+		t.Fatalf("Run(retry) error = %v, want nil", err)
+	}
+	if result.Project == nil || !result.Project.Updated {
+		t.Fatalf("Run(retry) result = %+v, want completed upgrade", result)
+	}
+	if got, err := ReadProjectVersion(root); err != nil || got != "v1.0.0" {
+		t.Fatalf("ReadProjectVersion(retry) = %q, %v, want v1.0.0", got, err)
+	}
+}
+
+func TestRunRestoresManagedFilesWhenRunnerFailsAfterAssets(t *testing.T) {
+	root := newUpgradeTestProject(t)
+	writeUpgradeTestFile(t, filepath.Join(root, ".dygo", "apps", "core", "app.yml"), "name: core\nlabel: Core\nversion: 0.1.0\n")
+	runUpgradeTestCommand(t, root, "git", "init")
+	runUpgradeTestCommand(t, root, "git", "config", "user.email", "test@example.com")
+	runUpgradeTestCommand(t, root, "git", "config", "user.name", "Dygo Test")
+	runUpgradeTestCommand(t, root, "git", "add", ".")
+	runUpgradeTestCommand(t, root, "git", "commit", "-m", "initial")
+
+	originalRunner := readUpgradeTestFile(t, filepath.Join(root, "cmd", "dygo", "main.go"))
+	runnerAttempts := 0
+	previousRunner := updateProjectRunner
+	updateProjectRunner = func(path string) (runnergen.RunnerUpdate, bool, error) {
+		runnerAttempts++
+		if runnerAttempts == 1 {
+			if _, err := os.Stat(filepath.Join(root, ".dygo", "apps", "studio", "app.yml")); err != nil {
+				t.Errorf("runner update ran before Studio install: %v", err)
+			}
+			if _, err := os.Stat(filepath.Join(root, ".dygo", "apps", "core", "app.yml")); err != nil {
+				t.Errorf("runner update ran before Core install: %v", err)
+			}
+			return runnergen.RunnerUpdate{}, false, errors.New("runner write failed")
+		}
+		return previousRunner(path)
+	}
+	defer func() { updateProjectRunner = previousRunner }()
+
+	commandRunner := func(ctx context.Context, dir string, name string, args ...string) ([]byte, error) {
+		if name == "git" {
+			return defaultCommandRunner(ctx, dir, name, args...)
+		}
+		if name == "go" && len(args) > 1 && args[0] == "mod" && args[1] == "edit" {
+			if err := os.WriteFile(filepath.Join(root, "go.mod"), []byte("module example.com/acme\n\nrequire github.com/hapyco/dygo v1.0.0\n"), 0o644); err != nil {
+				return nil, err
+			}
+		}
+		return nil, nil
+	}
+	options := Options{CurrentVersion: "v1.0.0", TargetVersion: "v1.0.0", WorkingDir: root, Yes: true, CommandRunner: commandRunner}
+	if _, err := Run(context.Background(), options); err == nil {
+		t.Fatal("Run(first upgrade) error = nil, want runner failure")
+	}
+	if got := readUpgradeTestFile(t, filepath.Join(root, "cmd", "dygo", "main.go")); got != originalRunner {
+		t.Fatalf("runner after failed upgrade = %q, want original %q", got, originalRunner)
+	}
+	if got := readUpgradeTestFile(t, filepath.Join(root, ".dygo", "apps", "core", "app.yml")); !strings.Contains(got, "version: 0.1.0") {
+		t.Fatalf("Core after failed upgrade = %q, want original metadata", got)
+	}
+	if _, err := os.Stat(filepath.Join(root, ".dygo", "apps", "studio")); !os.IsNotExist(err) {
+		t.Fatalf("Studio after failed upgrade stat error = %v, want absent", err)
+	}
+	result, err := Run(context.Background(), options)
+	if err != nil {
+		t.Fatalf("Run(retry) error = %v, want nil", err)
+	}
+	if result.Project == nil || !result.Project.Updated {
+		t.Fatalf("Run(retry) result = %+v, want completed upgrade", result)
 	}
 }
 

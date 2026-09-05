@@ -49,7 +49,7 @@ func newUpgradeCommand(ctx context.Context, stdin io.Reader, stdout, stderr io.W
 	}
 
 	cmd.Flags().BoolVar(&options.Check, "check", false, "Check available upgrades without writing files")
-	cmd.Flags().StringVar(&options.TargetVersion, "to", "", "Upgrade to a specific dygo version")
+	cmd.Flags().StringVar(&options.TargetVersion, "to", "", "Require the version embedded in the running dygo binary")
 	cmd.Flags().BoolVar(&options.DryRun, "dry-run", false, "Show planned upgrade work without writing files")
 	cmd.Flags().BoolVar(&options.Yes, "yes", false, "Skip interactive upgrade confirmations")
 

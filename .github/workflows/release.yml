@@ -53,8 +53,7 @@ jobs:
         run: |
           npm ci
           npm test
-          rm -f ../../../internal/studio/bundled/index.html
-          find ../../../internal/studio/bundled/assets -type f ! -name placeholder.txt -delete
+          find ../../../internal/studio/bundled -type f ! -name placeholder.txt -delete
           npm run build:embed
 
       - name: Verify framework App bundles

@@ -166,7 +166,14 @@ func upgradeTargetVersion(targetVersion string, currentVersion string) (string, 
 		}
 		return currentVersion, nil
 	}
-	return normalizeVersion(targetVersion), nil
+	targetVersion = normalizeVersion(targetVersion)
+	if currentVersion == "dev" {
+		return "", fmt.Errorf("dygo upgrade target %s requires a matching released dygo binary", targetVersion)
+	}
+	if targetVersion != normalizeVersion(currentVersion) {
+		return "", fmt.Errorf("dygo upgrade target %s does not match the running dygo version %s; run the matching dygo binary", targetVersion, currentVersion)
+	}
+	return targetVersion, nil
 }
 
 func discoverProjectContext(workingDir string) ProjectContext {

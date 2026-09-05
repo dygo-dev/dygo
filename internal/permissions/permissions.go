@@ -169,7 +169,7 @@ SELECT EXISTS (
 	JOIN user_role ur ON ur.user_id = u.id
 	JOIN "role" r ON r.id = ur.role_id AND COALESCE(r.enabled, false) = true
 	JOIN "permission" p ON p.role_id = r.id
-	LEFT JOIN entity e ON e.id = p.entity_id
+	LEFT JOIN entity e ON e.id = p.entity_id AND e.retired = false
 	LEFT JOIN app a ON a.id = e.app_id
 	LEFT JOIN page pg ON pg.id = p.page_id
 	LEFT JOIN app pa ON pa.id = pg.app_id
@@ -211,6 +211,7 @@ func (c Checker) Can(ctx context.Context, request Request) error {
 	return permissionError(ErrorDenied, "permission denied", decisionDetails(Request{
 		Actor:    decision.Actor,
 		Entity:   decision.Entity,
+		Resource: decision.Resource,
 		Action:   decision.Action,
 		RecordID: decision.RecordID,
 	}), nil)
@@ -218,20 +219,7 @@ func (c Checker) Can(ctx context.Context, request Request) error {
 
 // CanResource returns nil only when the resource permission is allowed.
 func (c Checker) CanResource(ctx context.Context, request ResourceRequest) error {
-	decision, err := c.CheckResource(ctx, request)
-	if err != nil {
-		return err
-	}
-	if decision.Allowed {
-		return nil
-	}
-	return permissionError(ErrorDenied, "permission denied", decisionDetails(Request{
-		Actor:    decision.Actor,
-		Entity:   decision.Entity,
-		Resource: decision.Resource,
-		Action:   decision.Action,
-		RecordID: decision.RecordID,
-	}), nil)
+	return c.Can(ctx, Request{Actor: request.Actor, Resource: request.Resource, Action: request.Action, RecordID: request.RecordID})
 }
 
 // Authorize implements the public dygo.Authorizer contract.
@@ -270,7 +258,7 @@ SELECT EXISTS (
 	SELECT 1
 	FROM "permission" p
 	JOIN "role" r ON r.id = p.role_id AND COALESCE(r.enabled, false) = true
-	JOIN entity e ON e.id = p.entity_id
+	JOIN entity e ON e.id = p.entity_id AND e.retired = false
 	WHERE r.name = $1
 		AND e.slug = $2
 		AND COALESCE(p.retired, false) = false

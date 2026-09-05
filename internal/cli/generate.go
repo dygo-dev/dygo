@@ -3,7 +3,6 @@ package cli
 import (
 	"fmt"
 	"io"
-	"path/filepath"
 
 	scaffold "github.com/hapyco/dygo/internal/generate"
 	"github.com/hapyco/dygo/internal/hookgen"
@@ -67,10 +66,8 @@ func newGenerateAppCommand(stdout io.Writer) *cobra.Command {
 func newGenerateEntityCommand(stdout io.Writer) *cobra.Command {
 	var dryRun bool
 	var force bool
-	var noHook bool
 	var noFixture bool
 	var noAccess bool
-	var noTest bool
 
 	cmd := &cobra.Command{
 		Use:   "entity <app>/<entity>",
@@ -88,38 +85,16 @@ func newGenerateEntityCommand(stdout io.Writer) *cobra.Command {
 			if err := requireGenerateApp(root, target.App); err != nil {
 				return err
 			}
-			plan, err := scaffold.Entity(scaffold.Options{Root: root, DryRun: dryRun, Force: force, NoAccess: noAccess}, target, !noFixture, !noTest)
+			plan, err := scaffold.Entity(scaffold.Options{Root: root, DryRun: dryRun, Force: force, NoAccess: noAccess}, target, !noFixture)
 			if err != nil {
 				return fmt.Errorf("generate entity: %w", err)
 			}
-			if err := writeGeneratePlan(stdout, "generated entity "+args[0], plan); err != nil {
-				return err
-			}
-			if noHook {
-				return nil
-			}
-			if dryRun {
-				return writeGenerateHookDryRun(stdout, root, target)
-			}
-			// TODO(scaffold): make Entity bundle and hook runner writes atomic once
-			// hook planning moves into internal/generate.
-			result, err := hookgen.GenerateWithOptions(hookgen.GenerateOptions{
-				Root:       root,
-				AppName:    target.App,
-				EntityName: target.Name,
-				Force:      force,
-			})
-			if err != nil {
-				return fmt.Errorf("generate hook: %w", err)
-			}
-			return writeGenerateHookResult(stdout, root, result)
+			return writeGeneratePlan(stdout, "generated entity "+args[0], plan)
 		},
 	}
 	addScaffoldWriteFlags(cmd, &dryRun, &force)
-	cmd.Flags().BoolVar(&noHook, "no-hook", false, "skip hook scaffolding and runner wiring")
 	cmd.Flags().BoolVar(&noFixture, "no-fixture", false, "skip fixture skeleton creation")
 	cmd.Flags().BoolVar(&noAccess, "no-access", false, "skip access metadata skeleton creation")
-	cmd.Flags().BoolVar(&noTest, "no-test", false, "skip Go test boilerplate")
 	return cmd
 }
 
@@ -345,18 +320,6 @@ func writeGenerateJobResult(stdout io.Writer, root string, result jobgen.Result)
 		if _, err := fmt.Fprintf(stdout, "%s: %s (%s)\n", line.label, relToHooksRoot(root, line.path), line.status); err != nil {
 			return fmt.Errorf("write generate output: %w", err)
 		}
-	}
-	return nil
-}
-
-func writeGenerateHookDryRun(stdout io.Writer, root string, target shape.AppRef) error {
-	hookPath := filepath.Join(root, shape.AppDir(target.App), shape.EntityHooksPath(target.Name))
-	runnerPath := filepath.Join(root, "cmd", "dygo", "main.go")
-	if _, err := fmt.Fprintf(stdout, "hook: %s (would create)\n", relToHooksRoot(root, hookPath)); err != nil {
-		return fmt.Errorf("write generate output: %w", err)
-	}
-	if _, err := fmt.Fprintf(stdout, "runner: %s (would update)\n", relToHooksRoot(root, runnerPath)); err != nil {
-		return fmt.Errorf("write generate output: %w", err)
 	}
 	return nil
 }

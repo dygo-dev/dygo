@@ -10,6 +10,7 @@ import (
 
 	"github.com/go-chi/chi/v5"
 	"github.com/hapyco/dygo/internal/auth"
+	"github.com/hapyco/dygo/internal/db"
 	importsvc "github.com/hapyco/dygo/internal/imports"
 	"github.com/hapyco/dygo/internal/permissions"
 	"github.com/hapyco/dygo/pkg/dygo"
@@ -98,6 +99,11 @@ func writeImportError(w http.ResponseWriter, err error) {
 	var permissionErr permissions.Error
 	if errors.As(err, &permissionErr) {
 		writePermissionError(w, err)
+		return
+	}
+	var recordErr db.RecordError
+	if errors.As(err, &recordErr) {
+		writeRecordError(w, err)
 		return
 	}
 	writeErrorEnvelope(w, http.StatusInternalServerError, "internal_error", "import failed", nil)

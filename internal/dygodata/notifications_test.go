@@ -6,6 +6,7 @@ import (
 	"errors"
 	"testing"
 
+	"github.com/hapyco/dygo/internal/db"
 	"github.com/hapyco/dygo/pkg/dygo"
 )
 
@@ -41,10 +42,25 @@ func TestNotificationDataSendPersistsAndEnqueuesEmailOnce(t *testing.T) {
 	}
 }
 
+func TestNotificationDataSendPropagatesLookupFailure(t *testing.T) {
+	records := &fakeNotificationRecords{findErr: errors.New("database unavailable")}
+	service := NewNotificationData(records, &fakeNotificationJobs{})
+	_, err := service.Send(context.Background(), dygo.NotificationMessage{
+		Recipient: "person@example.com", Title: "Notice", Message: "Message", IdempotencyKey: "notice-1",
+	})
+	if err == nil || err.Error() != "database unavailable" {
+		t.Fatalf("Send() error = %v, want lookup failure", err)
+	}
+	if records.creates != 0 {
+		t.Fatalf("creates = %d, want no create after lookup failure", records.creates)
+	}
+}
+
 type fakeNotificationRecords struct {
 	dygo.RecordData
 	record  dygo.Record
 	creates int
+	findErr error
 }
 
 func (f *fakeNotificationRecords) Lock(context.Context, string, string, dygo.RecordListParams) (dygo.RecordListResult, error) {
@@ -53,7 +69,10 @@ func (f *fakeNotificationRecords) Lock(context.Context, string, string, dygo.Rec
 
 func (f *fakeNotificationRecords) Find(context.Context, string, string, dygo.RecordInput) (dygo.Record, error) {
 	if f.record == nil {
-		return nil, errors.New("not found")
+		if f.findErr != nil {
+			return nil, f.findErr
+		}
+		return nil, db.RecordError{Code: db.RecordErrorNotFound, Message: "notification not found"}
 	}
 	return f.record, nil
 }

@@ -384,8 +384,13 @@ type fakePatchApplyTx struct {
 }
 
 func (tx *fakePatchApplyTx) Begin(context.Context) (pgx.Tx, error) {
-	return &fakePatchApplyTx{}, nil
+	return fakePatchSavepoint{Tx: tx}, nil
 }
+
+type fakePatchSavepoint struct{ pgx.Tx }
+
+func (fakePatchSavepoint) Commit(context.Context) error   { return nil }
+func (fakePatchSavepoint) Rollback(context.Context) error { return nil }
 
 func (tx *fakePatchApplyTx) Commit(context.Context) error {
 	tx.events = append(tx.events, "commit")
@@ -443,6 +448,10 @@ func (tx *fakePatchApplyTx) Exec(_ context.Context, sql string, args ...any) (pg
 }
 
 func (tx *fakePatchApplyTx) Query(_ context.Context, sql string, args ...any) (pgx.Rows, error) {
+	if rows := fakeSystemInsertRows(sql); rows != nil {
+		_, err := tx.Exec(context.Background(), sql, args...)
+		return rows, err
+	}
 	if rows, ok := fakePatchRunMetadataRows(sql, args...); ok {
 		switch {
 		case strings.Contains(sql, `FROM "field"`):

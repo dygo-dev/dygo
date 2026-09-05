@@ -7,13 +7,11 @@ import UserMenu from './UserMenu.vue'
 withDefaults(defineProps<{
   brandLabel?: string
   brandMark?: string
-  companyName?: string
   userName?: string
   userAvatarUrl?: string
 }>(), {
   brandLabel: 'dygo Studio',
   brandMark: 'd',
-  companyName: 'Umami Smokehouse',
   userName: 'Studio user',
 })
 </script>
@@ -22,7 +20,6 @@ withDefaults(defineProps<{
   <header class="studio-top-bar">
     <div class="studio-top-bar__brand">
       <LogoMark :label="brandLabel" :mark="brandMark" />
-      <span class="studio-top-bar__company">{{ companyName }}</span>
     </div>
 
     <div class="studio-top-bar__bar">
@@ -52,17 +49,6 @@ withDefaults(defineProps<{
   gap: 10px;
   padding-left: var(--studio-shell-gutter);
   padding-right: 14px;
-}
-
-.studio-top-bar__company {
-  min-width: 0;
-  overflow: hidden;
-  color: var(--studio-text);
-  font-size: 13px;
-  font-weight: 700;
-  line-height: 1.15;
-  text-overflow: ellipsis;
-  white-space: nowrap;
 }
 
 .studio-top-bar__bar {

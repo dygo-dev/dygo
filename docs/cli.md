@@ -8,7 +8,7 @@ This document describes the dygo CLI command surface. Commands that are intentio
 - `dygo new <name>` - Creates a new dygo project skeleton.
 - `dygo upgrade` - Upgrades the current project files, assets, and dependencies when the project dygo version differs from the installed dygo binary.
 - `dygo upgrade --check` - Checks whether the current project needs an upgrade without planning or writing changes.
-- `dygo upgrade --to <version>` - Plans or applies a project upgrade to a specific dygo version.
+- `dygo upgrade --to <version>` - Plans or applies a project upgrade to the version embedded in the running dygo binary.
 - `dygo upgrade --dry-run` - Prints the project upgrade plan without writing or prompting.
 - `dygo upgrade --yes` - Applies the project upgrade without an interactive prompt.
 - `dygo version` - Prints the dygo version.
@@ -95,13 +95,11 @@ Generated files are valid boilerplate, not empty placeholders. Generators do not
 
 Collection generators create metadata only. Collection rows do not get fixture skeletons, route metadata, standalone permissions, or hooks by default; parent Entity fixtures and hooks own collection row usage. The intended collection file convention is `entities/_collections/<collection>.yml`.
 
-`dygo generate entity` composes the narrower generators for the standard Entity bundle. In v1 it creates Entity metadata, hook scaffold, fixture skeleton, test boilerplate, and runner wiring unless skipped by flags.
+`dygo generate entity` creates the Entity metadata and, unless skipped, its access and fixture skeletons. Use the narrower `generate hook` and `generate test` commands when you need hook wiring or Go test boilerplate.
 
 - `dygo generate entity <app>/<entity> --dry-run` - Prints files that would be created or updated without writing.
 - `dygo generate entity <app>/<entity> --force` - Overwrites dygo-generated files only; custom files still fail.
-- `dygo generate entity <app>/<entity> --no-hook` - Skips hook scaffolding and runner wiring in the standard Entity bundle.
 - `dygo generate entity <app>/<entity> --no-fixture` - Skips fixture skeleton creation in the standard Entity bundle.
-- `dygo generate entity <app>/<entity> --no-test` - Skips Go test boilerplate in the standard Entity bundle.
 - `dygo generate app <app> --dry-run` - Prints app skeleton files that would be created or updated without writing.
 - `dygo generate app <app> --force` - Overwrites dygo-generated app skeleton files only; custom files still fail.
 - `dygo generate collection <app>/<collection> --dry-run` - Prints collection metadata files that would be created or updated without writing.

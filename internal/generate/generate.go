@@ -80,7 +80,7 @@ func App(options Options, appName string) (Plan, error) {
 }
 
 // Entity generates the metadata and optional companion files for one Entity.
-func Entity(options Options, ref shape.AppRef, includeFixture bool, includeTest bool) (Plan, error) {
+func Entity(options Options, ref shape.AppRef, includeFixture bool) (Plan, error) {
 	data := templateData{
 		App:       ref.App,
 		Name:      ref.Name,
@@ -97,9 +97,6 @@ func Entity(options Options, ref shape.AppRef, includeFixture bool, includeTest 
 	}
 	if includeFixture {
 		files = append(files, fixtureSpec(ref))
-	}
-	if includeTest {
-		files = append(files, testSpec(ref))
 	}
 	return writeScaffold(options, []string{entityDir}, files)
 }

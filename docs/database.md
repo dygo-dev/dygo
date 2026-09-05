@@ -162,6 +162,8 @@ Existing early-development databases created before system Record names may repo
 
 After the schema plan succeeds, `dygo db migrate` upserts discovered Apps, Entities, Fields, Indexes, Constraints, Jobs, and Schedules into the Core metadata tables. This gives runtime APIs, workers, and Studio a database-backed metadata registry while the YAML files remain the source of truth.
 
+Entity, Field, Index, and Constraint registry rows that are absent from source metadata are marked retired. Runtime metadata readers omit retired definitions. Registry IDs remain stable for history and collection ownership. Restoring the same definition reuses its ID. Retirement does not remove business data. Explicit schema prune applies physical cleanup and registry reconciliation in one transaction. Run migration with the updated Core metadata before the first prune so the retirement columns exist.
+
 File-backed Jobs whose `job.yml` was removed are marked retired, not deleted, so old Job Executions remain inspectable. File-backed Schedules removed from `_schedules.yml` are also marked retired instead of being deleted.
 
 App-owned access metadata and fixtures are not applied by `dygo db migrate`. Use `dygo access apply` and `dygo fixture apply` explicitly, or run `dygo db prepare` when preparing a full usable environment. See [Access](access.md) and [Fixtures](fixtures.md) for their file shapes.

@@ -65,3 +65,9 @@ fields:
   - name: options
     label: Options
     type: json
+
+  - name: retired
+    label: Retired
+    type: boolean
+    required: true
+    default: false

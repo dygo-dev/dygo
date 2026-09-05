@@ -7,6 +7,8 @@ import (
 	"errors"
 	"fmt"
 	"math"
+	"slices"
+	"sort"
 	"strconv"
 	"strings"
 	"time"
@@ -459,13 +461,7 @@ func (s RecordStore) createRecordWithLayout(ctx context.Context, layout recordLa
 	if err := s.runRecordHooks(ctx, hookCtx); err != nil {
 		return nil, err
 	}
-	if err := s.applyFetchedFields(ctx, layout, input, nil); err != nil {
-		return nil, err
-	}
-	if err := s.validateFilteredLinks(ctx, layout, input, nil); err != nil {
-		return nil, err
-	}
-	if err := layout.validateCreateInput(input); err != nil {
+	if err := s.prepareRecordInput(ctx, layout, input, nil); err != nil {
 		return nil, err
 	}
 	hookCtx.Event = RecordValidate
@@ -477,7 +473,7 @@ func (s RecordStore) createRecordWithLayout(ctx context.Context, layout recordLa
 		return nil, err
 	}
 
-	record, err := s.insertRecordWithLayout(ctx, layout, input, true)
+	record, err := s.insertRecordWithLayout(ctx, layout, input)
 	if err != nil {
 		return nil, err
 	}
@@ -504,7 +500,7 @@ func (s RecordStore) createRecordWithLayout(ctx context.Context, layout recordLa
 	return record, nil
 }
 
-func (s RecordStore) insertRecordWithLayout(ctx context.Context, layout recordLayout, input RecordInput, returning bool) (Record, error) {
+func (s RecordStore) insertRecordWithLayout(ctx context.Context, layout recordLayout, input RecordInput) (Record, error) {
 	for attempt := 0; attempt <= randomNameRetries; attempt++ {
 		mutation, err := s.createMutation(ctx, layout, input)
 		if err != nil {
@@ -513,33 +509,22 @@ func (s RecordStore) insertRecordWithLayout(ctx context.Context, layout recordLa
 		if err := s.validateProposedScope(ctx, layout, mutation, input); err != nil {
 			return nil, err
 		}
-		sql := insertRecordSQL(layout, mutation, returning)
-		if returning {
-			unscoped := s
-			unscoped.scope = nil
-			record, err := unscoped.queryReturningRecord(ctx, layout, sql, mutation.Values, false)
-			if err == nil {
-				if s.scope != nil {
-					recordID, idErr := activityRecordID(record)
-					if idErr != nil {
-						return nil, idErr
-					}
-					return s.getRecordWithLayout(ctx, layout, recordID)
+		sql := insertRecordSQL(layout, mutation, true)
+		unscoped := s
+		unscoped.scope = nil
+		record, err := unscoped.queryReturningRecord(ctx, layout, sql, mutation.Values, false)
+		if err == nil {
+			if s.scope != nil {
+				recordID, idErr := activityRecordID(record)
+				if idErr != nil {
+					return nil, idErr
 				}
-				return record, nil
+				return s.getRecordWithLayout(ctx, layout, recordID)
 			}
-			if layout.Naming.Strategy != schema.NamingStrategyRandom || !isRecordNameCollision(err, layout) || attempt == randomNameRetries {
-				return nil, err
-			}
-			continue
+			return record, nil
 		}
-		if _, err := s.queryer.Exec(ctx, sql, mutation.Values...); err == nil {
-			return nil, nil
-		} else {
-			err = classifyRecordDBError(err, layout.Entity)
-			if layout.Naming.Strategy != schema.NamingStrategyRandom || !isRecordNameCollision(err, layout) || attempt == randomNameRetries {
-				return nil, err
-			}
+		if layout.Naming.Strategy != schema.NamingStrategyRandom || !isRecordNameCollision(err, layout) || attempt == randomNameRetries {
+			return nil, err
 		}
 	}
 	return nil, recordError(RecordErrorInternal, "record insert failed", map[string]any{"entity": layout.Entity}, nil)
@@ -628,13 +613,7 @@ func (s RecordStore) updateRecordWithLayout(ctx context.Context, layout recordLa
 	if err := s.runRecordHooks(ctx, hookCtx); err != nil {
 		return nil, err
 	}
-	if err := s.applyFetchedFields(ctx, layout, input, oldRecord); err != nil {
-		return nil, err
-	}
-	if err := s.validateFilteredLinks(ctx, layout, input, oldRecord); err != nil {
-		return nil, err
-	}
-	if err := layout.validateUpdateFields(input); err != nil {
+	if err := s.prepareRecordInput(ctx, layout, input, oldRecord); err != nil {
 		return nil, err
 	}
 	hookCtx.Event = RecordValidate
@@ -1152,7 +1131,7 @@ func (l recordLayout) collectionNames() []string {
 		}
 		extra = append(extra, name)
 	}
-	sortStrings(extra)
+	sort.Strings(extra)
 	return append(names, extra...)
 }
 
@@ -1569,16 +1548,23 @@ func (l recordLayout) collectionRowInputs(fieldName string, raw json.RawMessage,
 			}
 			seenIDs[rowID] = struct{}{}
 		}
-		if rowID > 0 {
-			if err := collection.Layout.validateUpdateFields(input); err != nil {
-				return nil, err
-			}
-		} else if err := collection.Layout.validateCreateInput(input); err != nil {
-			return nil, err
-		}
 		rows = append(rows, recordCollectionRowInput{ID: rowID, Ordinal: int64(index + 1), Input: input})
 	}
 	return rows, nil
+}
+
+// prepareRecordInput applies the same metadata invariants to parent and child writes.
+func (s RecordStore) prepareRecordInput(ctx context.Context, layout recordLayout, input RecordInput, base Record) error {
+	if err := s.applyFetchedFields(ctx, layout, input, base); err != nil {
+		return err
+	}
+	if err := s.validateFilteredLinks(ctx, layout, input, base); err != nil {
+		return err
+	}
+	if base == nil {
+		return layout.validateCreateInput(input)
+	}
+	return layout.validateUpdateFields(input)
 }
 
 func (l recordLayout) validateInputFields(input RecordInput, create bool, match bool) error {
@@ -1711,7 +1697,7 @@ func recordDBValue(field recordField, raw json.RawMessage) (any, error) {
 		if err != nil {
 			return nil, err
 		}
-		if !stringInSlice(value, field.Options.Values) {
+		if !slices.Contains(field.Options.Values, value) {
 			return nil, recordError(RecordErrorValidation, "select value is not allowed", map[string]any{"field": field.Name, "value": value}, nil)
 		}
 		return value, nil
@@ -1929,7 +1915,7 @@ func sortedRecordInputNames(input RecordInput) []string {
 	for name := range input {
 		names = append(names, name)
 	}
-	sortStrings(names)
+	sort.Strings(names)
 	return names
 }
 
@@ -1965,25 +1951,8 @@ func compareRecordFilters(left RecordFilter, right RecordFilter) int {
 	return 0
 }
 
-func sortStrings(values []string) {
-	for i := 1; i < len(values); i++ {
-		for j := i; j > 0 && values[j] < values[j-1]; j-- {
-			values[j], values[j-1] = values[j-1], values[j]
-		}
-	}
-}
-
 func rawIsNull(raw json.RawMessage) bool {
 	return len(raw) == 0 || string(raw) == "null"
-}
-
-func stringInSlice(value string, values []string) bool {
-	for _, candidate := range values {
-		if value == candidate {
-			return true
-		}
-	}
-	return false
 }
 
 func invalidRecordIDError(entity string) error {

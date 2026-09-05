@@ -9,6 +9,7 @@ import (
 	"io"
 	"os"
 	"path/filepath"
+	"slices"
 	"sort"
 	"strconv"
 	"strings"
@@ -69,11 +70,6 @@ type fixtureField struct {
 	Unique  bool
 	Stored  bool
 	Options fieldtype.Options
-}
-
-type fixtureEntityIndex struct {
-	byIdentity map[string]catalog.LoadedEntity
-	byName     map[string][]catalog.LoadedEntity
 }
 
 var deniedFixtureEntities = map[string]string{
@@ -151,7 +147,7 @@ func (r Runner) Apply(ctx context.Context, root string, databaseURL string) (Res
 		metadata: db.NewMetadataReader(tx),
 		records:  newFixtureRecordStore(tx, r.recordHooks),
 	}
-	result, err := applyFilesWithIndex(ctx, store, plan.Files, newFixtureEntityIndex(plan.Entities))
+	result, err := applyFilesWithIndex(ctx, store, plan.Files, catalog.NewTargetIndex(plan.Entities))
 	if err != nil {
 		return Result{}, err
 	}
@@ -361,13 +357,13 @@ func Decode(data []byte) (Fixture, error) {
 
 // ValidateFiles verifies fixture files against source Entity metadata without connecting to the database.
 func ValidateFiles(files []LoadedFile, entities []catalog.LoadedEntity) error {
-	index := newFixtureEntityIndex(entities)
+	index := catalog.NewTargetIndex(entities)
 	filesByEntity := map[string]int{}
 	for fileIndex, file := range files {
 		if err := validateFixtureAllowed(file.AppName, file.Fixture.Entity, file.Path); err != nil {
 			return err
 		}
-		entity, ok := index.byIdentity[catalog.EntityKey(file.AppName, file.Fixture.Entity)]
+		entity, ok := index.Lookup(file.AppName, file.Fixture.Entity)
 		if !ok {
 			return fmt.Errorf("%s: fixture Entity %s/%s is not loaded", file.Path, file.AppName, file.Fixture.Entity)
 		}
@@ -400,18 +396,6 @@ func deniedFixtureReason(appName string, entityName string) (string, bool) {
 	return reason, denied
 }
 
-func newFixtureEntityIndex(entities []catalog.LoadedEntity) fixtureEntityIndex {
-	index := fixtureEntityIndex{
-		byIdentity: map[string]catalog.LoadedEntity{},
-		byName:     map[string][]catalog.LoadedEntity{},
-	}
-	for _, entity := range entities {
-		index.byIdentity[entity.Key()] = entity
-		index.byName[entity.Entity.Name] = append(index.byName[entity.Entity.Name], entity)
-	}
-	return index
-}
-
 func validateFixtureMatch(file LoadedFile, entity catalog.LoadedEntity) error {
 	seen := map[string]bool{}
 	for _, name := range file.Fixture.Match {
@@ -436,7 +420,7 @@ func validateFixtureMatch(file LoadedFile, entity catalog.LoadedEntity) error {
 	return fmt.Errorf("%s: fixture match %q is not backed by a unique field or constraint on Entity %q", file.Path, strings.Join(file.Fixture.Match, ", "), entity.Entity.Name)
 }
 
-func validateFixtureRecords(file LoadedFile, entity catalog.LoadedEntity, index fixtureEntityIndex) error {
+func validateFixtureRecords(file LoadedFile, entity catalog.LoadedEntity, index catalog.TargetIndex) error {
 	for _, record := range file.Fixture.Records {
 		for _, match := range file.Fixture.Match {
 			value, ok := record.Values[match]
@@ -464,7 +448,7 @@ func validateFixtureRecords(file LoadedFile, entity catalog.LoadedEntity, index 
 	return nil
 }
 
-func validateFixtureValue(path string, value Value, owner catalog.LoadedEntity, field fixtureField, index fixtureEntityIndex, depth int) error {
+func validateFixtureValue(path string, value Value, owner catalog.LoadedEntity, field fixtureField, index catalog.TargetIndex, depth int) error {
 	if field.Type != "link" {
 		return nil
 	}
@@ -475,7 +459,7 @@ func validateFixtureValue(path string, value Value, owner catalog.LoadedEntity, 
 	if err != nil {
 		return err
 	}
-	target, err := index.resolve(owner, field.Options.App, field.Options.Entity)
+	target, err := index.Resolve(owner, field.Options.App, field.Options.Entity)
 	if err != nil {
 		return err
 	}
@@ -511,10 +495,10 @@ func validateFixtureReferenceMatch(path string, entity catalog.LoadedEntity, mat
 	return validateFixtureMatch(loaded, entity)
 }
 
-func validateFixtureDependencies(files []LoadedFile, index fixtureEntityIndex, filesByEntity map[string]int) error {
+func validateFixtureDependencies(files []LoadedFile, index catalog.TargetIndex, filesByEntity map[string]int) error {
 	entitiesByFile := make([]catalog.LoadedEntity, len(files))
 	for fileIndex, file := range files {
-		entitiesByFile[fileIndex] = index.byIdentity[catalog.EntityKey(file.AppName, file.Fixture.Entity)]
+		entitiesByFile[fileIndex], _ = index.Lookup(file.AppName, file.Fixture.Entity)
 	}
 	dependencies := map[int]map[int]bool{}
 	for fileIndex, file := range files {
@@ -525,7 +509,7 @@ func validateFixtureDependencies(files []LoadedFile, index fixtureEntityIndex, f
 				if !ok || field.Type != "link" {
 					continue
 				}
-				target, err := index.resolve(entity, field.Options.App, field.Options.Entity)
+				target, err := index.Resolve(entity, field.Options.App, field.Options.Entity)
 				if err != nil {
 					return err
 				}
@@ -579,36 +563,6 @@ func validateFixtureDependencyOrder(files []catalog.LoadedEntity, dependencies m
 	return nil
 }
 
-func (i fixtureEntityIndex) resolve(owner catalog.LoadedEntity, appName string, entityName string) (catalog.LoadedEntity, error) {
-	if strings.TrimSpace(entityName) == "" {
-		return catalog.LoadedEntity{}, fmt.Errorf("link target Entity is required")
-	}
-	if strings.TrimSpace(appName) != "" {
-		target, ok := i.byIdentity[catalog.EntityKey(appName, entityName)]
-		if !ok {
-			return catalog.LoadedEntity{}, fmt.Errorf("link target %s/%s is not loaded", appName, entityName)
-		}
-		return target, nil
-	}
-	if target, ok := i.byIdentity[catalog.EntityKey(owner.AppName, entityName)]; ok {
-		return target, nil
-	}
-	matches := i.byName[entityName]
-	switch len(matches) {
-	case 0:
-		return catalog.LoadedEntity{}, fmt.Errorf("link target %q is not loaded", entityName)
-	case 1:
-		return matches[0], nil
-	default:
-		apps := make([]string, 0, len(matches))
-		for _, match := range matches {
-			apps = append(apps, match.AppName)
-		}
-		sort.Strings(apps)
-		return catalog.LoadedEntity{}, fmt.Errorf("link target %q is ambiguous in apps %s; set options.app", entityName, strings.Join(apps, ", "))
-	}
-}
-
 func fixtureFieldByName(entity schema.Entity, name string) (fixtureField, bool) {
 	if name == "name" {
 		return fixtureField{Name: "name", Type: "text", Unique: true, Stored: true}, true
@@ -660,10 +614,10 @@ func ApplyFiles(ctx context.Context, store Store, files []LoadedFile) (Result, e
 	for _, entity := range entities {
 		loaded = append(loaded, catalog.LoadedEntity{AppName: entity.App.Name, Entity: schema.Entity{Name: entity.Key}})
 	}
-	return applyFilesWithIndex(ctx, store, files, newFixtureEntityIndex(loaded))
+	return applyFilesWithIndex(ctx, store, files, catalog.NewTargetIndex(loaded))
 }
 
-func applyFilesWithIndex(ctx context.Context, store Store, files []LoadedFile, index fixtureEntityIndex) (Result, error) {
+func applyFilesWithIndex(ctx context.Context, store Store, files []LoadedFile, index catalog.TargetIndex) (Result, error) {
 	for _, file := range files {
 		if err := validateFixtureAllowed(file.AppName, file.Fixture.Entity, file.Path); err != nil {
 			return Result{}, err
@@ -772,7 +726,7 @@ func prepareFile(ctx context.Context, store Store, file LoadedFile) (preparedFil
 	return preparedFile{LoadedFile: file, Meta: meta, Fields: fields}, nil
 }
 
-func orderPreparedFiles(files []preparedFile, index fixtureEntityIndex) ([]preparedFile, error) {
+func orderPreparedFiles(files []preparedFile, index catalog.TargetIndex) ([]preparedFile, error) {
 	fixturesByEntity := map[string][]int{}
 	for i, file := range files {
 		identity := catalog.EntityKey(file.AppName, file.Fixture.Entity)
@@ -790,7 +744,7 @@ func orderPreparedFiles(files []preparedFile, index fixtureEntityIndex) ([]prepa
 				if field.Type != "link" {
 					continue
 				}
-				owner, ok := index.byIdentity[catalog.EntityKey(file.AppName, file.Fixture.Entity)]
+				owner, ok := index.Lookup(file.AppName, file.Fixture.Entity)
 				if !ok {
 					return nil, fmt.Errorf("%s: fixture Entity %s/%s is not loaded", file.Path, file.AppName, file.Fixture.Entity)
 				}
@@ -798,7 +752,7 @@ func orderPreparedFiles(files []preparedFile, index fixtureEntityIndex) ([]prepa
 				if err != nil {
 					return nil, fmt.Errorf("%s: fixture field %q: %w", file.Path, name, err)
 				}
-				target, err := index.resolve(owner, targetRef.App, targetRef.Entity)
+				target, err := index.Resolve(owner, targetRef.App, targetRef.Entity)
 				if err != nil {
 					return nil, fmt.Errorf("%s: fixture field %q: %w", file.Path, name, err)
 				}
@@ -882,8 +836,8 @@ func validateRecord(file LoadedFile, fields map[string]db.MetadataField, record 
 	return nil
 }
 
-func resolveRecord(ctx context.Context, store Store, index fixtureEntityIndex, file preparedFile, record Record) (db.RecordInput, db.RecordInput, error) {
-	owner, ok := index.byIdentity[catalog.EntityKey(file.AppName, file.Fixture.Entity)]
+func resolveRecord(ctx context.Context, store Store, index catalog.TargetIndex, file preparedFile, record Record) (db.RecordInput, db.RecordInput, error) {
+	owner, ok := index.Lookup(file.AppName, file.Fixture.Entity)
 	if !ok {
 		return nil, nil, fmt.Errorf("%s: fixture Entity %s/%s is not loaded", file.Path, file.AppName, file.Fixture.Entity)
 	}
@@ -899,14 +853,14 @@ func resolveRecord(ctx context.Context, store Store, index fixtureEntityIndex, f
 			return nil, nil, fmt.Errorf("%s:%d: resolve fixture field %q: %w", file.Path, value.Line, name, err)
 		}
 		input[name] = raw
-		if stringInSlice(name, file.Fixture.Match) {
+		if slices.Contains(file.Fixture.Match, name) {
 			match[name] = raw
 		}
 	}
 	return input, match, nil
 }
 
-func resolveValue(ctx context.Context, store Store, index fixtureEntityIndex, owner catalog.LoadedEntity, field db.MetadataField, value Value, depth int) (json.RawMessage, error) {
+func resolveValue(ctx context.Context, store Store, index catalog.TargetIndex, owner catalog.LoadedEntity, field db.MetadataField, value Value, depth int) (json.RawMessage, error) {
 	if field.Type != "link" {
 		raw, err := nodeJSON(value.Node)
 		if err != nil {
@@ -925,7 +879,7 @@ func resolveValue(ctx context.Context, store Store, index fixtureEntityIndex, ow
 	if err != nil {
 		return nil, err
 	}
-	target, err := index.resolve(owner, targetRef.App, targetRef.Entity)
+	target, err := index.Resolve(owner, targetRef.App, targetRef.Entity)
 	if err != nil {
 		return nil, err
 	}
@@ -1136,27 +1090,9 @@ func sortedValueKeys(values map[string]Value) []string {
 	return keys
 }
 
-func sameStringSet(left []string, right []string) bool {
-	if len(left) != len(right) {
-		return false
-	}
-	leftSorted := append([]string(nil), left...)
-	rightSorted := append([]string(nil), right...)
-	sort.Strings(leftSorted)
-	sort.Strings(rightSorted)
-	for index := range leftSorted {
-		if leftSorted[index] != rightSorted[index] {
-			return false
-		}
-	}
-	return true
-}
-
-func stringInSlice(value string, values []string) bool {
-	for _, candidate := range values {
-		if candidate == value {
-			return true
-		}
-	}
-	return false
+func sameStringSet(left, right []string) bool {
+	left, right = slices.Clone(left), slices.Clone(right)
+	slices.Sort(left)
+	slices.Sort(right)
+	return slices.Equal(left, right)
 }

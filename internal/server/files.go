@@ -43,9 +43,14 @@ func (h fileHandler) upload(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	defer part.Close()
-	recordID, err := strconv.ParseInt(strings.TrimSpace(r.FormValue("record-id")), 10, 64)
-	if err != nil {
-		recordID = 0
+	recordIDValue := strings.TrimSpace(r.FormValue("record-id"))
+	recordID := int64(0)
+	if recordIDValue != "" {
+		recordID, err = strconv.ParseInt(recordIDValue, 10, 64)
+		if err != nil || recordID <= 0 {
+			writeFileError(w, dygo.ActionError{Code: "invalid_request", Message: "record id must be a positive integer"})
+			return
+		}
 	}
 	file, err := h.files.AsActor(dygo.Actor{UserID: user.ID, Email: user.Email, Administrator: user.Administrator}).Upload(r.Context(), dygo.FileUpload{
 		Filename: header.Filename, ContentType: header.Header.Get("Content-Type"), Size: header.Size, Body: part,

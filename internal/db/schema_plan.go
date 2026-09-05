@@ -303,7 +303,7 @@ type desiredConstraint struct {
 }
 
 func buildDesiredSchema(entities []catalog.LoadedEntity) (desiredSchema, error) {
-	targets := newSchemaTargetIndex(entities)
+	targets := catalog.NewTargetIndex(entities)
 
 	ordered := append([]catalog.LoadedEntity(nil), entities...)
 	sort.SliceStable(ordered, func(i, j int) bool {
@@ -427,7 +427,7 @@ func buildDesiredSchema(entities []catalog.LoadedEntity) (desiredSchema, error) 
 				})
 			}
 			if field.Type == "link" && linkForeignKeyEnabled(field) {
-				target, err := targets.resolve(loaded, field.Options.App, field.Options.Entity)
+				target, err := targets.Resolve(loaded, field.Options.App, field.Options.Entity)
 				if err != nil {
 					return desiredSchema{}, fieldSchemaError(loaded, field, err)
 				}
@@ -901,7 +901,7 @@ func entityTableName(appName string, entityName string) string {
 	return storageName(appName + "-" + entityName)
 }
 
-func columnType(owner catalog.LoadedEntity, field schema.Field, targets schemaTargetIndex) (string, error) {
+func columnType(owner catalog.LoadedEntity, field schema.Field, targets catalog.TargetIndex) (string, error) {
 	definition, ok := fieldtype.DefaultDefinition(field.Type)
 	if !ok {
 		return "", fmt.Errorf("unsupported field type %q", field.Type)
@@ -910,7 +910,7 @@ func columnType(owner catalog.LoadedEntity, field schema.Field, targets schemaTa
 		return "", fmt.Errorf("field type %q does not have direct column storage", field.Type)
 	}
 	if field.Type == "link" {
-		if _, err := targets.resolve(owner, field.Options.App, field.Options.Entity); err != nil {
+		if _, err := targets.Resolve(owner, field.Options.App, field.Options.Entity); err != nil {
 			return "", err
 		}
 	}
@@ -923,50 +923,6 @@ func columnType(owner catalog.LoadedEntity, field schema.Field, targets schemaTa
 func linkForeignKeyEnabled(field schema.Field) bool {
 	// TODO: Extend link options with explicit on-delete policies when dygo supports non-default referential actions.
 	return field.Options.ForeignKey == nil || *field.Options.ForeignKey
-}
-
-type schemaTargetIndex struct {
-	byIdentity map[string]catalog.LoadedEntity
-	byName     map[string][]catalog.LoadedEntity
-}
-
-func newSchemaTargetIndex(entities []catalog.LoadedEntity) schemaTargetIndex {
-	index := schemaTargetIndex{
-		byIdentity: map[string]catalog.LoadedEntity{},
-		byName:     map[string][]catalog.LoadedEntity{},
-	}
-	for _, entity := range entities {
-		index.byIdentity[catalog.EntityKey(entity.AppName, entity.Entity.Name)] = entity
-		index.byName[entity.Entity.Name] = append(index.byName[entity.Entity.Name], entity)
-	}
-	return index
-}
-
-func (i schemaTargetIndex) resolve(owner catalog.LoadedEntity, appName string, entityName string) (catalog.LoadedEntity, error) {
-	if strings.TrimSpace(appName) != "" {
-		target, ok := i.byIdentity[catalog.EntityKey(appName, entityName)]
-		if !ok {
-			return catalog.LoadedEntity{}, fmt.Errorf("link target %q in app %q is not loaded", entityName, appName)
-		}
-		return target, nil
-	}
-	if target, ok := i.byIdentity[catalog.EntityKey(owner.AppName, entityName)]; ok {
-		return target, nil
-	}
-	matches := i.byName[entityName]
-	switch len(matches) {
-	case 0:
-		return catalog.LoadedEntity{}, fmt.Errorf("link target %q is not loaded", entityName)
-	case 1:
-		return matches[0], nil
-	default:
-		apps := make([]string, 0, len(matches))
-		for _, match := range matches {
-			apps = append(apps, match.AppName)
-		}
-		sort.Strings(apps)
-		return catalog.LoadedEntity{}, fmt.Errorf("link target %q is ambiguous in apps %s; set options.app", entityName, strings.Join(apps, ", "))
-	}
 }
 
 func defaultClause(node yaml.Node) (string, bool, error) {

@@ -3,7 +3,7 @@ import { computed, onBeforeUnmount, ref, watch } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import { useInfiniteQuery } from '@tanstack/vue-query'
 import { useDebounceFn, useStorage } from '@vueuse/core'
-import { ArrowDown, ArrowUp, Check, Download, FunnelPlus, PanelRightClose, PanelRightOpen, Play, Settings2, X } from '@lucide/vue'
+import { ArrowDown, ArrowUp, Check, Download, FunnelPlus, Play, Settings2, X } from '@lucide/vue'
 import {
   PopoverContent,
   PopoverPortal,
@@ -58,7 +58,6 @@ const router = useRouter()
 const platformConfigQuery = usePlatformConfigQuery()
 const ID_SEARCH_DEBOUNCE_MS = 500
 const FILTER_ROUTE_REPLACE_DEBOUNCE_MS = 250
-const LIST_SIDEBAR_STORAGE_KEY = 'dygo.studio.records.listSidebarOpen'
 const PAGE_SIZE_STORAGE_KEY = 'dygo.studio.records.pageSize'
 const DEFAULT_RECORD_LIST_SORT: DataTableSort = { key: 'created-at', direction: 'desc' }
 const storedHiddenColumnKeys = useStorage<string[]>(computed(() => hiddenColumnStorageKey(props.entity)), [], undefined, {
@@ -84,9 +83,6 @@ const importOpen = ref(false)
 const actionMutation = useExecuteRecordActionMutation()
 const toast = useToast()
 const viewOptionsOpen = ref(false)
-const listSidebarOpen = useStorage(LIST_SIDEBAR_STORAGE_KEY, false, undefined, {
-  onError: () => {},
-})
 let nextFilterTokenId = 1
 let currentEntity = ''
 let currentListQuerySignature = ''
@@ -356,10 +352,6 @@ function updateSelectedRowKeys(value: DataTableRowKey[]) {
 
 function updateSort(value: DataTableSort | null) {
   replaceRecordListRouteNow(appliedRecordFilters(), defaultRecordListSortEquals(value) ? null : value)
-}
-
-function toggleListSidebar() {
-  listSidebarOpen.value = !listSidebarOpen.value
 }
 
 function updateViewOptionsOpen(value: boolean) {
@@ -1057,25 +1049,6 @@ async function exportCSV() {
           </PopoverPortal>
         </PopoverRoot>
 
-        <IconButton
-          :label="listSidebarOpen ? 'Hide sidebar' : 'Show sidebar'"
-          :variant="listSidebarOpen ? 'secondary' : 'ghost'"
-          :aria-pressed="listSidebarOpen ? 'true' : 'false'"
-          @click="toggleListSidebar"
-        >
-          <PanelRightClose
-            v-if="listSidebarOpen"
-            :size="14"
-            :stroke-width="1.8"
-            aria-hidden="true"
-          />
-          <PanelRightOpen
-            v-else
-            :size="14"
-            :stroke-width="1.8"
-            aria-hidden="true"
-          />
-        </IconButton>
       </template>
     </PageToolbar>
 
@@ -1089,41 +1062,32 @@ async function exportCSV() {
       @imported="() => recordsQuery.refetch()"
     />
 
-    <div class="record-list-renderer__content" :data-sidebar-open="listSidebarOpen ? '' : undefined">
-      <DataTable
-        :columns="visibleColumns"
-        :rows="rows"
-        :state="tableState"
-        :state-title="tableStateTitle"
-        :state-message="tableStateMessage"
-        :loading="loading"
-        :loading-more="loadingMore"
-        :error="error"
-        :footer-error="footerError"
-        :page-size="pageSize"
-        :page-size-options="pageSizeOptions"
-        :total-rows="totalRows"
-        :has-more="hasMore"
-        :sort="listQuery.sort"
-        selectable
-        :selected-row-keys="selectedRowKeys"
-        :empty-action-label="readOnly ? '' : 'Add first record'"
-        row-activatable
-        @update:page-size="updatePageSize"
-        @update:selected-row-keys="updateSelectedRowKeys"
-        @update:sort="updateSort"
-        @row-activate="(row) => emit('open-record', row)"
-        @load-more="recordsQuery.fetchNextPage()"
-        @empty-action="createRecord"
-      >
-      </DataTable>
-
-      <aside
-        v-if="listSidebarOpen"
-        class="record-list-renderer__sidebar"
-        aria-label="Record list sidebar"
-      />
-    </div>
+    <DataTable
+      :columns="visibleColumns"
+      :rows="rows"
+      :state="tableState"
+      :state-title="tableStateTitle"
+      :state-message="tableStateMessage"
+      :loading="loading"
+      :loading-more="loadingMore"
+      :error="error"
+      :footer-error="footerError"
+      :page-size="pageSize"
+      :page-size-options="pageSizeOptions"
+      :total-rows="totalRows"
+      :has-more="hasMore"
+      :sort="listQuery.sort"
+      selectable
+      :selected-row-keys="selectedRowKeys"
+      :empty-action-label="readOnly ? '' : 'Add first record'"
+      row-activatable
+      @update:page-size="updatePageSize"
+      @update:selected-row-keys="updateSelectedRowKeys"
+      @update:sort="updateSort"
+      @row-activate="(row) => emit('open-record', row)"
+      @load-more="recordsQuery.fetchNextPage()"
+      @empty-action="createRecord"
+    />
   </section>
 </template>
 
@@ -1138,24 +1102,6 @@ async function exportCSV() {
 
 .record-list-renderer :deep(.data-table) {
   flex: 1 1 auto;
-}
-
-.record-list-renderer__content {
-  display: flex;
-  flex: 1 1 auto;
-  min-width: 0;
-  min-height: 0;
-}
-
-.record-list-renderer__content :deep(.data-table) {
-  min-width: 0;
-}
-
-.record-list-renderer__sidebar {
-  width: 312px;
-  flex: 0 0 312px;
-  border-left: 1px solid var(--studio-border);
-  background: var(--studio-surface);
 }
 
 .record-list-renderer__name-search {

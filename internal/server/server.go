@@ -133,7 +133,7 @@ func NewRouter(options ...Options) http.Handler {
 			registerMetadataRoutes(protected, opts.Metadata, opts.Permissions, opts.ActionRegistry)
 			registerPageRoutes(protected, opts.Pages, opts.Permissions)
 			registerNotificationRoutes(protected, opts.Notifications)
-			registerRecordRoutes(protected, opts.Records, opts.Activity, opts.Permissions, opts.EntityActions)
+			registerRecordRoutes(protected, opts.Records, opts.Activity, opts.Metadata, opts.Permissions, opts.EntityActions)
 			registerFileRoutes(protected, opts.Files)
 			registerImportRoutes(protected, opts.Imports)
 		})
@@ -949,13 +949,17 @@ func writeAPIError(w http.ResponseWriter, err error, detailKey string, detailVal
 type recordHandler struct {
 	store       RecordStore
 	activity    ActivityStore
+	metadata    MetadataStore
 	permissions PermissionChecker
 	actions     EntityActionExecutor
 }
 
-func registerRecordRoutes(router chi.Router, store RecordStore, activity ActivityStore, checker PermissionChecker, actions EntityActionExecutor) {
-	handler := recordHandler{store: store, activity: activity, permissions: checker, actions: actions}
+type recordEntityMetaContextKey struct{}
+
+func registerRecordRoutes(router chi.Router, store RecordStore, activity ActivityStore, metadata MetadataStore, checker PermissionChecker, actions EntityActionExecutor) {
+	handler := recordHandler{store: store, activity: activity, metadata: metadata, permissions: checker, actions: actions}
 	router.Route("/records/{entity}", func(records chi.Router) {
+		records.Use(handler.resolveEntity)
 		records.Get("/", handler.listRecords)
 		records.Get("/export", handler.exportRecords)
 		records.Post("/", handler.createRecord)
@@ -969,6 +973,27 @@ func registerRecordRoutes(router chi.Router, store RecordStore, activity Activit
 		records.Patch("/{id}", handler.updateRecord)
 		records.Delete("/{id}", handler.deleteRecord)
 	})
+}
+
+func (h recordHandler) resolveEntity(next http.Handler) http.Handler {
+	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if h.metadata == nil {
+			next.ServeHTTP(w, r)
+			return
+		}
+		meta, err := h.metadata.GetEntityMeta(r.Context(), chi.URLParam(r, "entity"))
+		if err != nil {
+			writeAPIError(w, err, "entity", chi.URLParam(r, "entity"))
+			return
+		}
+		ctx := context.WithValue(r.Context(), recordEntityMetaContextKey{}, meta)
+		next.ServeHTTP(w, r.WithContext(ctx))
+	})
+}
+
+func recordEntityMeta(ctx context.Context) (db.MetadataEntityMeta, bool) {
+	meta, ok := ctx.Value(recordEntityMetaContextKey{}).(db.MetadataEntityMeta)
+	return meta, ok
 }
 
 func (h recordHandler) executeAction(w http.ResponseWriter, r *http.Request) {
@@ -1412,11 +1437,32 @@ func (h recordHandler) authorize(w http.ResponseWriter, r *http.Request, entity 
 		writeAuthError(w, auth.Error{Code: auth.ErrorUnauthenticated, Message: "authentication required"})
 		return false
 	}
-	err := h.permissions.Can(r.Context(), permissions.Request{
-		Actor:    permissions.Actor{UserID: user.ID, Administrator: user.Administrator},
-		Entity:   entity,
-		Action:   action,
-		RecordID: recordID,
+	if h.metadata == nil {
+		if _, concrete := h.store.(db.RecordStore); concrete {
+			writePermissionError(w, permissions.Error{Code: permissions.ErrorInternal, Message: "record metadata is unavailable"})
+			return false
+		}
+		err := h.permissions.Can(r.Context(), permissions.Request{
+			Actor:    permissions.Actor{UserID: user.ID, Administrator: user.Administrator},
+			Entity:   entity,
+			Action:   action,
+			RecordID: recordID,
+		})
+		if err != nil {
+			writePermissionError(w, err)
+			return false
+		}
+		return true
+	}
+	meta, ok := recordEntityMeta(r.Context())
+	if !ok {
+		writePermissionError(w, permissions.Error{Code: permissions.ErrorInternal, Message: "record metadata is unavailable"})
+		return false
+	}
+	err := h.permissions.Authorize(r.Context(), dygo.PermissionRequest{
+		Actor:    dygo.Actor{UserID: user.ID, Email: user.Email, Administrator: user.Administrator},
+		Resource: dygo.Resource{Kind: dygo.ResourceEntity, App: meta.App.Name, Name: meta.Key},
+		Action:   dygo.Action(action),
 	})
 	if err != nil {
 		writePermissionError(w, err)
@@ -1440,7 +1486,14 @@ func (h recordHandler) storeFor(r *http.Request, entity string, action permissio
 	if !ok {
 		return nil, permissions.Error{Code: permissions.ErrorInternal, Message: "permission scope is unavailable"}
 	}
-	scope, err := scoper.RecordScope(r.Context(), permissions.Request{Actor: permissions.Actor{UserID: user.ID, Email: user.Email}, Entity: entity, Action: action})
+	if h.metadata == nil {
+		return nil, permissions.Error{Code: permissions.ErrorInternal, Message: "record metadata is unavailable"}
+	}
+	meta, ok := recordEntityMeta(r.Context())
+	if !ok {
+		return nil, permissions.Error{Code: permissions.ErrorInternal, Message: "record metadata is unavailable"}
+	}
+	scope, err := scoper.RecordScope(r.Context(), permissions.Request{Actor: permissions.Actor{UserID: user.ID, Email: user.Email}, Resource: permissions.Resource{Kind: permissions.ResourceEntity, App: meta.App.Name, Name: meta.Key}, Action: action})
 	if err != nil {
 		return nil, err
 	}

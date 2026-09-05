@@ -614,7 +614,7 @@ records:
 `)
 	file.AppName = "crm"
 
-	sourceIndex := newFixtureEntityIndex([]catalog.LoadedEntity{
+	sourceIndex := catalog.NewTargetIndex([]catalog.LoadedEntity{
 		{AppName: "crm", Entity: schema.Entity{Name: "lead"}},
 		{AppName: "core", Entity: schema.Entity{Name: "user"}},
 	})

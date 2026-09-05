@@ -214,6 +214,41 @@ func TestMetadataRoutes(t *testing.T) {
 	}
 }
 
+func TestRecordRoutesAuthorizeWithCanonicalEntityIdentity(t *testing.T) {
+	authStore := validFakeAuthStore()
+	authStore.user.Administrator = false
+	metadata := &fakeMetadataStore{meta: db.MetadataEntityMeta{MetadataEntity: db.MetadataEntity{
+		Name: "crm.lead", Key: "lead", Slug: testString("lead-route"), App: db.MetadataAppRef{Name: "crm", Label: "CRM"},
+	}}}
+	checker := &fakePermissionChecker{}
+	request := authenticatedRequest(http.MethodGet, "/api/v1/records/lead-route", "")
+	recorder := httptest.NewRecorder()
+	NewRouter(Options{
+		Auth: authStore, Metadata: metadata, Records: &fakeRecordStore{list: db.RecordListResult{Records: []db.Record{}}}, Permissions: checker,
+	}).ServeHTTP(recorder, request)
+	if recorder.Code != http.StatusOK {
+		t.Fatalf("record route status = %d, want 200", recorder.Code)
+	}
+	if len(checker.resourceRequests) != 1 {
+		t.Fatalf("resource permission requests = %d, want one", len(checker.resourceRequests))
+	}
+	got := checker.resourceRequests[0]
+	if got.Resource.App != "crm" || got.Resource.Name != "lead" || got.Resource.Kind != dygo.ResourceEntity {
+		t.Fatalf("resource = %+v, want crm/lead Entity", got.Resource)
+	}
+}
+
+func TestWriteImportErrorMapsRecordNotFound(t *testing.T) {
+	recorder := httptest.NewRecorder()
+	writeImportError(recorder, db.RecordError{Code: db.RecordErrorNotFound, Message: "import not found"})
+	if recorder.Code != http.StatusNotFound {
+		t.Fatalf("import error status = %d, want 404", recorder.Code)
+	}
+	if !contains(recorder.Body.String(), `"code":"not_found"`) {
+		t.Fatalf("import error body = %s, want not_found", recorder.Body.String())
+	}
+}
+
 func TestMetadataRouteNotFound(t *testing.T) {
 	store := &fakeMetadataStore{appErr: db.MetadataNotFoundError{Kind: "app", Name: "missing"}}
 	request := authenticatedRequest(http.MethodGet, "/api/v1/apps/missing", "")

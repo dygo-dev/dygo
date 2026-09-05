@@ -19,7 +19,6 @@ const props = withDefaults(defineProps<{
 
 const emit = defineEmits<{
   'update:modelValue': [value: string]
-  'upload-request': [file: File]
 }>()
 
 const input = ref<HTMLInputElement | null>(null)
@@ -36,11 +35,8 @@ async function fileSelected(event: Event) {
   selecting.value = true
   uploadError.value = ''
   try {
-    if (props.upload) {
-      emit('update:modelValue', await props.upload(file))
-    } else {
-      emit('upload-request', file)
-    }
+    if (!props.upload) return
+    emit('update:modelValue', await props.upload(file))
   } catch (error) {
     uploadError.value = error instanceof Error ? error.message : 'File upload failed.'
   } finally {

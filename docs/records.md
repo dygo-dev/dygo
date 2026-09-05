@@ -206,11 +206,6 @@ delete -> delete
 
 Administrator users are privileged through the permission engine.
 
-Coming soon on the same engine:
+The permission engine applies row conditions, owner rules, and field read/write restrictions to Record access. Collection fields use the parent Record's field restrictions. See [Access](access.md) for policy metadata.
 
-- sharing
-- row-level filtering
-- owner rules
-- field-level permissions
-- saved views
-- richer Studio list UI
+Sharing, saved views, and richer Studio list UI remain separate follow-up work.

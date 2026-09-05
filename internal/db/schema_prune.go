@@ -18,6 +18,7 @@ const SchemaPruneBlockerHelp = "resolve blockers before pruning schema objects"
 type SchemaPrunePlan struct {
 	Operations  []SchemaPruneOperation
 	Diagnostics []SchemaDiagnostic
+	metadata    *metadataCatalog
 }
 
 // SchemaPruneOperation is one destructive schema operation generated from live drift.
@@ -75,7 +76,9 @@ func PlanSchemaPrune(ctx context.Context, pool *pgxpool.Pool, root string) (Sche
 	if err != nil {
 		return SchemaPrunePlan{}, err
 	}
-	return BuildSchemaPrunePlan(metadata.Entities, live)
+	plan, err := BuildSchemaPrunePlan(metadata.Entities, live)
+	plan.metadata = &metadata
+	return plan, err
 }
 
 // PruneMetadataSchema removes PostgreSQL schema objects that are no longer represented by Entity metadata.
@@ -100,6 +103,11 @@ func ApplySchemaPrunePlan(ctx context.Context, pool *pgxpool.Pool, plan SchemaPr
 
 	if err := executeSchemaPrunePlan(ctx, tx, plan); err != nil {
 		return SchemaPruneResult{}, err
+	}
+	if plan.metadata != nil {
+		if _, err := persistMetadataRecords(ctx, tx, *plan.metadata); err != nil {
+			return SchemaPruneResult{}, err
+		}
 	}
 	if err := tx.Commit(ctx); err != nil {
 		return SchemaPruneResult{}, fmt.Errorf("commit schema prune transaction: %w", err)

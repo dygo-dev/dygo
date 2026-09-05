@@ -3,7 +3,7 @@ import { computed, onBeforeUnmount, ref } from 'vue'
 
 import { Button } from '@/design'
 import type { MetadataField } from '@/features/metadata/metadata.api'
-import { getImportStatus, startCSVImport } from '@/features/records/records.api'
+import { getImportStatus, startCSVImport, type ImportInfo } from '@/features/records/records.api'
 import { parseCSV, recordsToCSV } from '@/features/records/csv'
 
 const props = defineProps<{
@@ -21,6 +21,7 @@ const mapping = ref<Record<string, string>>({})
 const rowErrors = ref<Record<number, string[]>>({})
 const progress = ref(0)
 const importing = ref(false)
+const importResult = ref<ImportInfo | null>(null)
 const error = ref('')
 let pollTimer: ReturnType<typeof window.setTimeout> | undefined
 const importableFields = computed(() => props.fields.filter((field) => field.stored && !field['write-only'] && field.type !== 'collection'))
@@ -32,6 +33,7 @@ function selectFile(event: Event) {
   const file = (event.target as HTMLInputElement).files?.[0]
   if (!file) return
   error.value = ''
+  importResult.value = null
   rowErrors.value = {}
   const reader = new FileReader()
   reader.onload = () => {
@@ -94,8 +96,13 @@ async function pollImport(id: number) {
     return pollImport(id)
   }
   importing.value = false
-  emit('imported')
-  if (result.status === 'succeeded') emit('close')
+  importResult.value = result
+  if (result['succeeded-rows'] > 0) {
+    emit('imported')
+  }
+  if (result.status === 'succeeded') {
+    emit('close')
+  }
 }
 
 onBeforeUnmount(() => { if (pollTimer) window.clearTimeout(pollTimer) })
@@ -114,7 +121,13 @@ onBeforeUnmount(() => { if (pollTimer) window.clearTimeout(pollTimer) })
       </label>
     </div>
     <p v-if="error" class="csv-import__error" role="alert">{{ error }}</p>
-    <p v-if="validRows.length > 0" class="csv-import__summary">{{ validRows.length }} rows · {{ progress }}% complete</p>
+    <p v-if="importResult?.status === 'succeeded'" class="csv-import__summary">
+      Imported {{ importResult['succeeded-rows'] }} of {{ importResult['total-rows'] }} rows.
+    </p>
+    <p v-else-if="importResult?.status === 'failed'" class="csv-import__error" role="alert">
+      Import failed: {{ importResult['succeeded-rows'] }} of {{ importResult['total-rows'] }} rows imported; {{ importResult['failed-rows'] }} failed.
+    </p>
+    <p v-else-if="validRows.length > 0" class="csv-import__summary">{{ validRows.length }} rows · {{ progress }}% complete</p>
     <ul v-if="Object.keys(rowErrors).length > 0" class="csv-import__errors"><li v-for="(messages, row) in rowErrors" :key="row">Row {{ row }}: {{ messages.join(', ') }}</li></ul>
     <Button variant="primary" size="sm" :disabled="Boolean(error) || validRows.length === 0 || Object.keys(rowErrors).length > 0" :loading="importing" @click="importRows">Import records</Button>
   </section>

@@ -6,6 +6,8 @@ import (
 	"path/filepath"
 	"strings"
 	"testing"
+
+	"github.com/hapyco/dygo/pkg/dygo"
 )
 
 func TestLocalBlobStoreKeepsFilesPrivateAndRemovesThem(t *testing.T) {
@@ -32,5 +34,14 @@ func TestLocalBlobStoreKeepsFilesPrivateAndRemovesThem(t *testing.T) {
 	}
 	if _, err := os.Stat(store.Path("secret")); !os.IsNotExist(err) {
 		t.Fatalf("removed blob stat error = %v, want not exists", err)
+	}
+}
+
+func TestValidateTargetRejectsPartialTarget(t *testing.T) {
+	if err := validateTarget(dygo.FileTarget{App: "crm", Entity: "lead", Field: "attachment"}); err == nil {
+		t.Fatal("validateTarget() error = nil, want missing record id error")
+	}
+	if err := validateTarget(dygo.FileTarget{}); err != nil {
+		t.Fatalf("validateTarget() empty target error = %v, want nil", err)
 	}
 }

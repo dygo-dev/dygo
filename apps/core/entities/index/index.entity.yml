@@ -28,3 +28,9 @@ fields:
   - name: position
     label: Position
     type: int
+
+  - name: retired
+    label: Retired
+    type: boolean
+    required: true
+    default: false

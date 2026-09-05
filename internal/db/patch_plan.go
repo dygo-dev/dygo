@@ -69,7 +69,7 @@ func BuildPatchOperationPlan(loaded []patches.LoadedPatch, entities []catalog.Lo
 
 type patchOperationPlanner struct {
 	entities map[string]catalog.LoadedEntity
-	targets  schemaTargetIndex
+	targets  catalog.TargetIndex
 	live     LiveSchema
 }
 
@@ -84,7 +84,7 @@ func newPatchOperationPlanner(entities []catalog.LoadedEntity, live LiveSchema) 
 	}
 	return &patchOperationPlanner{
 		entities: byIdentity,
-		targets:  newSchemaTargetIndex(entities),
+		targets:  catalog.NewTargetIndex(entities),
 		live:     cloneLiveSchema(live),
 	}, nil
 }

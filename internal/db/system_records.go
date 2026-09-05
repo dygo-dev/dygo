@@ -38,32 +38,7 @@ func (s RecordStore) SystemWriter() SystemRecordWriter {
 
 // InsertByIdentity inserts one app-scoped system Record without returning it.
 func (w SystemRecordWriter) InsertByIdentity(ctx context.Context, appName string, entity string, input RecordInput, policy SystemMutationPolicy) error {
-	if err := w.store.requireQueryer(); err != nil {
-		return err
-	}
-	store, err := w.mutationStore(appName, entity, policy)
-	if err != nil {
-		return err
-	}
-	if policy == SystemMutationFramework || policy == SystemMutationFull {
-		_, err := store.createRecordByIdentity(ctx, appName, entity, input)
-		return err
-	}
-	layout, err := store.recordLayoutByIdentity(ctx, appName, entity)
-	if err != nil {
-		return err
-	}
-	if layout.IsSingle {
-		return singleRecordOperationError(layout, "create")
-	}
-	if layout.IsCollection {
-		return collectionRecordOperationError(layout, "create")
-	}
-	input = cloneRecordInput(input)
-	if err := store.applyFetchedFields(ctx, layout, input, nil); err != nil {
-		return err
-	}
-	_, err = store.insertRecordWithLayout(ctx, layout, input, false)
+	_, err := w.InsertReturningByIdentity(ctx, appName, entity, input, policy)
 	return err
 }
 
@@ -76,7 +51,7 @@ func (w SystemRecordWriter) InsertReturningByIdentity(ctx context.Context, appNa
 	if err != nil {
 		return nil, err
 	}
-	return store.createRecordByIdentity(ctx, appName, entity, input)
+	return store.CreateRecordByIdentity(ctx, appName, entity, input)
 }
 
 // UpdateByIdentity updates one framework-owned Record without exposing the
@@ -89,7 +64,7 @@ func (w SystemRecordWriter) UpdateByIdentity(ctx context.Context, appName string
 	if err != nil {
 		return nil, err
 	}
-	return store.updateRecordByIdentity(ctx, appName, entity, id, input)
+	return store.UpdateRecordByIdentity(ctx, appName, entity, id, input)
 }
 
 // DeleteByIdentity deletes one framework-owned Record without exposing the

@@ -10,7 +10,6 @@ import TopBar from './TopBar.vue'
 withDefaults(defineProps<{
   brandLabel?: string
   brandMark?: string
-  companyName?: string
   userName?: string
   userAvatarUrl?: string
   navItems?: ShellNavItem[]
@@ -18,7 +17,6 @@ withDefaults(defineProps<{
 }>(), {
   brandLabel: 'dygo Studio',
   brandMark: 'd',
-  companyName: 'Umami Smokehouse',
   userName: 'Studio user',
   navItems: () => [],
   showSidebar: true,
@@ -34,7 +32,6 @@ const { sidebarCollapsed } = storeToRefs(navigationStore)
       class="studio-shell__header"
       :brand-label="brandLabel"
       :brand-mark="brandMark"
-      :company-name="companyName"
       :user-name="userName"
       :user-avatar-url="userAvatarUrl"
     >

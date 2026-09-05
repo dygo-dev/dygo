@@ -2,6 +2,7 @@ package db
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"strings"
 
@@ -34,6 +35,14 @@ func (s RecordStore) loadRecordCollections(ctx context.Context, layout recordLay
 		return nil, err
 	}
 	for _, fieldName := range layout.collectionNames() {
+		if err := s.AuthorizeField(ctx, layout.AppName, layout.Entity, parentID, fieldName, false); err != nil {
+			var denied RecordError
+			if errors.As(err, &denied) && denied.Code == RecordErrorPermissionDenied {
+				delete(record, fieldName)
+				continue
+			}
+			return nil, err
+		}
 		collection := layout.Collections[fieldName]
 		sql := fmt.Sprintf(
 			"SELECT %s FROM %s AS %s WHERE %s = $1 AND %s = $2 AND %s = $3 ORDER BY %s ASC, %s ASC",
@@ -96,10 +105,10 @@ func (s RecordStore) saveSubmittedCollections(ctx context.Context, layout record
 }
 
 func (s RecordStore) saveCollectionRows(ctx context.Context, collection recordCollection, parentID int64, rows []recordCollectionRowInput, create bool) error {
-	existing := map[int64]struct{}{}
+	existing := map[int64]Record{}
 	var err error
 	if !create {
-		existing, err = s.collectionExistingRowIDs(ctx, collection, parentID)
+		existing, err = s.collectionExistingRows(ctx, collection, parentID)
 		if err != nil {
 			return err
 		}
@@ -127,7 +136,14 @@ func (s RecordStore) saveCollectionRows(ctx context.Context, collection recordCo
 			}
 		}
 	}
+	// Collection rows are parent-owned: use the shared field rules without applying
+	// the parent's SQL scope or standalone child hooks to a different Entity.
+	childStore := s
+	childStore.scope = nil
 	for _, row := range rows {
+		if err := childStore.prepareRecordInput(ctx, *collection.Layout, row.Input, existing[row.ID]); err != nil {
+			return err
+		}
 		if row.ID == 0 {
 			if err := s.insertCollectionRow(ctx, collection, parentID, row); err != nil {
 				return err
@@ -141,11 +157,12 @@ func (s RecordStore) saveCollectionRows(ctx context.Context, collection recordCo
 	return nil
 }
 
-func (s RecordStore) collectionExistingRowIDs(ctx context.Context, collection recordCollection, parentID int64) (map[int64]struct{}, error) {
+func (s RecordStore) collectionExistingRows(ctx context.Context, collection recordCollection, parentID int64) (map[int64]Record, error) {
 	sql := fmt.Sprintf(
-		"SELECT %s FROM %s WHERE %s = $1 AND %s = $2 AND %s = $3",
-		quoteIdent(systemColumnID),
+		"SELECT %s FROM %s AS %s WHERE %s = $1 AND %s = $2 AND %s = $3",
+		collection.Layout.selectList(),
 		quoteIdent(collection.Layout.Table),
+		quoteIdent(recordSelectSourceAlias),
 		quoteIdent(systemColumnParentEntityID),
 		quoteIdent(systemColumnParentRecordID),
 		quoteIdent(systemColumnParentFieldID),
@@ -156,25 +173,26 @@ func (s RecordStore) collectionExistingRowIDs(ctx context.Context, collection re
 	}
 	defer rows.Close()
 
-	ids := map[int64]struct{}{}
+	records := map[int64]Record{}
 	for rows.Next() {
 		values, err := rows.Values()
 		if err != nil {
 			return nil, recordError(RecordErrorInternal, "read collection row ids failed", map[string]any{"entity": collection.Layout.Entity}, err)
 		}
-		if len(values) != 1 {
-			return nil, recordError(RecordErrorInternal, "collection row id query returned an invalid column count", map[string]any{"entity": collection.Layout.Entity, "actual": len(values)}, nil)
-		}
-		id, err := recordIDFromDBValue(values[0], collection.Layout.Entity)
+		record, err := collection.Layout.recordFromValues(values)
 		if err != nil {
 			return nil, err
 		}
-		ids[id] = struct{}{}
+		id, err := activityRecordID(record)
+		if err != nil {
+			return nil, err
+		}
+		records[id] = record
 	}
 	if err := rows.Err(); err != nil {
 		return nil, classifyRecordDBError(err, collection.Layout.Entity)
 	}
-	return ids, nil
+	return records, nil
 }
 
 func (s RecordStore) insertCollectionRow(ctx context.Context, collection recordCollection, parentID int64, row recordCollectionRowInput) error {
@@ -214,9 +232,6 @@ func (s RecordStore) insertCollectionRow(ctx context.Context, collection recordC
 }
 
 func (s RecordStore) updateCollectionRow(ctx context.Context, collection recordCollection, parentID int64, row recordCollectionRowInput) error {
-	if err := collection.Layout.validateUpdateFields(row.Input); err != nil {
-		return err
-	}
 	mutation, err := s.writeMutation(ctx, *collection.Layout, row.Input)
 	if err != nil {
 		return err

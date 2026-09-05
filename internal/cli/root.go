@@ -37,7 +37,6 @@ const defaultStudioDevURL = "http://127.0.0.1:6791"
 
 type serveRunner func(context.Context, server.Options) error
 type studioDevStop func() error
-type databaseChecker func(context.Context, string) error
 type adminSetupRunner interface {
 	SetupAdmin(context.Context, string, auth.SetupAdminInput) (auth.User, error)
 }
@@ -70,6 +69,18 @@ type schemaSyncRunner interface {
 	Sync(context.Context, string, string) (db.SchemaSyncResult, error)
 }
 
+type commandDependencies struct {
+	serve          serveRunner
+	database       databaseRunner
+	sync           schemaSyncRunner
+	setup          adminSetupRunner
+	fixture        fixtureRunner
+	access         accessRunner
+	recordHooks    *db.RecordHookRegistry
+	actionRegistry *entityactions.Registry
+	jobRegistry    *jobruntime.Registry
+}
+
 // Options configures dygo CLI runtime extensions.
 type Options struct {
 	RecordHooks   []dygo.RecordHookRegistrar
@@ -100,28 +111,14 @@ func RunWithOptions(ctx context.Context, args []string, stdin io.Reader, stdout,
 	if err != nil {
 		return fmt.Errorf("configure jobs: %w", err)
 	}
-	return runWithServicesAndSetupAndFixturesAndAccessAndHooks(ctx, args, stdin, stdout, stderr, server.Serve, db.NewManager(migrator), migrator, defaultAdminSetupRunner{}, defaultFixtureRunner{recordHooks: recordHooks}, defaultAccessRunner{}, recordHooks, actionRegistry, jobRegistry)
+	return execute(ctx, args, stdin, stdout, stderr, commandDependencies{
+		serve: server.Serve, database: db.NewManager(migrator), sync: migrator, setup: defaultAdminSetupRunner{}, fixture: defaultFixtureRunner{recordHooks: recordHooks},
+		access: defaultAccessRunner{}, recordHooks: recordHooks, actionRegistry: actionRegistry, jobRegistry: jobRegistry,
+	})
 }
 
-func run(ctx context.Context, args []string, stdin io.Reader, stdout, stderr io.Writer, serve serveRunner, checkDatabase databaseChecker) error {
-	migrator := db.NewMigrator()
-	return runWithServices(ctx, args, stdin, stdout, stderr, serve, checkBackedDatabaseRunner{check: checkDatabase, manager: db.NewManager(migrator)}, migrator)
-}
-
-func runWithServices(ctx context.Context, args []string, stdin io.Reader, stdout, stderr io.Writer, serve serveRunner, database databaseRunner, sync schemaSyncRunner) error {
-	return runWithServicesAndSetup(ctx, args, stdin, stdout, stderr, serve, database, sync, defaultAdminSetupRunner{})
-}
-
-func runWithServicesAndSetup(ctx context.Context, args []string, stdin io.Reader, stdout, stderr io.Writer, serve serveRunner, database databaseRunner, sync schemaSyncRunner, setup adminSetupRunner) error {
-	return runWithServicesAndSetupAndFixtures(ctx, args, stdin, stdout, stderr, serve, database, sync, setup, defaultFixtureRunner{})
-}
-
-func runWithServicesAndSetupAndFixtures(ctx context.Context, args []string, stdin io.Reader, stdout, stderr io.Writer, serve serveRunner, database databaseRunner, sync schemaSyncRunner, setup adminSetupRunner, fixture fixtureRunner) error {
-	return runWithServicesAndSetupAndFixturesAndAccessAndHooks(ctx, args, stdin, stdout, stderr, serve, database, sync, setup, fixture, defaultAccessRunner{}, nil, nil, nil)
-}
-
-func runWithServicesAndSetupAndFixturesAndAccessAndHooks(ctx context.Context, args []string, stdin io.Reader, stdout, stderr io.Writer, serve serveRunner, database databaseRunner, sync schemaSyncRunner, setup adminSetupRunner, fixture fixtureRunner, accessRunner accessRunner, recordHooks *db.RecordHookRegistry, actionRegistry *entityactions.Registry, jobRegistry *jobruntime.Registry) error {
-	cmd, err := newRootCommand(ctx, stdin, stdout, stderr, serve, database, sync, setup, fixture, accessRunner, recordHooks, actionRegistry, jobRegistry)
+func execute(ctx context.Context, args []string, stdin io.Reader, stdout, stderr io.Writer, dependencies commandDependencies) error {
+	cmd, err := newRootCommand(ctx, stdin, stdout, stderr, dependencies)
 	if err != nil {
 		return err
 	}
@@ -150,10 +147,14 @@ func NewRootCommand(ctx context.Context, stdin io.Reader, stdout, stderr io.Writ
 	if err != nil {
 		return nil, fmt.Errorf("configure jobs: %w", err)
 	}
-	return newRootCommand(ctx, stdin, stdout, stderr, server.Serve, db.NewManager(migrator), migrator, defaultAdminSetupRunner{}, defaultFixtureRunner{recordHooks: recordHooks}, defaultAccessRunner{}, recordHooks, actionRegistry, jobRegistry)
+	return newRootCommand(ctx, stdin, stdout, stderr, commandDependencies{
+		serve: server.Serve, database: db.NewManager(migrator), sync: migrator, setup: defaultAdminSetupRunner{},
+		fixture: defaultFixtureRunner{recordHooks: recordHooks}, access: defaultAccessRunner{}, recordHooks: recordHooks,
+		actionRegistry: actionRegistry, jobRegistry: jobRegistry,
+	})
 }
 
-func newRootCommand(ctx context.Context, stdin io.Reader, stdout, stderr io.Writer, serve serveRunner, database databaseRunner, sync schemaSyncRunner, setup adminSetupRunner, fixture fixtureRunner, accessRunner accessRunner, recordHooks *db.RecordHookRegistry, actionRegistry *entityactions.Registry, jobRegistry *jobruntime.Registry) (*cobra.Command, error) {
+func newRootCommand(ctx context.Context, stdin io.Reader, stdout, stderr io.Writer, dependencies commandDependencies) (*cobra.Command, error) {
 	if ctx == nil {
 		return nil, fmt.Errorf("context is required")
 	}
@@ -166,22 +167,22 @@ func newRootCommand(ctx context.Context, stdin io.Reader, stdout, stderr io.Writ
 	if stderr == nil {
 		return nil, fmt.Errorf("stderr writer is required")
 	}
-	if serve == nil {
+	if dependencies.serve == nil {
 		return nil, fmt.Errorf("serve runner is required")
 	}
-	if database == nil {
+	if dependencies.database == nil {
 		return nil, fmt.Errorf("database runner is required")
 	}
-	if sync == nil {
+	if dependencies.sync == nil {
 		return nil, fmt.Errorf("schema sync runner is required")
 	}
-	if setup == nil {
+	if dependencies.setup == nil {
 		return nil, fmt.Errorf("admin setup runner is required")
 	}
-	if fixture == nil {
+	if dependencies.fixture == nil {
 		return nil, fmt.Errorf("fixture runner is required")
 	}
-	if accessRunner == nil {
+	if dependencies.access == nil {
 		return nil, fmt.Errorf("access runner is required")
 	}
 	if err := ctx.Err(); err != nil {
@@ -205,12 +206,12 @@ func newRootCommand(ctx context.Context, stdin io.Reader, stdout, stderr io.Writ
 	root.AddCommand(newUpgradeCommand(ctx, stdin, stdout, stderr))
 	root.AddCommand(newVersionCommand(stdout))
 	root.AddCommand(newDoctorCommand(ctx, stdout))
-	root.AddCommand(newDevCommand(ctx, stdout, stderr, serve, recordHooks, actionRegistry))
-	root.AddCommand(newServeCommand(ctx, stdout, stderr, serve, recordHooks, actionRegistry))
-	root.AddCommand(newDBCommand(ctx, stdin, stdout, stderr, database, sync, fixture, accessRunner))
-	root.AddCommand(newSetupCommand(ctx, stdin, stdout, stderr, setup))
-	root.AddCommand(newFixtureCommand(ctx, stdin, stdout, stderr, fixture))
-	root.AddCommand(newAccessCommand(ctx, stdin, stdout, stderr, accessRunner))
+	root.AddCommand(newDevCommand(ctx, stdout, stderr, dependencies.serve, dependencies.recordHooks, dependencies.actionRegistry))
+	root.AddCommand(newServeCommand(ctx, stdout, stderr, dependencies.serve, dependencies.recordHooks, dependencies.actionRegistry))
+	root.AddCommand(newDBCommand(ctx, stdin, stdout, stderr, dependencies.database, dependencies.sync, dependencies.fixture, dependencies.access))
+	root.AddCommand(newSetupCommand(ctx, stdin, stdout, stderr, dependencies.setup))
+	root.AddCommand(newFixtureCommand(ctx, stdin, stdout, stderr, dependencies.fixture))
+	root.AddCommand(newAccessCommand(ctx, stdin, stdout, stderr, dependencies.access))
 	root.AddCommand(newAppCommand(stdout))
 	root.AddCommand(newEntityCommand(stdout))
 	root.AddCommand(newHookCommand(stdout))
@@ -218,14 +219,9 @@ func newRootCommand(ctx context.Context, stdin io.Reader, stdout, stderr io.Writ
 	root.AddCommand(newGenerateCommand(stdout))
 	root.AddCommand(newRouteCommand(stdout))
 	root.AddCommand(newSecretCommand(ctx, stdin, stdout, stderr))
-	root.AddCommand(newWorkerCommand(ctx, stdout, stderr, recordHooks, jobRegistry))
+	root.AddCommand(newWorkerCommand(ctx, stdout, stderr, dependencies.recordHooks, dependencies.jobRegistry))
 
 	return root, nil
-}
-
-type checkBackedDatabaseRunner struct {
-	check   databaseChecker
-	manager databaseRunner
 }
 
 type defaultFixtureRunner struct {
@@ -284,25 +280,6 @@ func (r defaultFixtureRunner) WriteExportPlan(ctx context.Context, plan fixtures
 		return fixtures.ExportResult{}, fmt.Errorf("write fixture export plan: %w", err)
 	}
 	return fixtures.WriteExportPlan(plan)
-}
-
-func (r checkBackedDatabaseRunner) Check(ctx context.Context, databaseURL string) error {
-	if r.check != nil {
-		return r.check(ctx, databaseURL)
-	}
-	return r.manager.Check(ctx, databaseURL)
-}
-
-func (r checkBackedDatabaseRunner) Exists(ctx context.Context, databaseURL string) (db.DatabaseStatus, error) {
-	return r.manager.Exists(ctx, databaseURL)
-}
-
-func (r checkBackedDatabaseRunner) Create(ctx context.Context, databaseURL string) (db.DatabaseResult, error) {
-	return r.manager.Create(ctx, databaseURL)
-}
-
-func (r checkBackedDatabaseRunner) Drop(ctx context.Context, databaseURL string) (db.DatabaseResult, error) {
-	return r.manager.Drop(ctx, databaseURL)
 }
 
 func newVersionCommand(stdout io.Writer) *cobra.Command {

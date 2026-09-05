@@ -4,6 +4,14 @@ import { storeToRefs } from 'pinia'
 import { useRoute, useRouter, type RouteLocationNormalizedLoaded } from 'vue-router'
 import { onKeyStroke } from '@vueuse/core'
 import {
+  DialogContent,
+  DialogOverlay,
+  DialogPortal,
+  DialogRoot,
+  DialogTitle,
+  DialogTrigger,
+} from 'reka-ui'
+import {
   Clock,
   Command,
   FilePlus2,
@@ -21,7 +29,7 @@ import { useMetadataEntitiesQuery } from '@/features/metadata/metadata.query'
 import { routeParam, RouteName } from '@/router/routes'
 import { useAuthStore } from '@/stores/auth.store'
 import { useBootStore } from '@/stores/boot.store'
-import { findEntityByRouteSlug } from '@/stores/metadata.identity'
+import { findEntityByRouteSlug, humanizeEntity } from '@/stores/metadata.identity'
 import { useNavigationStore, type RecentPage } from '@/stores/navigation.store'
 
 type CommandItem = {
@@ -207,10 +215,6 @@ onKeyStroke((event) => {
     return
   }
 
-  if (event.key === 'Escape' && commandMenuOpen.value) {
-    event.preventDefault()
-    closeMenu()
-  }
 }, { passive: false })
 
 async function openMenu() {
@@ -221,6 +225,14 @@ async function openMenu() {
 
 function closeMenu() {
   navigationStore.closeCommandMenu()
+}
+
+function updateMenuOpen(open: boolean) {
+  if (open) {
+    navigationStore.openCommandMenu()
+  } else {
+    closeMenu()
+  }
 }
 
 function handleInputKeydown(event: KeyboardEvent) {
@@ -369,12 +381,6 @@ function entityLabel(entity: MetadataEntity): string {
   return entity.label || humanizeEntity(entity.slug ?? entity.key)
 }
 
-function humanizeEntity(value: string): string {
-  return value
-    .replace(/[-_]+/g, ' ')
-    .replace(/\b\w/g, (letter) => letter.toUpperCase())
-}
-
 function normalizeSearch(value: string): string {
   return value.trim().replace(/\s+/g, ' ').toLowerCase()
 }
@@ -386,35 +392,32 @@ function itemDomId(item: CommandItem): string {
 
 <template>
   <div class="studio-command-menu">
-    <button
-      class="studio-command-menu__trigger"
-      type="button"
-      aria-haspopup="dialog"
-      :aria-expanded="commandMenuOpen"
-      @click="openMenu"
-    >
-      <Search class="studio-command-menu__search-icon" :size="14" :stroke-width="1.8" aria-hidden="true" />
-      <span class="studio-command-menu__placeholder">Search</span>
-      <span class="studio-command-menu__shortcut" aria-hidden="true">
-        <Command :size="12" :stroke-width="1.9" />
-        <kbd>K</kbd>
-      </span>
-      <span class="studio-command-menu__shortcut-label">Command K</span>
-    </button>
-
-    <Teleport to="body">
-      <div
-        v-if="commandMenuOpen"
-        class="studio-command-menu__overlay"
-        role="presentation"
-        @click.self="closeMenu"
-      >
-        <section
-          class="studio-command-menu__dialog"
-          role="dialog"
-          aria-modal="true"
-          aria-label="Command menu"
+    <DialogRoot :open="commandMenuOpen" modal @update:open="updateMenuOpen">
+      <DialogTrigger as-child>
+        <button
+          class="studio-command-menu__trigger"
+          type="button"
+          aria-haspopup="dialog"
+          :aria-expanded="commandMenuOpen"
         >
+          <Search class="studio-command-menu__search-icon" :size="14" :stroke-width="1.8" aria-hidden="true" />
+          <span class="studio-command-menu__placeholder">Search</span>
+          <span class="studio-command-menu__shortcut" aria-hidden="true">
+            <Command :size="12" :stroke-width="1.9" />
+            <kbd>K</kbd>
+          </span>
+          <span class="studio-command-menu__shortcut-label">Command K</span>
+        </button>
+      </DialogTrigger>
+
+      <DialogPortal>
+        <DialogOverlay class="studio-command-menu__overlay" />
+        <DialogContent
+          class="studio-command-menu__dialog"
+          aria-describedby="studio-command-menu-description"
+        >
+          <DialogTitle class="sr-only">Command menu</DialogTitle>
+          <p id="studio-command-menu-description" class="sr-only">Search Studio pages and actions.</p>
           <div class="studio-command-menu__input-wrap">
             <Search class="studio-command-menu__dialog-icon" :size="16" :stroke-width="1.8" aria-hidden="true" />
             <input
@@ -504,9 +507,9 @@ function itemDomId(item: CommandItem): string {
               <span>close</span>
             </span>
           </div>
-        </section>
-      </div>
-    </Teleport>
+        </DialogContent>
+      </DialogPortal>
+    </DialogRoot>
   </div>
 </template>
 
@@ -599,10 +602,7 @@ function itemDomId(item: CommandItem): string {
   position: fixed;
   z-index: 60;
   inset: 0;
-  display: grid;
-  place-items: start center;
   background: oklch(0.225 0.018 246 / 0.18);
-  padding: 86px 18px 18px;
 }
 
 .studio-command-menu__dialog {
@@ -614,6 +614,11 @@ function itemDomId(item: CommandItem): string {
   border-radius: var(--studio-radius-panel);
   background: var(--studio-surface);
   box-shadow: var(--studio-shadow-sheet);
+  position: fixed;
+  z-index: 61;
+  top: 86px;
+  left: 50%;
+  transform: translateX(-50%);
 }
 
 .studio-command-menu__input-wrap {

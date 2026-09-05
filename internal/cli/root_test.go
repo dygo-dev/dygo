@@ -2657,8 +2657,61 @@ func noopDatabaseChecker(context.Context, string) error {
 	return nil
 }
 
+type databaseChecker func(context.Context, string) error
+
+type checkBackedDatabaseRunner struct {
+	check   databaseChecker
+	manager databaseRunner
+}
+
+func (r checkBackedDatabaseRunner) Check(ctx context.Context, databaseURL string) error {
+	if r.check != nil {
+		return r.check(ctx, databaseURL)
+	}
+	return r.manager.Check(ctx, databaseURL)
+}
+
+func (r checkBackedDatabaseRunner) Exists(ctx context.Context, databaseURL string) (db.DatabaseStatus, error) {
+	return r.manager.Exists(ctx, databaseURL)
+}
+
+func (r checkBackedDatabaseRunner) Create(ctx context.Context, databaseURL string) (db.DatabaseResult, error) {
+	return r.manager.Create(ctx, databaseURL)
+}
+
+func (r checkBackedDatabaseRunner) Drop(ctx context.Context, databaseURL string) (db.DatabaseResult, error) {
+	return r.manager.Drop(ctx, databaseURL)
+}
+
 func noopDatabaseRunner() *fakeDatabaseRunner {
 	return &fakeDatabaseRunner{}
+}
+
+func run(ctx context.Context, args []string, stdin io.Reader, stdout, stderr io.Writer, serve serveRunner, checkDatabase databaseChecker) error {
+	migrator := db.NewMigrator()
+	return execute(ctx, args, stdin, stdout, stderr, commandDependencies{
+		serve: serve, database: checkBackedDatabaseRunner{check: checkDatabase, manager: db.NewManager(migrator)}, sync: migrator,
+		setup: defaultAdminSetupRunner{}, fixture: defaultFixtureRunner{}, access: defaultAccessRunner{},
+	})
+}
+
+func runWithServices(ctx context.Context, args []string, stdin io.Reader, stdout, stderr io.Writer, serve serveRunner, database databaseRunner, sync schemaSyncRunner) error {
+	return runWithServicesAndSetup(ctx, args, stdin, stdout, stderr, serve, database, sync, defaultAdminSetupRunner{})
+}
+
+func runWithServicesAndSetup(ctx context.Context, args []string, stdin io.Reader, stdout, stderr io.Writer, serve serveRunner, database databaseRunner, sync schemaSyncRunner, setup adminSetupRunner) error {
+	return runWithServicesAndSetupAndFixtures(ctx, args, stdin, stdout, stderr, serve, database, sync, setup, defaultFixtureRunner{})
+}
+
+func runWithServicesAndSetupAndFixtures(ctx context.Context, args []string, stdin io.Reader, stdout, stderr io.Writer, serve serveRunner, database databaseRunner, sync schemaSyncRunner, setup adminSetupRunner, fixture fixtureRunner) error {
+	return runWithServicesAndSetupAndFixturesAndAccessAndHooks(ctx, args, stdin, stdout, stderr, serve, database, sync, setup, fixture, defaultAccessRunner{}, nil, nil, nil)
+}
+
+func runWithServicesAndSetupAndFixturesAndAccessAndHooks(ctx context.Context, args []string, stdin io.Reader, stdout, stderr io.Writer, serve serveRunner, database databaseRunner, sync schemaSyncRunner, setup adminSetupRunner, fixture fixtureRunner, access accessRunner, recordHooks *db.RecordHookRegistry, actionRegistry *actionruntime.Registry, jobRegistry *jobruntime.Registry) error {
+	return execute(ctx, args, stdin, stdout, stderr, commandDependencies{
+		serve: serve, database: database, sync: sync, setup: setup, fixture: fixture, access: access,
+		recordHooks: recordHooks, actionRegistry: actionRegistry, jobRegistry: jobRegistry,
+	})
 }
 
 func runWithOptionsForTest(ctx context.Context, args []string, stdin io.Reader, stdout, stderr io.Writer, serve serveRunner, options Options) error {

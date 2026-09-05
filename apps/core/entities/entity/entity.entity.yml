@@ -63,3 +63,9 @@ fields:
   - name: naming
     label: Naming
     type: json
+
+  - name: retired
+    label: Retired
+    type: boolean
+    required: true
+    default: false

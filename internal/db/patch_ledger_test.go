@@ -214,6 +214,10 @@ type fakePatchLedgerQueryer struct {
 }
 
 func (q *fakePatchLedgerQueryer) Query(_ context.Context, sql string, args ...any) (pgx.Rows, error) {
+	if rows := fakeSystemInsertRows(sql); rows != nil {
+		_, err := q.Exec(context.Background(), sql, args...)
+		return rows, err
+	}
 	q.queries = append(q.queries, sql)
 	q.args = append(q.args, args)
 	if rows, ok := fakePatchRunMetadataRows(sql, args...); ok {

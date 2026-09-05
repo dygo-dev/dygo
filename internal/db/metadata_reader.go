@@ -201,6 +201,7 @@ func (r MetadataReader) ListEntities(ctx context.Context) ([]MetadataEntity, err
 SELECT e.name, e.key, COALESCE(e.slug, ''), e.label, COALESCE(e.description, ''), COALESCE(e.icon, ''), COALESCE(e.is_single, false), COALESCE(e.is_system, false), COALESCE(e.is_collection, false), e.naming, a.name, a.label
 FROM "entity" e
 JOIN "app" a ON a.id = e.app_id
+WHERE NOT e.retired
 ORDER BY a.name, e.key`)
 	if err != nil {
 		return nil, fmt.Errorf("query metadata entities: %w", err)
@@ -231,7 +232,7 @@ func (r MetadataReader) GetEntityMeta(ctx context.Context, slug string) (Metadat
 SELECT e.id, e.name, e.key, COALESCE(e.slug, ''), e.label, COALESCE(e.description, ''), COALESCE(e.icon, ''), COALESCE(e.is_single, false), COALESCE(e.is_system, false), COALESCE(e.is_collection, false), e.naming, a.name, a.label
 FROM "entity" e
 JOIN "app" a ON a.id = e.app_id
-WHERE e.slug = $1`, slug)
+WHERE e.slug = $1 AND NOT e.retired`, slug)
 }
 
 // GetEntityMetaByIdentity returns complete persisted metadata for one app-scoped Entity identity.
@@ -240,7 +241,7 @@ func (r MetadataReader) GetEntityMetaByIdentity(ctx context.Context, appName str
 SELECT e.id, e.name, e.key, COALESCE(e.slug, ''), e.label, COALESCE(e.description, ''), COALESCE(e.icon, ''), COALESCE(e.is_single, false), COALESCE(e.is_system, false), COALESCE(e.is_collection, false), e.naming, a.name, a.label
 FROM "entity" e
 JOIN "app" a ON a.id = e.app_id
-WHERE a.name = $1 AND e.key = $2`, appName, entity)
+WHERE a.name = $1 AND e.key = $2 AND NOT e.retired`, appName, entity)
 }
 
 func (r MetadataReader) getEntityMeta(ctx context.Context, name string, sql string, args ...any) (MetadataEntityMeta, error) {
@@ -345,7 +346,7 @@ func (r MetadataReader) entityFields(ctx context.Context, entityID int64) ([]Met
 	rows, err := r.queryer.Query(ctx, `
 	SELECT id, field_name, label, type, required, "unique", "index", "default", "check", "fetch", position, options
 	FROM "field"
-	WHERE entity_id = $1
+	WHERE entity_id = $1 AND NOT retired
 	ORDER BY position, name`, entityID)
 	if err != nil {
 		return nil, fmt.Errorf("query metadata fields: %w", err)
@@ -400,7 +401,7 @@ func (r MetadataReader) entityIndexes(ctx context.Context, entityID int64) ([]Me
 	rows, err := r.queryer.Query(ctx, `
 SELECT index_name, field_names, position
 FROM "index"
-WHERE entity_id = $1
+WHERE entity_id = $1 AND NOT retired
 ORDER BY position, name`, entityID)
 	if err != nil {
 		return nil, fmt.Errorf("query metadata indexes: %w", err)
@@ -427,7 +428,7 @@ func (r MetadataReader) entityConstraints(ctx context.Context, entityID int64) (
 	rows, err := r.queryer.Query(ctx, `
 SELECT constraint_name, type, field_names, COALESCE(field, ''), COALESCE(operator, ''), value, position
 FROM "constraint"
-WHERE entity_id = $1
+WHERE entity_id = $1 AND NOT retired
 ORDER BY position, name`, entityID)
 	if err != nil {
 		return nil, fmt.Errorf("query metadata constraints: %w", err)

@@ -4,6 +4,7 @@ import (
 	"bufio"
 	"bytes"
 	"context"
+	"errors"
 	"fmt"
 	"io/fs"
 	"os"
@@ -32,6 +33,8 @@ type ProjectOptions struct {
 	// the Core App bundled into the running dygo binary.
 	CoreAssets fs.FS
 }
+
+var updateProjectRunner = hookgen.UpdateRunner
 
 // PlanProject describes project upgrade work without writing files.
 func PlanProject(root string, targetVersion string) (ProjectResult, error) {
@@ -114,30 +117,90 @@ func UpgradeProject(ctx context.Context, options ProjectOptions) (ProjectResult,
 		}
 	}
 
-	if _, err := runner(ctx, root, "go", "mod", "edit", "-dropreplace="+ModulePath); err != nil {
-		return ProjectResult{}, fmt.Errorf("drop dygo replace directive: %w", err)
-	}
-	if _, err := runner(ctx, root, "go", "mod", "edit", "-require="+ModulePath+"@"+options.TargetVersion); err != nil {
-		return ProjectResult{}, fmt.Errorf("update dygo module requirement: %w", err)
-	}
-	update, written, err := hookgen.UpdateRunner(root)
+	goModPath := filepath.Join(root, "go.mod")
+	goMod, err := os.ReadFile(goModPath)
 	if err != nil {
-		return ProjectResult{}, fmt.Errorf("update project runner: %w", err)
+		return ProjectResult{}, fmt.Errorf("read go.mod: %w", err)
 	}
-	_ = update
-	coreSource, err := installCoreCache(root, options.CoreAssets)
+	goSumPath := filepath.Join(root, "go.sum")
+	goSum, goSumErr := os.ReadFile(goSumPath)
+	goSumExists := goSumErr == nil
+	if goSumErr != nil && !os.IsNotExist(goSumErr) {
+		return ProjectResult{}, fmt.Errorf("read go.sum: %w", goSumErr)
+	}
+	restoreModuleFiles := func() error {
+		if err := os.WriteFile(goModPath, goMod, 0o644); err != nil {
+			return fmt.Errorf("restore go.mod after failed upgrade: %w", err)
+		}
+		if goSumExists {
+			if err := os.WriteFile(goSumPath, goSum, 0o644); err != nil {
+				return fmt.Errorf("restore go.sum after failed upgrade: %w", err)
+			}
+		} else if err := os.Remove(goSumPath); err != nil && !os.IsNotExist(err) {
+			return fmt.Errorf("remove go.sum after failed upgrade: %w", err)
+		}
+		return nil
+	}
+	runnerPath := filepath.Join(root, "cmd", "dygo", "main.go")
+	runnerSource, runnerReadErr := os.ReadFile(runnerPath)
+	runnerExists := runnerReadErr == nil
+	if runnerReadErr != nil && !os.IsNotExist(runnerReadErr) {
+		return ProjectResult{}, fmt.Errorf("read generated runner: %w", runnerReadErr)
+	}
+	restoreRunner := func() error {
+		if runnerExists {
+			if err := os.WriteFile(runnerPath, runnerSource, 0o644); err != nil {
+				return fmt.Errorf("restore generated runner after failed upgrade: %w", err)
+			}
+			return nil
+		}
+		if err := os.Remove(runnerPath); err != nil && !os.IsNotExist(err) {
+			return fmt.Errorf("remove generated runner after failed upgrade: %w", err)
+		}
+		return nil
+	}
+	studioStage, err := stageUpgradePath(filepath.Join(root, ".dygo", "apps", "studio"), ".dygo-upgrade-studio")
 	if err != nil {
 		return ProjectResult{}, err
+	}
+	coreStage, err := stageUpgradePath(filepath.Join(root, filepath.FromSlash(frameworkapp.CoreProjectPath)), ".dygo-upgrade-core")
+	if err != nil {
+		_ = studioStage.restore()
+		return ProjectResult{}, err
+	}
+	failed := func(cause error) (ProjectResult, error) {
+		restoreErr := errors.Join(restoreModuleFiles(), restoreRunner(), coreStage.restore(), studioStage.restore())
+		if restoreErr != nil {
+			return ProjectResult{}, fmt.Errorf("%w; restore failed: %v", cause, restoreErr)
+		}
+		return ProjectResult{}, cause
+	}
+
+	if _, err := runner(ctx, root, "go", "mod", "edit", "-dropreplace="+ModulePath); err != nil {
+		return failed(fmt.Errorf("drop dygo replace directive: %w", err))
+	}
+	if _, err := runner(ctx, root, "go", "mod", "edit", "-require="+ModulePath+"@"+options.TargetVersion); err != nil {
+		return failed(fmt.Errorf("update dygo module requirement: %w", err))
 	}
 	studioUpdated, studioSource, err := installStudioCache(root, options.StudioAssets)
 	if err != nil {
-		return ProjectResult{}, err
+		return failed(err)
+	}
+	coreSource, err := installCoreCache(root, options.CoreAssets)
+	if err != nil {
+		return failed(err)
+	}
+	_, written, err := updateProjectRunner(root)
+	if err != nil {
+		return failed(fmt.Errorf("update project runner: %w", err))
 	}
 	if !options.SkipTidy {
 		if _, err := runner(ctx, root, "go", "mod", "tidy"); err != nil {
-			return ProjectResult{}, fmt.Errorf("run go mod tidy: %w", err)
+			return failed(fmt.Errorf("run go mod tidy: %w", err))
 		}
 	}
+	coreStage.commit()
+	studioStage.commit()
 	result.Updated = true
 	result.RunnerUpdated = written
 	result.CoreUpdated = true
@@ -145,6 +208,67 @@ func UpgradeProject(ctx context.Context, options ProjectOptions) (ProjectResult,
 	result.StudioUpdated = studioUpdated
 	result.StudioSource = studioSource
 	return result, nil
+}
+
+type stagedUpgradePath struct {
+	path    string
+	backup  string
+	existed bool
+}
+
+func stageUpgradePath(path string, prefix string) (stagedUpgradePath, error) {
+	if _, err := os.Lstat(path); err != nil {
+		if os.IsNotExist(err) {
+			return stagedUpgradePath{path: path}, nil
+		}
+		return stagedUpgradePath{}, fmt.Errorf("stat managed upgrade path %s: %w", path, err)
+	}
+	parent := filepath.Dir(path)
+	backup, err := os.MkdirTemp(filepath.Dir(parent), prefix+"-")
+	if err != nil {
+		return stagedUpgradePath{}, fmt.Errorf("create managed upgrade backup: %w", err)
+	}
+	if err := os.Remove(backup); err != nil {
+		return stagedUpgradePath{}, fmt.Errorf("prepare managed upgrade backup: %w", err)
+	}
+	if err := os.Rename(path, backup); err != nil {
+		return stagedUpgradePath{}, fmt.Errorf("stage managed upgrade path %s: %w", path, err)
+	}
+	return stagedUpgradePath{path: path, backup: backup, existed: true}, nil
+}
+
+func (s *stagedUpgradePath) restore() error {
+	if s.path == "" {
+		return nil
+	}
+	if s.backup == "" {
+		if s.existed {
+			return nil
+		}
+		if err := os.RemoveAll(s.path); err != nil && !os.IsNotExist(err) {
+			return fmt.Errorf("remove created managed upgrade path %s: %w", s.path, err)
+		}
+		return nil
+	}
+	if _, err := os.Lstat(s.path); err == nil {
+		if err := os.RemoveAll(s.path); err != nil {
+			return fmt.Errorf("remove replacement %s: %w", s.path, err)
+		}
+	} else if !os.IsNotExist(err) {
+		return fmt.Errorf("stat replacement %s: %w", s.path, err)
+	}
+	if err := os.Rename(s.backup, s.path); err != nil {
+		return fmt.Errorf("restore managed upgrade path %s: %w", s.path, err)
+	}
+	s.backup = ""
+	return nil
+}
+
+func (s *stagedUpgradePath) commit() {
+	if s.backup != "" {
+		_ = os.RemoveAll(s.backup)
+		s.backup = ""
+	}
 }
 
 func installCoreCache(root string, configured fs.FS) (string, error) {

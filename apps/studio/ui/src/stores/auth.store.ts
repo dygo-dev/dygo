@@ -2,6 +2,7 @@ import { defineStore } from 'pinia'
 
 import { AuthApiError, getCurrentUser, logout as logoutRequest, type CurrentUser } from '@/features/auth/auth.api'
 import { statusForError, storeError, type LoadStatus, type StoreError } from './status'
+import { useNavigationStore } from './navigation.store'
 
 type LoadCurrentUserOptions = {
   force?: boolean
@@ -31,6 +32,7 @@ export const useAuthStore = defineStore('auth', {
       this.error = null
       this.status = user ? 'ready' : 'unauthenticated'
       this.pendingUser = null
+      useNavigationStore().setRecentUser(user?.id ?? null)
     },
 
     clearSession() {
@@ -64,6 +66,7 @@ export const useAuthStore = defineStore('auth', {
         })
         .catch((error: unknown) => {
           const normalized = storeError(error, 'Studio could not read the current session.')
+          useNavigationStore().setRecentUser(null)
           this.currentUser = null
           this.loaded = true
           this.error = normalized

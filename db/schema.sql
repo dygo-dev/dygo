@@ -4,8 +4,8 @@
 
 \restrict dygoschemasnapshot
 
--- Dumped from database version 18.3 (Postgres.app)
--- Dumped by pg_dump version 18.3 (Postgres.app)
+-- Dumped from database version 18.6 (Postgres.app)
+-- Dumped by pg_dump version 18.6 (Postgres.app)
 
 SET statement_timeout = 0;
 SET lock_timeout = 0;
@@ -141,6 +141,7 @@ CREATE TABLE public."constraint" (
     operator text,
     value jsonb,
     "position" integer,
+    retired boolean DEFAULT false NOT NULL,
     CONSTRAINT constraint_operator_check CHECK ((operator = ANY (ARRAY['eq'::text, 'neq'::text, 'gt'::text, 'gte'::text, 'lt'::text, 'lte'::text, 'in'::text, 'not-in'::text]))),
     CONSTRAINT constraint_type_check CHECK ((type = ANY (ARRAY['unique'::text, 'check'::text])))
 );
@@ -238,7 +239,8 @@ CREATE TABLE public.entity (
     is_single boolean DEFAULT false NOT NULL,
     is_system boolean DEFAULT false NOT NULL,
     is_collection boolean DEFAULT false NOT NULL,
-    naming jsonb
+    naming jsonb,
+    retired boolean DEFAULT false NOT NULL
 );
 
 
@@ -276,7 +278,8 @@ CREATE TABLE public.field (
     "check" jsonb,
     "position" integer,
     options jsonb,
-    "fetch" jsonb
+    "fetch" jsonb,
+    retired boolean DEFAULT false NOT NULL
 );
 
 
@@ -306,7 +309,8 @@ CREATE TABLE public.index (
     entity_id bigint NOT NULL,
     index_name text NOT NULL,
     field_names jsonb NOT NULL,
-    "position" integer
+    "position" integer,
+    retired boolean DEFAULT false NOT NULL
 );
 
 
@@ -1442,17 +1446,17 @@ CREATE INDEX permission_entity_id_idx ON public.permission USING btree (entity_i
 
 
 --
--- Name: permission_role_id_idx; Type: INDEX; Schema: public; Owner: -
---
-
-CREATE INDEX permission_role_id_idx ON public.permission USING btree (role_id);
-
-
---
 -- Name: permission_retired_idx; Type: INDEX; Schema: public; Owner: -
 --
 
 CREATE INDEX permission_retired_idx ON public.permission USING btree (retired);
+
+
+--
+-- Name: permission_role_id_idx; Type: INDEX; Schema: public; Owner: -
+--
+
+CREATE INDEX permission_role_id_idx ON public.permission USING btree (role_id);
 
 
 --

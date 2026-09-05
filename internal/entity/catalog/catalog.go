@@ -293,7 +293,7 @@ func validateCatalog(apps []manifest.LoadedApp, entities []LoadedEntity, fieldTy
 		}
 	}
 
-	targets := newTargetIndex(entities)
+	targets := NewTargetIndex(entities)
 	validateFieldTargets(entities, targets, fieldTypes, &problems)
 	validateFieldFetches(entities, targets, fieldTypes, &problems)
 	if err := validateHookFiles(apps, entities, &problems); err != nil {
@@ -306,7 +306,7 @@ func validateCatalog(apps []manifest.LoadedApp, entities []LoadedEntity, fieldTy
 	return nil
 }
 
-func validateFieldTargets(entities []LoadedEntity, targets targetIndex, fieldTypes fieldtype.Registry, problems *[]string) {
+func validateFieldTargets(entities []LoadedEntity, targets TargetIndex, fieldTypes fieldtype.Registry, problems *[]string) {
 	for _, entity := range entities {
 		for _, field := range entity.Entity.Fields {
 			if field.Type != "link" && field.Type != "collection" {
@@ -317,7 +317,7 @@ func validateFieldTargets(entities []LoadedEntity, targets targetIndex, fieldTyp
 				continue
 			}
 
-			target, err := targets.resolve(entity, field.Options.App, targetName)
+			target, err := targets.Resolve(entity, field.Options.App, targetName)
 			if err != nil {
 				*problems = append(*problems, fieldDiagnostic(entity, field, err.Error()))
 				continue
@@ -417,7 +417,7 @@ func linkTargetField(target LoadedEntity, name string) (schema.Field, error) {
 	return schema.Field{}, fmt.Errorf("target Entity %q has no field %q", target.Entity.Name, name)
 }
 
-func validateFieldFetches(entities []LoadedEntity, targets targetIndex, fieldTypes fieldtype.Registry, problems *[]string) {
+func validateFieldFetches(entities []LoadedEntity, targets TargetIndex, fieldTypes fieldtype.Registry, problems *[]string) {
 	for _, entity := range entities {
 		for _, field := range entity.Entity.Fields {
 			if field.Fetch == nil {
@@ -430,7 +430,7 @@ func validateFieldFetches(entities []LoadedEntity, targets targetIndex, fieldTyp
 	}
 }
 
-func validateFieldFetch(owner LoadedEntity, field schema.Field, targets targetIndex, fieldTypes fieldtype.Registry) error {
+func validateFieldFetch(owner LoadedEntity, field schema.Field, targets TargetIndex, fieldTypes fieldtype.Registry) error {
 	if field.Type == "collection" {
 		return fmt.Errorf("collection fields cannot use fetch")
 	}
@@ -453,7 +453,7 @@ func validateFieldFetch(owner LoadedEntity, field schema.Field, targets targetIn
 		if source.Type != "link" {
 			return fmt.Errorf("fetch.from segment %q on Entity %q must be a link field", segment, current.Entity.Name)
 		}
-		target, err := targets.resolve(current, source.Options.App, source.Options.Entity)
+		target, err := targets.Resolve(current, source.Options.App, source.Options.Entity)
 		if err != nil {
 			return err
 		}
@@ -474,7 +474,7 @@ func fetchPathField(entity LoadedEntity, name string) (schema.Field, bool) {
 	return schema.Field{}, false
 }
 
-func validateFetchFieldCompatibility(owner LoadedEntity, destination schema.Field, sourceOwner LoadedEntity, source schema.Field, fieldTypes fieldtype.Registry, targets targetIndex) error {
+func validateFetchFieldCompatibility(owner LoadedEntity, destination schema.Field, sourceOwner LoadedEntity, source schema.Field, fieldTypes fieldtype.Registry, targets TargetIndex) error {
 	sourceDefinition, ok := fieldTypes.Get(source.Type)
 	if !ok || !sourceDefinition.Behavior.Stored || sourceDefinition.Behavior.WriteOnly {
 		return fmt.Errorf("fetch.from final field %q on Entity %q cannot be fetched", source.Name, sourceOwner.Entity.Name)
@@ -485,11 +485,11 @@ func validateFetchFieldCompatibility(owner LoadedEntity, destination schema.Fiel
 	if destination.Type != "link" {
 		return nil
 	}
-	destinationTarget, err := targets.resolve(owner, destination.Options.App, destination.Options.Entity)
+	destinationTarget, err := targets.Resolve(owner, destination.Options.App, destination.Options.Entity)
 	if err != nil {
 		return fmt.Errorf("destination link target: %w", err)
 	}
-	sourceTarget, err := targets.resolve(sourceOwner, source.Options.App, source.Options.Entity)
+	sourceTarget, err := targets.Resolve(sourceOwner, source.Options.App, source.Options.Entity)
 	if err != nil {
 		return fmt.Errorf("source link target: %w", err)
 	}
@@ -536,13 +536,15 @@ func sortEntities(entities []LoadedEntity) {
 	})
 }
 
-type targetIndex struct {
+// TargetIndex resolves Entity references consistently across metadata consumers.
+type TargetIndex struct {
 	byIdentity map[string]LoadedEntity
 	byName     map[string][]LoadedEntity
 }
 
-func newTargetIndex(entities []LoadedEntity) targetIndex {
-	index := targetIndex{
+// NewTargetIndex indexes loaded Entities by identity and unqualified name.
+func NewTargetIndex(entities []LoadedEntity) TargetIndex {
+	index := TargetIndex{
 		byIdentity: map[string]LoadedEntity{},
 		byName:     map[string][]LoadedEntity{},
 	}
@@ -553,7 +555,14 @@ func newTargetIndex(entities []LoadedEntity) targetIndex {
 	return index
 }
 
-func (i targetIndex) resolve(owner LoadedEntity, appName string, entityName string) (LoadedEntity, error) {
+// Lookup returns an exact App/Entity match without unqualified fallback.
+func (i TargetIndex) Lookup(appName, entityName string) (LoadedEntity, bool) {
+	entity, ok := i.byIdentity[EntityKey(appName, entityName)]
+	return entity, ok
+}
+
+// Resolve prefers an explicit App, then the owning App, then an unambiguous name.
+func (i TargetIndex) Resolve(owner LoadedEntity, appName string, entityName string) (LoadedEntity, error) {
 	if strings.TrimSpace(appName) != "" {
 		target, ok := i.byIdentity[EntityKey(appName, entityName)]
 		if !ok {

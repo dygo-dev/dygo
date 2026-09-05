@@ -913,7 +913,7 @@ func TestRecordStoreUpdateRecordWithCollectionRows(t *testing.T) {
 	queryer.rows = append(queryer.rows, newFakeRows([][]any{
 		{int64(7), "lead-7", now, now, "Qualified"},
 	}))
-	queryer.rows = append(queryer.rows, newFakeRows([][]any{{int64(10)}, {int64(11)}}))
+	queryer.rows = append(queryer.rows, newFakeRows([][]any{{int64(10), "contact-10", now, now, "old@example.com", "Old Contact"}, {int64(11), "contact-11", now, now, "remove@example.com", "Remove Contact"}}))
 	queryer.rows = append(queryer.rows, newFakeRows([][]any{
 		{int64(10), "contact-10", now, now, "updated@example.com", "Updated Contact"},
 		{int64(12), "contact-12", now, now, "new@example.com", "New Contact"},
@@ -977,7 +977,7 @@ func TestRecordStoreUpdateCollectionRowAllowsRequiredWriteOnlyOmission(t *testin
 	queryer.rows = append(queryer.rows, newFakeRows([][]any{
 		{int64(7), "lead-7", now, now, "Qualified"},
 	}))
-	queryer.rows = append(queryer.rows, newFakeRows([][]any{{int64(10)}}))
+	queryer.rows = append(queryer.rows, newFakeRows([][]any{{int64(10), "contact-10", now, now, "old@example.com"}}))
 	queryer.rows = append(queryer.rows, newFakeRows([][]any{
 		{int64(10), "contact-10", now, now, "old@example.com"},
 	}))
@@ -1035,7 +1035,7 @@ func TestRecordStoreRejectsForeignCollectionRowIDs(t *testing.T) {
 	queryer.rows = append(queryer.rows, newFakeRows([][]any{
 		{int64(7), "lead-7", now, now, "New"},
 	}))
-	queryer.rows = append(queryer.rows, newFakeRows([][]any{{int64(10)}}))
+	queryer.rows = append(queryer.rows, newFakeRows([][]any{{int64(10), "contact-10", now, now, "old@example.com", "Old Contact"}}))
 
 	_, err := NewRecordStore(queryer).UpdateRecord(context.Background(), "lead", 7, recordInput(map[string]string{
 		"contacts": `[{"id":99,"email":"foreign@example.com"}]`,
@@ -2138,6 +2138,11 @@ type fakeRecordQueryer struct {
 }
 
 func (q *fakeRecordQueryer) Query(_ context.Context, sql string, args ...any) (pgx.Rows, error) {
+	meta, _ := q.row.(fakeRow)
+	if rows := fakeSystemInsertRows(sql); rows != nil && (len(meta.values) < 2 || meta.values[1] != "core.activity") {
+		_, err := q.Exec(context.Background(), sql, args...)
+		return rows, err
+	}
 	q.queries = append(q.queries, sql)
 	q.args = append(q.args, args)
 	if rows, ok := fakeActivityMetadataRows(sql, args...); ok {

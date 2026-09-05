@@ -113,7 +113,7 @@ func TestNewProjectCommandRejectsReservedAppName(t *testing.T) {
 func TestDygoVersionForNewUsesBuildInfoReleaseVersion(t *testing.T) {
 	oldReadBuildInfo := readBuildInfo
 	readBuildInfo = func() (*debug.BuildInfo, bool) {
-		return &debug.BuildInfo{Main: debug.Module{Version: "v1.2.3"}}, true
+		return &debug.BuildInfo{Main: debug.Module{Path: "example.com/app", Version: "v9.9.9"}, Deps: []*debug.Module{{Path: dygoModulePath, Version: "v1.2.3"}}}, true
 	}
 	defer func() {
 		readBuildInfo = oldReadBuildInfo
@@ -121,6 +121,18 @@ func TestDygoVersionForNewUsesBuildInfoReleaseVersion(t *testing.T) {
 
 	if got := dygoVersionForNew(); got != "v1.2.3" {
 		t.Fatalf("dygoVersionForNew() = %q, want build info version", got)
+	}
+}
+
+func TestCurrentVersionUsesFrameworkModuleWhenRunnerIsAnApp(t *testing.T) {
+	oldReadBuildInfo := readBuildInfo
+	readBuildInfo = func() (*debug.BuildInfo, bool) {
+		return &debug.BuildInfo{Main: debug.Module{Path: "example.com/app", Version: "v9.9.9"}, Deps: []*debug.Module{{Path: dygoModulePath, Version: "v1.2.3"}}}, true
+	}
+	defer func() { readBuildInfo = oldReadBuildInfo }()
+
+	if got := currentVersion(); got != "v1.2.3" {
+		t.Fatalf("currentVersion() = %q, want framework dependency version", got)
 	}
 }
 

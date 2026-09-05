@@ -1,5 +1,4 @@
 import { defineStore } from 'pinia'
-import { useStorage } from '@vueuse/core'
 
 export type RecentPage = {
   path: string
@@ -9,20 +8,43 @@ export type RecentPage = {
 
 const RECENT_PAGES_STORAGE_KEY = 'dygo.studio.recentPages'
 const MAX_RECENT_PAGES = 10
-// TODO(preferences): move recent pages into the Preference entity once per-user UI state lands.
-const recentPagesStorage = useStorage<RecentPage[]>(RECENT_PAGES_STORAGE_KEY, [], undefined, {
-  onError: () => {},
-})
 
 export const useNavigationStore = defineStore('navigation', {
   state: () => ({
+    recentUserID: null as number | null,
     sidebarCollapsed: false,
     commandMenuOpen: false,
     routeReloadVersion: 0,
-    recentPages: normalizeRecentPages(recentPagesStorage.value),
+    recentPages: [] as RecentPage[],
   }),
 
   actions: {
+    setRecentUser(userID: number | null) {
+      if (this.recentUserID === userID) {
+        if (userID === null) {
+          this.clearRecentPages()
+        }
+        return
+      }
+
+      if (userID === null) {
+        this.clearRecentPages()
+      }
+      this.recentUserID = userID
+      this.recentPages = userID === null ? [] : readRecentPages(userID)
+    },
+
+    clearRecentPages() {
+      if (this.recentUserID !== null) {
+        try {
+          window.localStorage.removeItem(recentPagesKey(this.recentUserID))
+        } catch {
+          // Local preferences are best-effort.
+        }
+      }
+      this.recentPages = []
+    },
+
     setSidebarCollapsed(value: boolean) {
       this.sidebarCollapsed = value
     },
@@ -53,10 +75,30 @@ export const useNavigationStore = defineStore('navigation', {
         ...this.recentPages.filter((recentPage) => recentPage.path !== page.path),
       ].slice(0, MAX_RECENT_PAGES)
 
-      recentPagesStorage.value = this.recentPages
+      if (this.recentUserID === null) {
+        return
+      }
+
+      try {
+        window.localStorage.setItem(recentPagesKey(this.recentUserID), JSON.stringify(this.recentPages))
+      } catch {
+        // Local preferences are best-effort.
+      }
     },
   },
 })
+
+function recentPagesKey(userID: number): string {
+  return `${RECENT_PAGES_STORAGE_KEY}.${userID}`
+}
+
+function readRecentPages(userID: number): RecentPage[] {
+  try {
+    return normalizeRecentPages(JSON.parse(window.localStorage.getItem(recentPagesKey(userID)) ?? '[]'))
+  } catch {
+    return []
+  }
+}
 
 function normalizeRecentPages(value: unknown): RecentPage[] {
   if (!Array.isArray(value)) {

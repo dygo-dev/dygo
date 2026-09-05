@@ -151,6 +151,10 @@ func persistMetadataRecords(ctx context.Context, tx pgx.Tx, metadata metadataCat
 		return metadataPersistResult{}, err
 	}
 
+	if err := reconcileMetadataRecords(ctx, tx, records); err != nil {
+		return metadataPersistResult{}, err
+	}
+
 	appIDs := map[string]int64{}
 	for _, app := range records.Apps {
 		var id int64
@@ -190,6 +194,7 @@ SET app_id = EXCLUDED.app_id,
 	is_system = EXCLUDED.is_system,
 	is_collection = EXCLUDED.is_collection,
 	naming = EXCLUDED.naming,
+	retired = false,
 	updated_at = now()
 RETURNING id`, appID, entity.Name, entity.Key, entity.Slug, entity.Label, entity.Description, entity.Icon, entity.IsSingle, entity.IsSystem, entity.IsCollection, entity.Naming).Scan(&id); err != nil {
 			return metadataPersistResult{}, fmt.Errorf("persist entity metadata %s/%s: %w", entity.AppName, entity.Key, err)
@@ -219,9 +224,6 @@ SET name = EXCLUDED.name,
 			return metadataPersistResult{}, fmt.Errorf("persist page metadata %s/%s: %w", page.AppName, page.Key, err)
 		}
 	}
-	if err := retireRemovedFilePageRecords(ctx, tx, appIDs, records.Pages); err != nil {
-		return metadataPersistResult{}, err
-	}
 
 	jobIDs := map[string]int64{}
 	for _, job := range records.Jobs {
@@ -234,9 +236,6 @@ SET name = EXCLUDED.name,
 			return metadataPersistResult{}, err
 		}
 		jobIDs[jobKey(job.AppName, job.Key)] = jobID
-	}
-	if err := retireRemovedFileJobRecords(ctx, tx, appIDs, records.Jobs); err != nil {
-		return metadataPersistResult{}, err
 	}
 
 	for _, schedule := range records.Schedules {
@@ -251,9 +250,6 @@ SET name = EXCLUDED.name,
 		if err := persistScheduleRecord(ctx, tx, appID, jobID, schedule); err != nil {
 			return metadataPersistResult{}, err
 		}
-	}
-	if err := retireRemovedFileScheduleRecords(ctx, tx, appIDs, records.Schedules); err != nil {
-		return metadataPersistResult{}, err
 	}
 
 	for _, field := range records.Fields {
@@ -298,28 +294,45 @@ SET name = EXCLUDED.name,
 	}, nil
 }
 
-func retireRemovedFilePageRecords(ctx context.Context, tx pgx.Tx, appIDs map[string]int64, records []pageRecord) error {
-	currentKeys := make(map[string][]string, len(appIDs))
-	for appName := range appIDs {
-		currentKeys[appName] = nil
+// reconcileMetadataRecords retains registry IDs used by history and collection ownership.
+// Only authored definitions remain active. Physical data is removed by explicit prune.
+// This bootstrap path cannot use Records: it defines the metadata that Records load.
+func reconcileMetadataRecords(ctx context.Context, tx pgx.Tx, records metadataRecordSet) error {
+	names := map[string][]string{"entity": {}, "field": {}, "index": {}, "constraint": {}, "page": {}, "job": {}, "schedule": {}}
+	for _, entity := range records.Entities {
+		names["entity"] = append(names["entity"], entity.Name)
 	}
-	for _, record := range records {
-		currentKeys[record.AppName] = append(currentKeys[record.AppName], record.Key)
+	for _, field := range records.Fields {
+		names["field"] = append(names["field"], field.RecordName)
 	}
-	for appName, appID := range appIDs {
-		keys := currentKeys[appName]
-		if keys == nil {
-			keys = []string{}
+	for _, index := range records.Indexes {
+		names["index"] = append(names["index"], index.RecordName)
+	}
+	for _, constraint := range records.Constraints {
+		names["constraint"] = append(names["constraint"], constraint.RecordName)
+	}
+	for _, page := range records.Pages {
+		names["page"] = append(names["page"], page.Name)
+	}
+	for _, job := range records.Jobs {
+		names["job"] = append(names["job"], job.Name)
+	}
+	for _, schedule := range records.Schedules {
+		names["schedule"] = append(names["schedule"], schedule.Name)
+	}
+	for _, table := range []string{"entity", "field", "index", "constraint", "page", "job", "schedule"} {
+		set := "retired = NOT (name = ANY($1::text[])), updated_at = now()"
+		if table == "entity" {
+			// Release removed routes before current definitions are upserted.
+			set += ", slug = CASE WHEN name = ANY($1::text[]) THEN slug ELSE NULL END"
 		}
-		if _, err := tx.Exec(ctx, `
-UPDATE "page"
-SET retired = true,
-	updated_at = now()
-WHERE app_id = $1
-	AND source = $2
-	AND retired = false
-	AND NOT (key = ANY($3::text[]))`, appID, "file", keys); err != nil {
-			return fmt.Errorf("retire removed page metadata for app %q: %w", appName, err)
+		query := "UPDATE " + quoteIdent(table) + " SET " + set + " WHERE retired IS DISTINCT FROM (NOT (name = ANY($1::text[])))"
+		if table == "page" || table == "job" || table == "schedule" {
+			// File-backed upserts reactivate definitions and reset schedule timing.
+			query += " AND source = 'file' AND NOT (name = ANY($1::text[]))"
+		}
+		if _, err := tx.Exec(ctx, query, names[table]); err != nil {
+			return fmt.Errorf("reconcile %s metadata: %w", table, err)
 		}
 	}
 	return nil
@@ -357,33 +370,6 @@ RETURNING id`, job.Name, appID, job.Key, source, job.Label, nullIfEmpty(job.Desc
 		return 0, fmt.Errorf("persist job metadata %s/%s: existing job source %q cannot be overwritten by file-backed metadata", job.AppName, job.Key, existingSource)
 	}
 	return id, nil
-}
-
-func retireRemovedFileJobRecords(ctx context.Context, tx pgx.Tx, appIDs map[string]int64, records []jobRecord) error {
-	currentKeys := make(map[string][]string, len(appIDs))
-	for appName := range appIDs {
-		currentKeys[appName] = nil
-	}
-	for _, record := range records {
-		currentKeys[record.AppName] = append(currentKeys[record.AppName], record.Key)
-	}
-	for appName, appID := range appIDs {
-		keys := currentKeys[appName]
-		if keys == nil {
-			keys = []string{}
-		}
-		if _, err := tx.Exec(ctx, `
-UPDATE "job"
-SET retired = true,
-	updated_at = now()
-WHERE app_id = $1
-	AND source = $2
-	AND retired = false
-	AND NOT (key = ANY($3::text[]))`, appID, jobs.JobSourceFile, keys); err != nil {
-			return fmt.Errorf("retire removed job metadata for app %q: %w", appName, err)
-		}
-	}
-	return nil
 }
 
 func persistScheduleRecord(ctx context.Context, tx pgx.Tx, appID int64, jobID int64, schedule scheduleRecord) error {
@@ -429,33 +415,6 @@ WHERE "schedule"."source" = $15`, schedule.Name, appID, schedule.Key, source, sc
 	return nil
 }
 
-func retireRemovedFileScheduleRecords(ctx context.Context, tx pgx.Tx, appIDs map[string]int64, records []scheduleRecord) error {
-	currentKeys := make(map[string][]string, len(appIDs))
-	for appName := range appIDs {
-		currentKeys[appName] = nil
-	}
-	for _, record := range records {
-		currentKeys[record.AppName] = append(currentKeys[record.AppName], record.Key)
-	}
-	for appName, appID := range appIDs {
-		keys := currentKeys[appName]
-		if keys == nil {
-			keys = []string{}
-		}
-		if _, err := tx.Exec(ctx, `
-UPDATE "schedule"
-SET retired = true,
-	updated_at = now()
-WHERE app_id = $1
-	AND source = $2
-	AND retired = false
-	AND NOT (key = ANY($3::text[]))`, appID, schedules.ScheduleSourceFile, keys); err != nil {
-			return fmt.Errorf("retire removed schedule metadata for app %q: %w", appName, err)
-		}
-	}
-	return nil
-}
-
 func persistFieldRecord(ctx context.Context, tx pgx.Tx, entityID int64, field fieldRecord) error {
 	var id int64
 	err := tx.QueryRow(ctx, `SELECT id FROM "field" WHERE entity_id = $1 AND field_name = $2`, entityID, field.Name).Scan(&id)
@@ -483,6 +442,7 @@ SET name = $2,
 	"fetch" = $10,
 	position = $11,
 	options = $12,
+	retired = false,
 	updated_at = now()
 WHERE id = $1`, id, field.RecordName, field.Label, field.Type, field.Required, field.Unique, field.Index, field.Default, field.Check, field.Fetch, field.Position, field.Options); err != nil {
 		return fmt.Errorf("persist field metadata %s/%s.%s: %w", field.EntityAppName, field.EntityName, field.Name, err)
@@ -509,6 +469,7 @@ UPDATE "index"
 SET name = $2,
 	field_names = $3,
 	position = $4,
+	retired = false,
 	updated_at = now()
 WHERE id = $1`, id, index.RecordName, index.Fields, index.Position); err != nil {
 		return fmt.Errorf("persist index metadata %s/%s.%s: %w", index.EntityAppName, index.EntityName, index.Name, err)
@@ -539,6 +500,7 @@ SET name = $2,
 	operator = $6,
 	value = $7,
 	position = $8,
+	retired = false,
 	updated_at = now()
 WHERE id = $1`, id, constraint.RecordName, constraint.Type, constraint.Fields, nullIfEmpty(constraint.Field), nullIfEmpty(constraint.Operator), constraint.Value, constraint.Position); err != nil {
 		return fmt.Errorf("persist constraint metadata %s/%s.%s: %w", constraint.EntityAppName, constraint.EntityName, constraint.Name, err)

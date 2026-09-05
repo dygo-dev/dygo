@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { computed, defineAsyncComponent, onErrorCaptured, onUnmounted, watch } from 'vue'
+import { computed, defineAsyncComponent, onErrorCaptured, onUnmounted } from 'vue'
 import { RouterView, useRoute, useRouter } from 'vue-router'
 import { LockKeyhole, RefreshCw, TriangleAlert } from '@lucide/vue'
 
@@ -18,6 +18,7 @@ import Shell from '@/shell/Shell.vue'
 import type { ShellNavItem } from '@/shell/types'
 import { useAuthStore } from '@/stores/auth.store'
 import { useBootStore } from '@/stores/boot.store'
+import { humanizeEntity } from '@/stores/metadata.identity'
 import { useNavigationStore } from '@/stores/navigation.store'
 import { storeError } from '@/stores/status'
 
@@ -99,21 +100,6 @@ async function retryBoot() {
   }
 }
 
-watch(
-  usesShell,
-  async (enabled) => {
-    if (!enabled) {
-      return
-    }
-
-    const user = await authStore.loadCurrentUser()
-    if (!user) {
-      return
-    }
-  },
-  { immediate: true },
-)
-
 function isEntityRoute(entity: string): boolean {
   if (
     route.name !== RouteName.EntityRecords
@@ -126,11 +112,6 @@ function isEntityRoute(entity: string): boolean {
   return currentEntity.value === entity
 }
 
-function humanizeEntity(value: string): string {
-  return value
-    .replace(/[-_]+/g, ' ')
-    .replace(/\b\w/g, (letter) => letter.toUpperCase())
-}
 </script>
 
 <template>
