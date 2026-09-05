@@ -1,29 +1,23 @@
 <script setup lang="ts">
 import { computed, ref } from 'vue'
 import { useRoute } from 'vue-router'
-import { onClickOutside } from '@vueuse/core'
+import { PopoverContent, PopoverRoot, PopoverTrigger } from 'reka-ui'
 import { AlertTriangle, ChevronDown, ChevronUp, Copy, X } from '@lucide/vue'
 
 import { routeParam } from '@/router/routes'
 import { useAuthStore } from '@/stores/auth.store'
 import { useBootStore } from '@/stores/boot.store'
 import { useCapturedErrors } from './captured-errors'
-import { isStudioDebugBarAvailable } from './studio-debug'
+import { useToast } from '@/features/toasts/use-toast'
 
 const authStore = useAuthStore()
 const bootStore = useBootStore()
 const route = useRoute()
 const { errors: capturedErrors, clear: clearErrors } = useCapturedErrors()
 
-const available = isStudioDebugBarAvailable()
+const toast = useToast()
 const open = ref(false)
 const errorExpanded = ref<number | null>(null)
-const rootRef = ref<HTMLElement | null>(null)
-const copyLabel = ref('Copy bundle')
-
-onClickOutside(rootRef, () => {
-  open.value = false
-})
 
 const hasErrors = computed(() => capturedErrors.value.length > 0)
 
@@ -47,12 +41,8 @@ const userRole = computed(() => {
 })
 const bootLabel = computed(() => bootStore.status || 'idle')
 
-function toggleOpen() {
-  open.value = !open.value
-}
-
-function toggleErrorExpanded(index: number) {
-  errorExpanded.value = errorExpanded.value === index ? null : index
+function toggleErrorExpanded(id: number) {
+  errorExpanded.value = errorExpanded.value === id ? null : id
 }
 
 function buildDebugBundle(): string {
@@ -72,129 +62,129 @@ function buildDebugBundle(): string {
 }
 
 async function copyBundle() {
-  if (typeof navigator === 'undefined' || !navigator.clipboard?.writeText) return
+  if (typeof navigator === 'undefined' || !navigator.clipboard?.writeText) {
+    toast.error('Clipboard is unavailable.')
+    return
+  }
 
   try {
     await navigator.clipboard.writeText(buildDebugBundle())
-    copyLabel.value = 'Copied!'
-    window.setTimeout(() => { copyLabel.value = 'Copy bundle' }, 1400)
+    toast.success('Debug bundle copied.')
   } catch {
-    copyLabel.value = 'Copy bundle'
+    toast.error('Could not copy debug bundle.')
   }
 }
 </script>
 
 <template>
   <div
-    v-if="available"
-    ref="rootRef"
     class="studio-debug-indicator"
     :data-state="open ? 'open' : 'closed'"
     :data-has-errors="hasErrors ? 'true' : 'false'"
   >
-    <div v-if="open" class="studio-debug-indicator__panel" role="dialog" aria-label="Studio debug">
-      <!-- Header -->
-      <div class="studio-debug-indicator__header">
-        <span class="studio-debug-indicator__title">Studio</span>
-        <button
-          class="studio-debug-indicator__icon-btn"
-          type="button"
-          aria-label="Close"
-          @click="open = false"
-        >
-          <X :size="13" :stroke-width="2" aria-hidden="true" />
-        </button>
-      </div>
-
-      <!-- Errors section -->
-      <div v-if="hasErrors" class="studio-debug-indicator__errors">
-        <div class="studio-debug-indicator__errors-header">
-          <AlertTriangle :size="12" :stroke-width="2" aria-hidden="true" />
-          <span>{{ capturedErrors.length }} error{{ capturedErrors.length === 1 ? '' : 's' }} captured</span>
-          <button class="studio-debug-indicator__clear" type="button" @click="clearErrors">
-            Clear
-          </button>
-        </div>
-        <div
-          v-for="(err, i) in capturedErrors"
-          :key="err.timestamp"
-          class="studio-debug-indicator__error"
-        >
+    <PopoverRoot v-model:open="open">
+      <PopoverContent class="studio-debug-indicator__panel" side="top" align="start" :side-offset="10" aria-label="Studio debug">
+        <!-- Header -->
+        <div class="studio-debug-indicator__header">
+          <span class="studio-debug-indicator__title">Studio</span>
           <button
-            class="studio-debug-indicator__error-toggle"
+            class="studio-debug-indicator__icon-btn"
             type="button"
-            :aria-expanded="errorExpanded === i"
-            @click="toggleErrorExpanded(i)"
+            aria-label="Close"
+            @click="open = false"
           >
-            <ChevronDown v-if="errorExpanded !== i" :size="11" :stroke-width="2.5" aria-hidden="true" />
-            <ChevronUp v-else :size="11" :stroke-width="2.5" aria-hidden="true" />
-            <span class="studio-debug-indicator__error-msg">{{ err.message }}</span>
+            <X :size="13" :stroke-width="2" aria-hidden="true" />
           </button>
-          <pre v-if="errorExpanded === i && err.stack" class="studio-debug-indicator__stack">{{ err.stack }}</pre>
         </div>
-      </div>
 
-      <!-- Info rows -->
-      <dl class="studio-debug-indicator__list">
-        <div class="studio-debug-indicator__row">
-          <dt>Route</dt>
-          <dd>
-            <span class="studio-debug-indicator__mono">{{ routeName }}</span>
-            <span class="studio-debug-indicator__path">{{ routePath }}</span>
-          </dd>
+        <!-- Errors section -->
+        <div v-if="hasErrors" class="studio-debug-indicator__errors">
+          <div class="studio-debug-indicator__errors-header">
+            <AlertTriangle :size="12" :stroke-width="2" aria-hidden="true" />
+            <span>{{ capturedErrors.length }} error{{ capturedErrors.length === 1 ? '' : 's' }} captured</span>
+            <button class="studio-debug-indicator__clear" type="button" @click="clearErrors">
+              Clear
+            </button>
+          </div>
+          <div
+            v-for="err in capturedErrors"
+            :key="err.id"
+            class="studio-debug-indicator__error"
+          >
+            <button
+              class="studio-debug-indicator__error-toggle"
+              type="button"
+              :aria-expanded="errorExpanded === err.id"
+              @click="toggleErrorExpanded(err.id)"
+            >
+              <ChevronDown v-if="errorExpanded !== err.id" :size="11" :stroke-width="2.5" aria-hidden="true" />
+              <ChevronUp v-else :size="11" :stroke-width="2.5" aria-hidden="true" />
+              <span class="studio-debug-indicator__error-msg">{{ err.message }}</span>
+            </button>
+            <pre v-if="errorExpanded === err.id && err.stack" class="studio-debug-indicator__stack">{{ err.stack }}</pre>
+          </div>
         </div>
-        <div v-if="entity" class="studio-debug-indicator__row">
-          <dt>Entity</dt>
-          <dd class="studio-debug-indicator__mono">{{ entity }}</dd>
-        </div>
-        <div v-if="recordName" class="studio-debug-indicator__row">
-          <dt>Record</dt>
-          <dd class="studio-debug-indicator__mono">{{ recordName }}</dd>
-        </div>
-        <div class="studio-debug-indicator__row">
-          <dt>User</dt>
-          <dd>
-            <span class="studio-debug-indicator__mono">{{ userEmail }}</span>
-            <span class="studio-debug-indicator__path">{{ userRole }}</span>
-          </dd>
-        </div>
-        <div class="studio-debug-indicator__row">
-          <dt>Boot</dt>
-          <dd class="studio-debug-indicator__mono">{{ bootLabel }}</dd>
-        </div>
-      </dl>
 
-      <!-- Footer -->
-      <div class="studio-debug-indicator__footer">
-        <button class="studio-debug-indicator__btn" type="button" @click="copyBundle">
-          <Copy :size="12" :stroke-width="2" aria-hidden="true" />
-          {{ copyLabel }}
-        </button>
-        <button
-          class="studio-debug-indicator__btn studio-debug-indicator__btn--muted"
-          type="button"
-          @click="open = false"
-        >
-          Close
-        </button>
-      </div>
-    </div>
+        <!-- Info rows -->
+        <dl class="studio-debug-indicator__list">
+          <div class="studio-debug-indicator__row">
+            <dt>Route</dt>
+            <dd>
+              <span class="studio-debug-indicator__mono">{{ routeName }}</span>
+              <span class="studio-debug-indicator__path">{{ routePath }}</span>
+            </dd>
+          </div>
+          <div v-if="entity" class="studio-debug-indicator__row">
+            <dt>Entity</dt>
+            <dd class="studio-debug-indicator__mono">{{ entity }}</dd>
+          </div>
+          <div v-if="recordName" class="studio-debug-indicator__row">
+            <dt>Record</dt>
+            <dd class="studio-debug-indicator__mono">{{ recordName }}</dd>
+          </div>
+          <div class="studio-debug-indicator__row">
+            <dt>User</dt>
+            <dd>
+              <span class="studio-debug-indicator__mono">{{ userEmail }}</span>
+              <span class="studio-debug-indicator__path">{{ userRole }}</span>
+            </dd>
+          </div>
+          <div class="studio-debug-indicator__row">
+            <dt>Boot</dt>
+            <dd class="studio-debug-indicator__mono">{{ bootLabel }}</dd>
+          </div>
+        </dl>
 
-    <!-- Trigger badge -->
-    <button
-      class="studio-debug-indicator__trigger"
-      type="button"
-      :aria-expanded="open"
-      aria-label="Open Studio debug indicator"
-      @click="toggleOpen"
-    >
-      <span
-        v-if="hasErrors"
-        class="studio-debug-indicator__error-dot"
-        aria-label="Errors present"
-      />
-      <span class="studio-debug-indicator__mark" aria-hidden="true">d</span>
-    </button>
+        <!-- Footer -->
+        <div class="studio-debug-indicator__footer">
+          <button class="studio-debug-indicator__btn" type="button" @click="copyBundle">
+            <Copy :size="12" :stroke-width="2" aria-hidden="true" />
+            Copy bundle
+          </button>
+          <button
+            class="studio-debug-indicator__btn studio-debug-indicator__btn--muted"
+            type="button"
+            @click="open = false"
+          >
+            Close
+          </button>
+        </div>
+      </PopoverContent>
+
+      <!-- Trigger badge -->
+      <PopoverTrigger
+        class="studio-debug-indicator__trigger"
+        type="button"
+        aria-label="Open Studio debug indicator"
+      >
+        <span
+          v-if="hasErrors"
+          class="studio-debug-indicator__error-dot"
+          aria-label="Errors present"
+        />
+        <span class="studio-debug-indicator__mark" aria-hidden="true">d</span>
+      </PopoverTrigger>
+    </PopoverRoot>
   </div>
 </template>
 
@@ -262,7 +252,8 @@ async function copyBundle() {
 /* Panel */
 .studio-debug-indicator__panel {
   width: min(320px, calc(100vw - 32px));
-  overflow: hidden;
+  max-height: calc(100dvh - 78px);
+  overflow-y: auto;
   border: 1px solid rgb(255 255 255 / 0.08);
   border-radius: 12px;
   background: #0a0a0a;

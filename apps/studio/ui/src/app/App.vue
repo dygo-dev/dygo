@@ -1,10 +1,10 @@
 <script setup lang="ts">
-import { computed, onErrorCaptured, onUnmounted, watch } from 'vue'
+import { computed, defineAsyncComponent, onErrorCaptured, onUnmounted, watch } from 'vue'
 import { RouterView, useRoute, useRouter } from 'vue-router'
 import { LockKeyhole, RefreshCw, TriangleAlert } from '@lucide/vue'
 
 import { Button, Spinner } from '@/design'
-import { DebugBar, useCapturedErrors } from '@/features/debug'
+import { useCapturedErrors } from '@/features/debug/captured-errors'
 import DialogHost from '@/features/dialogs/DialogHost.vue'
 import { useDialog } from '@/features/dialogs/use-dialog'
 import ToastHost from '@/features/toasts/ToastHost.vue'
@@ -28,11 +28,14 @@ const bootStore = useBootStore()
 const navigationStore = useNavigationStore()
 const dialog = useDialog()
 const toast = useToast()
-const { capture: captureError } = useCapturedErrors()
-onErrorCaptured((err) => {
-  captureError(err)
-  return false
-})
+const DebugBar = import.meta.env.DEV
+  ? defineAsyncComponent(() => import('@/features/debug/DebugBar.vue'))
+  : null
+
+if (import.meta.env.DEV) {
+  const { capture } = useCapturedErrors()
+  onErrorCaptured(capture)
+}
 
 setAPIDialogHandler((request) => {
   void dialog.open(request)
@@ -186,7 +189,7 @@ function humanizeEntity(value: string): string {
   </Shell>
   <DialogHost />
   <ToastHost />
-  <DebugBar v-if="usesShell" />
+  <DebugBar v-if="DebugBar && usesShell" />
 </template>
 
 <style scoped>
