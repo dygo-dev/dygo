@@ -21,6 +21,33 @@ export type RecordListRouteState = {
   filters: RecordListFilter[]
 }
 
+export function createRecordListRouteWriter(
+  write: (filters: RecordListFilter[], sort: DataTableSort | null) => void,
+  defaultDelay: number,
+) {
+  let timer: ReturnType<typeof setTimeout> | undefined
+  function cancel() {
+    clearTimeout(timer)
+    timer = undefined
+  }
+  return {
+    cancel,
+    apply(filters: RecordListFilter[], sort: DataTableSort | null) {
+      cancel()
+      write(filters, sort)
+    },
+    schedule(filters: RecordListFilter[], sort: DataTableSort | null, delay = defaultDelay) {
+      cancel()
+      const snapshot = filters.map((filter) => ({ ...filter }))
+      const ordering = sort ? { ...sort } : null
+      timer = setTimeout(() => {
+        timer = undefined
+        write(snapshot, ordering)
+      }, delay)
+    },
+  }
+}
+
 export type RecordListRouteFilterOperator = {
   key: string
   arity: 'none' | 'one' | 'range'

@@ -315,6 +315,8 @@ func copyAppMetadata(source fs.FS, target string) error {
 func studioMetadataPath(name string) bool {
 	name = filepath.ToSlash(name)
 	return name == "app.yml" ||
+		name == "entities" ||
+		strings.HasPrefix(name, "entities/") ||
 		name == "access" ||
 		strings.HasPrefix(name, "access/") ||
 		name == "pages" ||

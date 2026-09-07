@@ -33,7 +33,14 @@ export function isStudioSoundEnabled(): boolean {
   }
 }
 
-export function setStudioSoundEnabled(enabled: boolean): void {
+let preferenceChanged: ((value: boolean) => void) | null = null
+
+export function bindStudioSoundPreference(listener: typeof preferenceChanged) {
+  preferenceChanged = listener
+}
+
+export function setStudioSoundEnabled(enabled: boolean, notify = true): void {
+  if (notify) preferenceChanged?.(enabled)
   if (typeof window === 'undefined') {
     return
   }

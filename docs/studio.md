@@ -87,4 +87,18 @@ Open the user menu in the header and choose Theme.
 
 Light and Dark stay fixed. System follows the operating system color scheme.
 
-Studio stores the preference in the browser. The choice applies across Records, lists, forms, login, and the rest of the Studio shell.
+Studio saves signed-in preferences in the Studio Preference Entity. Theme, sounds, sidebar state, recent pages, page size, and hidden columns follow the user across sessions. The browser retains the theme for the login screen. Existing browser settings are imported only when the server has no value for that key.
+
+## Record List Filters
+
+Use Add filter to search available Field labels and names. Value controls follow Field metadata: options, booleans, dates, datetimes, numbers, and Links. Link choices respect Record permissions and dependent filters. Clear all removes filters and ID search while keeping sort and display choices.
+
+Saved filters are private and belong to one Entity. Save the applied filters, rename them, replace them with the current filters, or delete them. Applying a saved filter replaces the current filters. Sort and display choices are not part of a saved filter. If metadata makes a saved filter invalid, replace or delete it; Studio does not silently remove its conditions.
+
+Filter and sort state stays in the URL. A fresh Entity visit starts unfiltered. Preference keys use App namespaces and canonical App/Entity identity for per-Entity display choices.
+
+## Command Menu
+
+Use Command K on macOS or Control K elsewhere. The menu shows current-page actions and recent pages before typing. It also searches navigation and app actions.
+
+Choose Search records, select an Entity, and type part of a Record ID. On an Entity page, that Entity is selected first. Results respect Record permissions and are limited to 20. Use the arrow keys and Enter to open a result. Current list actions include New Record, Clear filters, and Apply saved filter.

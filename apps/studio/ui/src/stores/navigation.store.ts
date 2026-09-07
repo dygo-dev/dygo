@@ -1,4 +1,5 @@
 import { defineStore } from 'pinia'
+import { usePreferencesStore } from '../features/preferences/preferences.store.ts'
 
 export type RecentPage = {
   path: string
@@ -12,45 +13,36 @@ const MAX_RECENT_PAGES = 10
 export const useNavigationStore = defineStore('navigation', {
   state: () => ({
     recentUserID: null as number | null,
-    sidebarCollapsed: false,
+    recentGeneration: 0,
     commandMenuOpen: false,
     routeReloadVersion: 0,
-    recentPages: [] as RecentPage[],
   }),
+
+  getters: {
+    sidebarCollapsed: () => usePreferencesStore().get<boolean>('studio.sidebar-collapsed', false) === true,
+    recentPages: () => normalizeRecentPages(usePreferencesStore().get('studio.recent-pages', [])),
+  },
 
   actions: {
     setRecentUser(userID: number | null) {
-      if (this.recentUserID === userID) {
-        if (userID === null) {
-          this.clearRecentPages()
-        }
-        return
-      }
-
-      if (userID === null) {
-        this.clearRecentPages()
-      }
+      this.recentGeneration++
       this.recentUserID = userID
-      this.recentPages = userID === null ? [] : readRecentPages(userID)
+      this.commandMenuOpen = false
+      const preferences = usePreferencesStore()
+      void preferences.startSession(userID)
+      if (userID !== null) void preferences.importMissing({ 'studio.recent-pages': readRecentPages(userID) })
     },
 
     clearRecentPages() {
-      if (this.recentUserID !== null) {
-        try {
-          window.localStorage.removeItem(recentPagesKey(this.recentUserID))
-        } catch {
-          // Local preferences are best-effort.
-        }
-      }
-      this.recentPages = []
+      usePreferencesStore().set('studio.recent-pages', [])
     },
 
     setSidebarCollapsed(value: boolean) {
-      this.sidebarCollapsed = value
+      usePreferencesStore().set('studio.sidebar-collapsed', value)
     },
 
     toggleSidebar() {
-      this.sidebarCollapsed = !this.sidebarCollapsed
+      this.setSidebarCollapsed(!this.sidebarCollapsed)
     },
 
     openCommandMenu() {
@@ -65,25 +57,22 @@ export const useNavigationStore = defineStore('navigation', {
       this.routeReloadVersion += 1
     },
 
-    rememberRecentPage(page: RecentPage | null) {
+    async rememberRecentPage(page: RecentPage | null) {
       if (!page || page.path.trim() === '' || page.label.trim() === '') {
         return
       }
 
-      this.recentPages = [
+      const generation = this.recentGeneration
+      const preferences = usePreferencesStore()
+      await preferences.startSession(this.recentUserID)
+      if (generation !== this.recentGeneration || !preferences.ready) return
+
+      const pages = [
         page,
         ...this.recentPages.filter((recentPage) => recentPage.path !== page.path),
       ].slice(0, MAX_RECENT_PAGES)
 
-      if (this.recentUserID === null) {
-        return
-      }
-
-      try {
-        window.localStorage.setItem(recentPagesKey(this.recentUserID), JSON.stringify(this.recentPages))
-      } catch {
-        // Local preferences are best-effort.
-      }
+      usePreferencesStore().set('studio.recent-pages', pages)
     },
   },
 })

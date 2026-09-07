@@ -53,6 +53,8 @@ func syncStudioApp() error {
 func included(name string) bool {
 	name = filepath.ToSlash(name)
 	return name == "app.yml" ||
+		name == "entities" ||
+		strings.HasPrefix(name, "entities/") ||
 		name == "access" ||
 		strings.HasPrefix(name, "access/") ||
 		name == "pages" ||

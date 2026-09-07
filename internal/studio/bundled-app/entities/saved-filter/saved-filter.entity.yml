@@ -1,0 +1,29 @@
+label: Saved Filter
+description: Private Record list predicates.
+route:
+  slug: studio-saved-filter
+name:
+  strategy: random
+fields:
+  - name: user
+    label: User
+    type: link
+    required: true
+    options:
+      app: core
+      entity: user
+  - name: entity
+    label: Entity
+    type: text
+    required: true
+  - name: label
+    label: Label
+    type: text
+    required: true
+  - name: filters
+    label: Filters
+    type: json
+    required: true
+constraints:
+  - type: unique
+    fields: [user, entity, label]

@@ -49,6 +49,7 @@ It owns:
 - settings UI
 - metadata API client
 - frontend stores
+- private user preferences and saved Record list filters
 
 The framework repo includes the initial Studio app manifest at `apps/studio/app.yml`.
 

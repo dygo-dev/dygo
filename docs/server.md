@@ -95,6 +95,26 @@ GET  /api/v1/notifications/{id}/deep-link
 
 These routes always scope data to the current Core User. Deep links are local Studio paths; external URLs are rejected.
 
+## Studio State API
+
+Authenticated Studio state routes use the current session's User:
+
+```txt
+GET    /api/v1/studio/preferences
+PUT    /api/v1/studio/preferences/{key}
+DELETE /api/v1/studio/preferences/{key}
+GET    /api/v1/studio/saved-filters?entity=crm/contact
+POST   /api/v1/studio/saved-filters
+PATCH  /api/v1/studio/saved-filters/{id}
+DELETE /api/v1/studio/saved-filters/{id}
+```
+
+Preference reads return a key/value map in the `data` envelope. Write one key with `{"value":...}`. Keys are dot-separated namespaces, such as `studio.theme` or `studio.records.crm.contact.hidden-columns`. URL-encode the key. Concurrent first writes use the unique User/key constraint and a bounded retry.
+
+Create a saved filter with `{"entity":"crm/contact","label":"Active","filters":[{"field":"enabled","operator":"eq","value":"true"}]}`. Update its `label`, `filters`, or both. Responses contain `id`, canonical `entity`, `label`, and `filters`. Labels are unique within the User and target Entity. An incompatible saved filter includes `validationError` on list reads so its owner can replace or delete it.
+
+Request bodies cannot set ownership. Saved-filter requests require target Entity read access and validate predicates against current metadata and Field access. Studio Preference and Saved Filter storage are private: generic Record routes cannot expose them, including through Administrator access. These state changes do not copy private values into the generic Activity feed. Trusted system SDK code remains privileged.
+
 ## Metadata API
 
 The first runtime API is read-only and powered by persisted Core metadata records:

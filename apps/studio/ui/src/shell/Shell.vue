@@ -42,7 +42,8 @@ const { sidebarCollapsed } = storeToRefs(navigationStore)
 
     <Sidebar
       v-if="showSidebar"
-      v-model:collapsed="sidebarCollapsed"
+      :collapsed="sidebarCollapsed"
+      @update:collapsed="navigationStore.setSidebarCollapsed"
       class="studio-shell__sidebar"
       :items="navItems"
     >

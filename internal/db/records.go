@@ -879,7 +879,7 @@ func (s RecordStore) recordLayout(ctx context.Context, entity string) (recordLay
 		}
 		return recordLayout{}, recordError(RecordErrorInternal, "load entity metadata failed", map[string]any{"entity": entity}, err)
 	}
-	return newRecordLayout(meta)
+	return privateRecordLayout(ctx, meta)
 }
 
 func (s RecordStore) recordLayoutByIdentity(ctx context.Context, appName string, entity string) (recordLayout, error) {
@@ -895,7 +895,7 @@ func (s RecordStore) recordLayoutByIdentity(ctx context.Context, appName string,
 		}
 		return recordLayout{}, recordError(RecordErrorInternal, "load entity metadata failed", map[string]any{"app": appName, "entity": entity}, err)
 	}
-	return newRecordLayout(meta)
+	return privateRecordLayout(ctx, meta)
 }
 
 func recordIdentityName(appName string, entity string) string {

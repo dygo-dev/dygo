@@ -1,5 +1,6 @@
 <script setup lang="ts">
 import { computed, nextTick, ref, watch, type Component } from 'vue'
+import { useQuery } from '@tanstack/vue-query'
 import { storeToRefs } from 'pinia'
 import { useRoute, useRouter, type RouteLocationNormalizedLoaded } from 'vue-router'
 import { onKeyStroke } from '@vueuse/core'
@@ -22,6 +23,8 @@ import {
 } from '@lucide/vue'
 
 import { queryClient } from '@/app/query'
+import { pageCommands } from '@/features/commands/context'
+import { listRecords } from '@/features/records/records.api'
 import { reloadStudioApp } from '@/app/reload'
 import { iconForEntity } from '@/features/metadata/entity-icons'
 import type { MetadataEntity } from '@/features/metadata/metadata.api'
@@ -58,6 +61,9 @@ const searchInput = ref<HTMLInputElement | null>(null)
 const query = ref('')
 const activeItemId = ref('')
 const runningAppAction = ref(false)
+const searchingRecords = ref(false)
+const searchEntity = ref('')
+const recordSearch = ref('')
 const metadataEntitiesQuery = useMetadataEntitiesQuery({
   enabled: computed(() => Boolean(authStore.currentUser)),
 })
@@ -72,6 +78,41 @@ const searchableEntities = computed(() => (
 
 const normalizedQuery = computed(() => normalizeSearch(query.value))
 const hasQuery = computed(() => normalizedQuery.value.length > 0)
+const currentEntity = computed(() => findEntityByRouteSlug(metadataEntities.value, String(route.params.entity ?? '')))
+const recordEntities = computed(() => searchableEntities.value.filter((entity) => !entity['is-single']))
+const selectedSearchEntity = computed(() => recordEntities.value.find((entity) => entity.slug === searchEntity.value))
+const recordResults = useQuery({
+  queryKey: computed(() => ['command-records', authStore.currentUser?.id, searchEntity.value, recordSearch.value]),
+  enabled: computed(() => commandMenuOpen.value && searchingRecords.value && Boolean(authStore.currentUser && selectedSearchEntity.value && recordSearch.value)),
+  queryFn: ({ signal }) => listRecords(searchEntity.value, {
+    limit: 20,
+    offset: 0,
+    filters: [{ field: 'name', operator: 'contains', value: recordSearch.value }],
+  }, { signal }),
+})
+
+watch([query, searchEntity, searchingRecords, commandMenuOpen], ([value], _previous, cleanup) => {
+  recordSearch.value = ''
+  if (!commandMenuOpen.value || !searchingRecords.value) return
+  const timer = setTimeout(() => { recordSearch.value = value.trim() }, 250)
+  cleanup(() => clearTimeout(timer))
+})
+
+const contextualItems = computed<CommandItem[]>(() => [
+  ...pageCommands.value.map((command) => ({ ...command, detail: command.detail ?? '', keywords: command.keywords ?? '', icon: Command })),
+  {
+    id: 'records:search', label: currentEntity.value ? `Search ${entityLabel(currentEntity.value)}` : 'Search records',
+    detail: 'Find by Record ID', keywords: 'find search records', icon: Search,
+    run: () => startRecordSearch(),
+  },
+])
+
+function startRecordSearch() {
+  searchingRecords.value = true
+  searchEntity.value = currentEntity.value && !currentEntity.value['is-single'] ? currentEntity.value.slug ?? '' : ''
+  query.value = ''
+  searchInput.value?.focus()
+}
 
 const pageCommandItems = computed<CommandItem[]>(() => (
   searchableEntities.value.map((entity) => {
@@ -148,13 +189,27 @@ const recentCommandItems = computed<CommandItem[]>(() => (
 ))
 
 const commandGroups = computed<CommandGroup[]>(() => {
+  if (searchingRecords.value) {
+    const entity = selectedSearchEntity.value
+    if (!entity || query.value.trim() !== recordSearch.value) return []
+    return [{ key: 'records', label: entityLabel(entity), items: (recordResults.data.value?.data ?? []).flatMap((record): CommandItem[] => (
+      typeof record.name === 'string' ? [{
+        id: `record:${entity.slug}:${record.name}`, label: record.name,
+        detail: [record['full-name'], record.title, record.label].find((value): value is string => typeof value === 'string' && value.length > 0) ?? entityLabel(entity),
+        keywords: record.name, icon: iconForEntity(entity.icon),
+        run: () => router.push({ name: RouteName.RecordDetail, params: { entity: entity.slug!, recordName: record.name as string } }).then(() => {}),
+      }] : []
+    )) }].filter((group) => group.items.length > 0)
+  }
   if (!hasQuery.value) {
-    return recentCommandItems.value.length > 0
-      ? [{ key: 'recent', label: 'Recent', items: recentCommandItems.value }]
-      : []
+    return [
+      { key: 'context', label: 'This page', items: contextualItems.value },
+      { key: 'recent', label: 'Recent', items: recentCommandItems.value },
+    ].filter((group) => group.items.length > 0)
   }
 
   return [
+    { key: 'context', label: 'This page', items: filterItems(contextualItems.value, normalizedQuery.value) },
     { key: 'pages', label: 'Pages', items: filterItems(pageCommandItems.value, normalizedQuery.value) },
     { key: 'create', label: 'Create', items: filterItems(createCommandItems.value, normalizedQuery.value) },
     { key: 'app-actions', label: 'App actions', items: filterItems(appActionItems.value, normalizedQuery.value) },
@@ -162,13 +217,25 @@ const commandGroups = computed<CommandGroup[]>(() => {
 })
 
 const visibleItems = computed(() => commandGroups.value.flatMap((group) => group.items))
-const emptyMessage = computed(() => (hasQuery.value ? 'No matching commands' : 'No recent pages yet'))
+const emptyMessage = computed(() => {
+  if (!searchingRecords.value) return hasQuery.value ? 'No matching commands' : 'No recent pages yet'
+  if (!selectedSearchEntity.value) return 'Select an Entity'
+  if (!query.value.trim()) return 'Type a Record ID'
+  if (recordSearch.value !== query.value.trim() || recordResults.isFetching.value) return 'Searching…'
+  if (recordResults.error.value) return 'Could not search Records. Try again.'
+  return 'No matching Records'
+})
 const activeDescendantId = computed(() => {
   const activeItem = visibleItems.value.find((item) => item.id === activeItemId.value)
   return activeItem ? itemDomId(activeItem) : undefined
 })
 
 const currentRecentPage = computed(() => recentPageForRoute(route))
+
+watch(activeDescendantId, async (id) => {
+  await nextTick()
+  if (id) document.getElementById(id)?.scrollIntoView({ block: 'nearest' })
+})
 
 watch(
   currentRecentPage,
@@ -195,6 +262,8 @@ watch(
   async (open) => {
     if (!open) {
       query.value = ''
+      searchingRecords.value = false
+      recordSearch.value = ''
       return
     }
 
@@ -278,7 +347,7 @@ async function runCommand(item: CommandItem) {
     return
   }
 
-  closeMenu()
+  if (item.id !== 'records:search') closeMenu()
   await item.run()
 }
 
@@ -415,7 +484,14 @@ function itemDomId(item: CommandItem): string {
           aria-describedby="studio-command-menu-description"
         >
           <DialogTitle class="sr-only">Command menu</DialogTitle>
-          <p id="studio-command-menu-description" class="sr-only">Search pages and actions.</p>
+          <p id="studio-command-menu-description" class="sr-only">Search pages, actions, and Records.</p>
+          <div v-if="searchingRecords" class="studio-command-menu__input-wrap">
+            <button type="button" @click="searchingRecords = false; query = ''">Back</button>
+            <select v-model="searchEntity" aria-label="Search Entity" class="studio-command-menu__input">
+              <option value="">Select an Entity</option>
+              <option v-for="entity in recordEntities" :key="entity.name" :value="entity.slug">{{ entityLabel(entity) }}</option>
+            </select>
+          </div>
           <div class="studio-command-menu__input-wrap">
             <Search class="studio-command-menu__dialog-icon" :size="16" :stroke-width="1.8" aria-hidden="true" />
             <input
@@ -423,7 +499,7 @@ function itemDomId(item: CommandItem): string {
               v-model="query"
               class="studio-command-menu__input"
               type="search"
-              placeholder="Search or type a command"
+              :placeholder="searchingRecords ? 'Search Record IDs' : 'Search or type a command'"
               role="combobox"
               aria-controls="studio-command-menu-list"
               :aria-expanded="commandMenuOpen"
@@ -478,7 +554,7 @@ function itemDomId(item: CommandItem): string {
               </section>
             </template>
 
-            <div v-else class="studio-command-menu__empty">
+            <div v-else class="studio-command-menu__empty" role="status">
               {{ emptyMessage }}
             </div>
           </div>

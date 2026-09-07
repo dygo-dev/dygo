@@ -71,7 +71,14 @@ export function syncStudioTheme(root?: HTMLElement | null): StudioResolvedTheme 
   return theme
 }
 
-export function setStudioThemePreference(preference: StudioThemePreference, root?: HTMLElement | null): StudioResolvedTheme {
+let preferenceChanged: ((value: StudioThemePreference) => void) | null = null
+
+export function bindStudioThemePreference(listener: typeof preferenceChanged) {
+  preferenceChanged = listener
+}
+
+export function setStudioThemePreference(preference: StudioThemePreference, root?: HTMLElement | null, notify = true): StudioResolvedTheme {
+  if (notify) preferenceChanged?.(preference)
   if (typeof window !== 'undefined') {
     try {
       window.localStorage.setItem(studioThemeStorageKey, preference)

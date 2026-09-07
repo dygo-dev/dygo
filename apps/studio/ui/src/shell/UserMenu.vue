@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { ref } from 'vue'
+import { computed, ref } from 'vue'
 import { Check, ChevronRight, LogOut, Palette, RefreshCw } from '@lucide/vue'
 import {
   DropdownMenuContent,
@@ -29,6 +29,7 @@ import {
 } from '@/features/theme'
 import { RouteName } from '@/router/routes'
 import { useAuthStore } from '@/stores/auth.store'
+import { usePreferencesStore } from '@/features/preferences/preferences.store'
 
 withDefaults(defineProps<{
   userName?: string
@@ -40,7 +41,8 @@ withDefaults(defineProps<{
 const router = useRouter()
 const authStore = useAuthStore()
 const reloading = ref(false)
-const themePreference = ref<StudioThemePreference>(getStudioThemePreference())
+const preferences = usePreferencesStore()
+const themePreference = computed<StudioThemePreference>(() => preferences.get('studio.theme', getStudioThemePreference()))
 
 async function reloadApp() {
   if (reloading.value) {
@@ -60,7 +62,6 @@ function onThemePreference(value: unknown) {
     return
   }
 
-  themePreference.value = value
   setStudioThemePreference(value)
 }
 

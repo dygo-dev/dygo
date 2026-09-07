@@ -149,6 +149,10 @@ func (s RecordStore) withRecordMutation(ctx context.Context, fn func(RecordStore
 }
 
 func recordActivityHook(ctx context.Context, hookCtx RecordHookContext) error {
+	// Private UI state must not be copied into the generic Activity feed.
+	if IsPrivateEntity(hookCtx.AppName, hookCtx.Entity) {
+		return nil
+	}
 	if hookCtx.Entity == "activity" {
 		return nil
 	}

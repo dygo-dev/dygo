@@ -1,0 +1,24 @@
+label: Preference
+description: Private user interface state.
+route:
+  slug: studio-preference
+name:
+  strategy: random
+fields:
+  - name: user
+    label: User
+    type: link
+    required: true
+    options:
+      app: core
+      entity: user
+  - name: key
+    label: Key
+    type: text
+    required: true
+  - name: value
+    label: Value
+    type: json
+constraints:
+  - type: unique
+    fields: [user, key]

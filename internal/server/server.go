@@ -28,6 +28,7 @@ import (
 	"github.com/hapyco/dygo/internal/recordquery"
 	"github.com/hapyco/dygo/internal/recordsecret"
 	"github.com/hapyco/dygo/internal/reserved"
+	"github.com/hapyco/dygo/internal/studiostate"
 	"github.com/hapyco/dygo/pkg/dygo"
 )
 
@@ -45,6 +46,7 @@ type Options struct {
 	Records         RecordStore
 	Activity        ActivityStore
 	Notifications   NotificationStore
+	StudioState     StudioStateStore
 	Permissions     PermissionChecker
 	RecordHooks     *db.RecordHookRegistry
 	ActionRegistry  *entityactions.Registry
@@ -134,6 +136,7 @@ func NewRouter(options ...Options) http.Handler {
 			registerMetadataRoutes(protected, opts.Metadata, opts.Permissions, opts.ActionRegistry)
 			registerPageRoutes(protected, opts.Pages, opts.Permissions)
 			registerNotificationRoutes(protected, opts.Notifications)
+			registerStudioStateRoutes(protected, opts.StudioState)
 			registerRecordRoutes(protected, opts.Records, opts.Activity, opts.Metadata, opts.Permissions, opts.EntityActions)
 			registerFileRoutes(protected, opts.Files)
 			registerImportRoutes(protected, opts.Imports)
@@ -200,6 +203,7 @@ func Serve(ctx context.Context, options Options) error {
 		}
 		options.Activity = db.NewActivityReader(pool)
 		options.Notifications = notifications.NewStore(pool)
+		options.StudioState = studiostate.New(pool)
 		checker := permissions.NewChecker(pool)
 		options.Permissions = checker
 		jobs, jobErr := jobstore.New(pool)
@@ -825,7 +829,7 @@ func (h metadataHandler) listEntities(w http.ResponseWriter, r *http.Request) {
 	filtered := make([]db.MetadataEntity, 0, len(entities))
 	for _, entity := range entities {
 		routeSlug := entity.RouteSlug()
-		if routeSlug == "" {
+		if routeSlug == "" || db.IsPrivateEntity(entity.App.Name, entity.Key) {
 			continue
 		}
 		canRead, err := h.canReadEntity(r.Context(), user, routeSlug)
@@ -852,6 +856,10 @@ func (h metadataHandler) getEntityMeta(w http.ResponseWriter, r *http.Request) {
 	meta, err := h.store.GetEntityMeta(r.Context(), name)
 	if err != nil {
 		writeAPIError(w, err, "entity", name)
+		return
+	}
+	if db.IsPrivateEntity(meta.App.Name, meta.Key) {
+		writeErrorEnvelope(w, http.StatusForbidden, "forbidden", "private Entity", nil)
 		return
 	}
 	canRead, err := h.canReadEntity(r.Context(), user, meta.RouteSlug())
@@ -995,6 +1003,10 @@ func (h recordHandler) resolveEntity(next http.Handler) http.Handler {
 			return
 		}
 		ctx := context.WithValue(r.Context(), recordEntityMetaContextKey{}, meta)
+		if db.IsPrivateEntity(meta.App.Name, meta.Key) {
+			writeErrorEnvelope(w, http.StatusForbidden, "forbidden", "private Entity", nil)
+			return
+		}
 		next.ServeHTTP(w, r.WithContext(ctx))
 	})
 }
