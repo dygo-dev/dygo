@@ -11,6 +11,7 @@ import { RecordListRenderer } from '@/renderers/records'
 import { RouteName } from '@/router/routes'
 import { humanizeEntity } from '@/stores/metadata.identity'
 import { statusForError, storeError, type LoadStatus } from '@/stores/status'
+import type { PinnedItem } from '@/features/pinned/pinned'
 import RecordFormPage from './RecordFormPage.vue'
 
 const props = defineProps<{
@@ -44,6 +45,10 @@ const canShowList = computed(() => entityMetaStatus.value === 'ready' && !isSing
 const entityLabel = computed(() => {
   return entityMeta.value?.label || humanizeEntity(props.entity)
 })
+const pinTarget = computed<PinnedItem | null>(() => entityMeta.value ? ({
+  type: 'entity', app: entityMeta.value.app.name, entity: entityMeta.value.key,
+  label: entityLabel.value, path: `/${props.entity}`,
+}) : null)
 
 function openNewRecord() {
   if (isSystem.value) {
@@ -90,6 +95,7 @@ const actions = computed<PageHeaderAction[]>(() => {
       :show-title="false"
       :system="isSystem"
       :actions="canShowList ? actions : []"
+      :pin-target="pinTarget"
     />
 
     <div v-if="entityMetaStatus === 'loading' || entityMetaStatus === 'idle'" class="studio-page-state">

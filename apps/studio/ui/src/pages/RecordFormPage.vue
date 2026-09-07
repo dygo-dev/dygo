@@ -29,6 +29,7 @@ import PageHeader from '@/shell/PageHeader.vue'
 import type { PageHeaderAction } from '@/shell/types'
 import { humanizeEntity } from '@/stores/metadata.identity'
 import { statusForError, storeError, type LoadStatus } from '@/stores/status'
+import type { PinnedItem } from '@/features/pinned/pinned'
 
 const props = defineProps<{
   entity: string
@@ -183,6 +184,18 @@ const fields = computed(() => {
   return nameField ? [nameField, ...meta.fields] : meta.fields
 })
 const entityLabel = computed(() => entityMeta.value?.label || humanizeEntity(props.entity))
+const pinTarget = computed<PinnedItem | null>(() => {
+  if (!entityMeta.value || isNew.value) return null
+  if (isSingle.value) return {
+    type: 'entity', app: entityMeta.value.app.name, entity: entityMeta.value.key,
+    label: entityLabel.value, path: `/${props.entity}`,
+  }
+  if (!props.recordName || !record.value) return null
+  return {
+    type: 'record', app: entityMeta.value.app.name, entity: entityMeta.value.key, record: props.recordName,
+    label: `${entityLabel.value} / ${props.recordName}`, path: `/${props.entity}/${encodeURIComponent(props.recordName)}`,
+  }
+})
 const isSystem = computed(() => entityMeta.value?.['is-system'] === true)
 const loading = computed(() => (
   entityMetaStatus.value === 'idle'
@@ -769,6 +782,7 @@ function draftValuesEqual(left: unknown, right: unknown): boolean {
       :show-title="false"
       :system="isSystem"
       :actions="actions"
+      :pin-target="pinTarget"
     />
 
     <FormToolbar />

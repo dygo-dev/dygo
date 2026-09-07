@@ -1,10 +1,14 @@
 <script setup lang="ts">
 import { computed, useSlots } from 'vue'
+import { Pin, PinOff } from '@lucide/vue'
 
 import Badge from '@/design/atoms/Badge.vue'
 import Button from '@/design/atoms/Button.vue'
 import Breadcrumbs from './Breadcrumbs.vue'
 import type { PageHeaderAction } from './types'
+import { pinnedItemID, type PinnedItem } from '@/features/pinned/pinned'
+import { usePreferencesStore } from '@/features/preferences/preferences.store'
+import { useNavigationStore } from '@/stores/navigation.store'
 
 const props = withDefaults(defineProps<{
   title?: string
@@ -14,13 +18,22 @@ const props = withDefaults(defineProps<{
   showActions?: boolean
   system?: boolean
   actions?: PageHeaderAction[]
+  pinTarget?: PinnedItem | null
 }>(), {
   showBreadcrumbs: true,
   showTitle: true,
   showActions: true,
   system: false,
   actions: () => [],
+  pinTarget: null,
 })
+
+const navigation = useNavigationStore()
+const preferences = usePreferencesStore()
+const navigationStoreReady = computed(() => preferences.ready)
+const pinned = computed(() => props.pinTarget
+  ? navigation.pinnedItems.some(item => pinnedItemID(item) === pinnedItemID(props.pinTarget as PinnedItem))
+  : false)
 
 const slots = useSlots()
 
@@ -47,6 +60,19 @@ function runAction(action: PageHeaderAction) {
       <div v-if="hasBreadcrumbs" class="studio-page-header__breadcrumb-row">
         <Breadcrumbs class="studio-page-header__breadcrumbs" />
         <Badge v-if="props.system" variant="danger">System</Badge>
+        <button
+          v-if="props.pinTarget"
+          class="studio-page-header__pin"
+          type="button"
+          :disabled="!navigationStoreReady"
+          :aria-label="pinned ? 'Unpin from sidebar' : 'Pin to sidebar'"
+          :title="pinned ? 'Unpin from sidebar' : 'Pin to sidebar'"
+          :aria-pressed="pinned"
+          @click="navigation.togglePin(props.pinTarget)"
+        >
+          <PinOff v-if="pinned" :size="15" aria-hidden="true" />
+          <Pin v-else :size="15" aria-hidden="true" />
+        </button>
       </div>
       <h1 v-if="hasTitle" :id="props.titleId" class="studio-page-header__title">
         <slot name="title">{{ props.title }}</slot>
@@ -109,6 +135,33 @@ function runAction(action: PageHeaderAction) {
 
 .studio-page-header__breadcrumbs {
   min-width: 0;
+}
+
+.studio-page-header__pin {
+  display: inline-flex;
+  width: 28px;
+  height: 28px;
+  flex: 0 0 auto;
+  align-items: center;
+  justify-content: center;
+  border: 0;
+  border-radius: var(--studio-radius-control);
+  background: transparent;
+  color: var(--studio-text-muted);
+}
+
+.studio-page-header__pin:hover:not(:disabled) {
+  background: var(--studio-surface-raised);
+  color: var(--studio-text);
+}
+
+.studio-page-header__pin[aria-pressed='true'] {
+  color: var(--studio-accent);
+}
+
+.studio-page-header__pin:focus-visible {
+  outline: 2px solid var(--studio-focus);
+  outline-offset: 2px;
 }
 
 .studio-page-header__title {

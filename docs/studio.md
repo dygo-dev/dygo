@@ -89,6 +89,8 @@ Light and Dark stay fixed. System follows the operating system color scheme.
 
 Studio saves signed-in preferences in the Studio Preference Entity. Theme, sounds, sidebar state, recent pages, page size, and hidden columns follow the user across sessions. The browser retains the theme for the login screen. Existing browser settings are imported only when the server has no value for that key.
 
+Pin an Entity, Page, or saved Record from its header to add it to the personal Pinned section above the main navigation. Pinned items follow the signed-in user. The section shows five items until See more is selected, and supports drag or keyboard reordering.
+
 ## Record List Filters
 
 Use Add filter to search available Field labels and names. Value controls follow Field metadata: options, booleans, dates, datetimes, numbers, and Links. Link choices respect Record permissions and dependent filters. Clear all removes filters and ID search while keeping sort and display choices.

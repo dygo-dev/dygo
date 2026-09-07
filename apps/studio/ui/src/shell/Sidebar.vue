@@ -3,6 +3,7 @@ import { PanelLeftClose, PanelLeftOpen } from '@lucide/vue'
 import { RouterLink } from 'vue-router'
 
 import type { ShellNavItem } from './types'
+import PinnedNav from '@/features/pinned/PinnedNav.vue'
 
 withDefaults(defineProps<{
   ariaLabel?: string
@@ -21,6 +22,7 @@ const emit = defineEmits<{
 
 <template>
   <aside class="studio-sidebar" :class="{ 'studio-sidebar--collapsed': collapsed }" :aria-label="ariaLabel">
+    <PinnedNav :collapsed="collapsed" />
     <nav v-if="items.length > 0" class="studio-sidebar__nav">
       <RouterLink
         v-for="item in items"

@@ -10,10 +10,16 @@ import { useMetadataEntitiesQuery } from '@/features/metadata/metadata.query'
 import type { StudioPageDescriptor } from '@/features/pages/pages.api'
 import PageHeader from '@/shell/PageHeader.vue'
 import { storeError } from '@/stores/status'
+import type { PinnedItem } from '@/features/pinned/pinned'
 
-defineProps<{
+const props = defineProps<{
   page: StudioPageDescriptor
 }>()
+
+const pinTarget = computed<PinnedItem>(() => ({
+  type: 'page', app: props.page.app.name, page: props.page.key,
+  label: props.page.label, path: props.page.path,
+}))
 
 type EntityGroup = {
   app: MetadataEntity['app']
@@ -55,6 +61,7 @@ const groups = computed<EntityGroup[]>(() => {
     <PageHeader
       title-id="studio-home-title"
       :title="page.label"
+      :pin-target="pinTarget"
     />
 
     <div v-if="loading" class="entity-index__state" aria-live="polite">
