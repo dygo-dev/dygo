@@ -417,7 +417,7 @@ function itemDomId(item: CommandItem): string {
           aria-describedby="studio-command-menu-description"
         >
           <DialogTitle class="sr-only">Command menu</DialogTitle>
-          <p id="studio-command-menu-description" class="sr-only">Search Studio pages and actions.</p>
+          <p id="studio-command-menu-description" class="sr-only">Search pages and actions.</p>
           <div class="studio-command-menu__input-wrap">
             <Search class="studio-command-menu__dialog-icon" :size="16" :stroke-width="1.8" aria-hidden="true" />
             <input

@@ -164,6 +164,20 @@ body {
   overflow: hidden;
 }
 
+.studio-page-state {
+  display: grid;
+  justify-items: start;
+  gap: 10px;
+  padding: 196px 16px 44px;
+}
+
+.studio-page-state p {
+  margin: 0;
+  color: var(--studio-text-muted);
+  font-size: 13px;
+  font-weight: 500;
+}
+
 body > [data-reka-popper-content-wrapper] {
   z-index: 1000 !important;
 }

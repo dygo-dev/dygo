@@ -61,7 +61,7 @@ async function selectNotification(id: number) {
         <button v-else-if="notifications.error.value" class="studio-notifications__retry" type="button" @click="notifications.refetch()">
           Could not load notifications. Try again.
         </button>
-        <p v-else-if="items.length === 0" class="studio-notifications__state">You are all caught up.</p>
+        <p v-else-if="items.length === 0" class="studio-notifications__state">All caught up.</p>
         <template v-else>
           <DropdownMenuItem
             v-for="item in items"

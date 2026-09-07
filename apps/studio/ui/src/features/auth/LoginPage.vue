@@ -60,10 +60,6 @@ async function submitLogin() {
         </div>
       </div>
 
-      <p class="login-panel__summary">
-        Open the workspace for operating records, permissions, activity, and metadata-backed business apps.
-      </p>
-
       <ErrorState v-if="error" :message="error" />
 
       <form class="login-form" @submit.prevent="submitLogin">
@@ -162,14 +158,6 @@ async function submitLogin() {
   font-weight: 700;
   letter-spacing: 0;
   line-height: 1.15;
-}
-
-.login-panel__summary {
-  max-width: 56ch;
-  margin: 0;
-  color: var(--studio-text-muted);
-  font-size: 14px;
-  line-height: 1.55;
 }
 
 .login-form {

@@ -21,7 +21,7 @@ import {
 } from '@/features/records/record-form.query'
 import type { RecordData } from '@/features/records/records.api'
 import { secretSubmitValue } from '@/features/records/secret-input'
-import { isHiddenRecordSubmitField, recordFieldLabel } from '@/features/records/system-fields'
+import { isHiddenCollectionField, isHiddenRecordSubmitField, recordFieldLabel } from '@/features/records/system-fields'
 import { RecordFormRenderer, RecordTimeline } from '@/renderers/records'
 import { RouteName } from '@/router/routes'
 import FormToolbar from '@/shell/FormToolbar.vue'
@@ -279,7 +279,7 @@ watch(
     }
 
     const nextDraft = mode === 'new'
-      ? draftFromDefaults(fields.value)
+      ? draftFromRecord(fields.value, null)
       : draftFromRecord(fields.value, nextRecord)
 
     draft.value = nextDraft
@@ -353,7 +353,7 @@ async function saveRecord() {
           })
 
     resetToRecord(record)
-    toast.success(isNew.value ? 'Record created' : 'Record saved')
+    toast.success(isSingle.value ? 'Settings saved' : isNew.value ? 'Record created' : 'Record saved')
     const nextName = typeof record.name === 'string' ? record.name : ''
     if (!isSingle.value && nextName && (isNew.value || nextName !== props.recordName)) {
       await router.replace({ name: RouteName.RecordDetail, params: { entity: props.entity, recordName: nextName } })
@@ -528,7 +528,7 @@ function collectionRowSubmitValue(parentField: MetadataField, childMeta: Metadat
   }
 
   childMeta.fields.forEach((field) => {
-    if (isHiddenCollectionSubmitField(field)) {
+    if (isHiddenCollectionField(field)) {
       return
     }
 
@@ -687,13 +687,6 @@ function resetToRecord(record: RecordData) {
   baseline.value = { ...nextDraft }
 }
 
-function draftFromDefaults(metadataFields: MetadataField[]): RecordData {
-  return metadataFields.reduce<RecordData>((next, field) => {
-    next[field.name] = initialFieldValue(field, null)
-    return next
-  }, {})
-}
-
 function draftFromRecord(metadataFields: MetadataField[], record: RecordData | null): RecordData {
   return metadataFields.reduce<RecordData>((next, field) => {
     next[field.name] = initialFieldValue(field, record)
@@ -743,27 +736,6 @@ function cloneCollectionRows(value: unknown[]): RecordData[] {
   return value.filter(isRecordData).map((row) => ({ ...row }))
 }
 
-function isHiddenCollectionSubmitField(field: MetadataField): boolean {
-  // TODO(collections): add nested collection editing after the v1 child-table contract settles.
-  if (field.type === 'collection') {
-    return true
-  }
-
-  return [
-    'id',
-    'name',
-    'created-at',
-    'updated-at',
-    'parent-entity-id',
-    'parent_entity_id',
-    'parent-record-id',
-    'parent_record_id',
-    'parent-field-id',
-    'parent_field_id',
-    'ordinal',
-  ].includes(field.name)
-}
-
 function displayJSON(value: unknown): string {
   if (typeof value === 'string') {
     return value
@@ -802,21 +774,21 @@ function draftValuesEqual(left: unknown, right: unknown): boolean {
     <FormToolbar />
 
     <div class="record-form-page__body">
-      <div v-if="loading" class="record-form-page__state">
-        <Spinner size="sm" label="Loading record" />
-        <p>Loading record</p>
+      <div v-if="loading" class="studio-page-state">
+        <Spinner size="sm" label="Loading" />
+        <p>Loading</p>
       </div>
 
       <ErrorState
         v-else-if="blockingError && !showForm"
-        title="Record unavailable"
+        title="Unavailable"
         :message="blockingError"
       />
 
       <template v-else-if="entityMeta">
         <ErrorState
           v-if="saveError"
-          title="Record action failed"
+          title="Action failed"
           :message="saveError"
         />
 
@@ -865,17 +837,4 @@ function draftValuesEqual(left: unknown, right: unknown): boolean {
   overflow: auto;
 }
 
-.record-form-page__state {
-  display: grid;
-  justify-items: start;
-  gap: 10px;
-  padding: 196px 16px 44px;
-}
-
-.record-form-page__state p {
-  margin: 0;
-  color: var(--studio-text-muted);
-  font-size: 13px;
-  font-weight: 500;
-}
 </style>

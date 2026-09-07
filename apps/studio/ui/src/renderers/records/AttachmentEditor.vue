@@ -68,8 +68,8 @@ function clearValue() {
         Clear
       </Button>
     </div>
-    <p v-if="modelValue" class="attachment-editor__value"><a :href="`/api/v1/files/${encodeURIComponent(modelValue)}`">Download file</a></p>
-    <p class="attachment-editor__hint">{{ upload ? 'Upload a private file to this Record.' : 'Save this Record before you upload a file.' }}</p>
+    <p v-if="modelValue" class="attachment-editor__value"><a :href="`/api/v1/files/${encodeURIComponent(modelValue)}`">Download</a></p>
+    <p class="attachment-editor__hint">{{ upload ? 'Upload a private file.' : 'Save the Record before uploading.' }}</p>
     <p v-if="error || uploadError" class="attachment-editor__error" role="alert">{{ error || uploadError }}</p>
   </div>
 </template>

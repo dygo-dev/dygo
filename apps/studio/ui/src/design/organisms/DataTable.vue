@@ -306,38 +306,17 @@ function activateRow(row: DataTableRow, index: number, event: MouseEvent | Keybo
     :aria-busy="effectiveState === 'loading' ? 'true' : undefined"
   >
     <div
-      v-if="isEmpty"
+      v-if="isEmpty || isBlockingState"
       class="data-table__state"
-      data-state="empty"
+      :data-state="isEmpty ? 'empty' : effectiveState"
       :role="statePanelRole"
-      aria-live="polite"
+      :aria-live="isEmpty || effectiveState === 'loading' ? 'polite' : 'assertive'"
     >
-      <div class="data-table__state-icon" aria-hidden="true">
+      <div v-if="isEmpty" class="data-table__state-icon" aria-hidden="true">
         <Inbox :size="22" :stroke-width="1.7" />
       </div>
-      <p class="data-table__state-title">{{ stateContent.title }}</p>
-      <p v-if="stateContent.message" class="data-table__state-message">{{ stateContent.message }}</p>
-      <Button
-        v-if="emptyActionLabel"
-        class="data-table__state-action"
-        type="button"
-        variant="secondary"
-        @click="emit('emptyAction')"
-      >
-        <Plus :size="14" :stroke-width="1.9" aria-hidden="true" />
-        {{ emptyActionLabel }}
-      </Button>
-    </div>
-
-    <div
-      v-else-if="isBlockingState"
-      class="data-table__state"
-      :data-state="effectiveState"
-      :role="statePanelRole"
-      :aria-live="effectiveState === 'loading' ? 'polite' : 'assertive'"
-    >
       <Spinner
-        v-if="effectiveState === 'loading'"
+        v-else-if="effectiveState === 'loading'"
         size="sm"
         :label="stateContent.title"
       />
@@ -348,6 +327,16 @@ function activateRow(row: DataTableRow, index: number, event: MouseEvent | Keybo
       </div>
       <p class="data-table__state-title">{{ stateContent.title }}</p>
       <p v-if="stateContent.message" class="data-table__state-message">{{ stateContent.message }}</p>
+      <Button
+        v-if="isEmpty && emptyActionLabel"
+        class="data-table__state-action"
+        type="button"
+        variant="secondary"
+        @click="emit('emptyAction')"
+      >
+        <Plus :size="14" :stroke-width="1.9" aria-hidden="true" />
+        {{ emptyActionLabel }}
+      </Button>
     </div>
 
     <div v-else class="data-table__scroller">

@@ -5,7 +5,7 @@ import { ArrowDown, ArrowUp, Plus, Trash2 } from '@lucide/vue'
 import { Button, IconButton, Input, Select, Switch, Textarea, type FieldOption, type TextInputType } from '@/design'
 import type { MetadataEntityMeta, MetadataField } from '@/features/metadata/metadata.api'
 import type { RecordData } from '@/features/records/records.api'
-import { recordFieldLabel } from '@/features/records/system-fields'
+import { isHiddenCollectionField, recordFieldLabel } from '@/features/records/system-fields'
 import SecretEditor from './SecretEditor.vue'
 import LinkPicker from './LinkPicker.vue'
 
@@ -182,25 +182,6 @@ function selectOptions(field: MetadataField): FieldOption[] {
     .map((value) => ({ value: String(value), label: String(value) }))
 }
 
-function isHiddenCollectionField(field: MetadataField): boolean {
-  if (field.type === 'collection') {
-    return true
-  }
-
-  return [
-    'id',
-    'name',
-    'created-at',
-    'updated-at',
-    'parent-entity-id',
-    'parent_entity_id',
-    'parent-record-id',
-    'parent_record_id',
-    'parent-field-id',
-    'parent_field_id',
-    'ordinal',
-  ].includes(field.name)
-}
 </script>
 
 <template>

@@ -1,4 +1,5 @@
 export type LoadStatus = 'idle' | 'loading' | 'ready' | 'empty' | 'error' | 'forbidden' | 'unauthenticated'
+type ErrorStatus = Extract<LoadStatus, 'error' | 'forbidden' | 'unauthenticated'>
 
 export type StoreError = {
   code: string
@@ -28,7 +29,7 @@ export function storeError(error: unknown, fallbackMessage: string): StoreError 
   }
 }
 
-export function statusForError(error: StoreError): LoadStatus {
+export function statusForError(error: StoreError): ErrorStatus {
   if (error.code === 'unauthenticated') {
     return 'unauthenticated'
   }

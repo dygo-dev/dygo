@@ -1,19 +1,34 @@
 import type { MetadataField } from '@/features/metadata/metadata.api'
 
-const formHiddenSystemFields = new Set(['id', 'created-at', 'updated-at'])
-const listHiddenSystemFields = new Set(['id', 'created-at', 'updated-at'])
-const submitHiddenSystemFields = new Set(['id', 'created-at', 'updated-at'])
+const hiddenSystemFields = new Set(['id', 'created-at', 'updated-at'])
+const hiddenCollectionFields = new Set([
+  'id',
+  'name',
+  'created-at',
+  'updated-at',
+  'parent-entity-id',
+  'parent_entity_id',
+  'parent-record-id',
+  'parent_record_id',
+  'parent-field-id',
+  'parent_field_id',
+  'ordinal',
+])
 
 export function isRecordSystemField(name: string, systemFields: MetadataField[]): boolean {
   return systemFields.some((field) => field.name === name)
 }
 
 export function isHiddenRecordFormField(name: string, systemFields: MetadataField[]): boolean {
-  return isRecordSystemField(name, systemFields) && formHiddenSystemFields.has(name)
+  return isRecordSystemField(name, systemFields) && hiddenSystemFields.has(name)
 }
 
 export function isHiddenRecordSubmitField(name: string, systemFields: MetadataField[]): boolean {
-  return isRecordSystemField(name, systemFields) && submitHiddenSystemFields.has(name)
+  return isRecordSystemField(name, systemFields) && hiddenSystemFields.has(name)
+}
+
+export function isHiddenCollectionField(field: MetadataField): boolean {
+  return field.type === 'collection' || hiddenCollectionFields.has(field.name)
 }
 
 export function recordFieldLabel(field: MetadataField): string {
@@ -22,7 +37,7 @@ export function recordFieldLabel(field: MetadataField): string {
 
 export function recordSystemListColumns(fields: MetadataField[] = []) {
   return fields
-    .filter((field) => !listHiddenSystemFields.has(field.name) && field.listable && !field['write-only'])
+    .filter((field) => !hiddenSystemFields.has(field.name) && field.listable && !field['write-only'])
     .map((field) => ({
       key: field.name,
       label: field.name === 'name' ? 'ID' : recordFieldLabel(field),

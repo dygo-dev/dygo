@@ -110,7 +110,7 @@ onBeforeUnmount(() => { if (pollTimer) window.clearTimeout(pollTimer) })
 
 <template>
   <section class="csv-import" aria-labelledby="csv-import-title">
-    <div class="csv-import__heading"><div><h2 id="csv-import-title">Import CSV</h2><p>Map CSV columns to fields. Required values are checked before import.</p></div><Button variant="ghost" size="sm" @click="emit('close')">Close</Button></div>
+    <div class="csv-import__heading"><div><h2 id="csv-import-title">Import CSV</h2><p>Map columns to fields. Required values are checked before import.</p></div><Button variant="ghost" size="sm" @click="emit('close')">Close</Button></div>
     <input ref="fileInput" class="csv-import__file" type="file" accept=".csv,text/csv" @change="selectFile" />
     <Button variant="secondary" size="sm" :disabled="importing" @click="openFilePicker">Choose CSV file</Button>
     <div v-if="headers.length > 0" class="csv-import__mapping">

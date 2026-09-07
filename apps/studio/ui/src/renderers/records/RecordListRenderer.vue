@@ -33,7 +33,7 @@ import {
   recordListRouteQueriesEqual,
 } from '@/features/records/query'
 import PageToolbar from '@/shell/PageToolbar.vue'
-import { statusForError, storeError, type LoadStatus } from '@/stores/status'
+import { statusForError, storeError } from '@/stores/status'
 import { buildRecordListColumns } from './columns'
 import CSVImportPanel from './CSVImportPanel.vue'
 
@@ -195,7 +195,7 @@ const queryError = computed(() => (
     : null
 ))
 const tableError = computed(() => platformConfigError.value ?? queryError.value)
-const recordStatus = computed<LoadStatus>(() => {
+const recordStatus = computed<DataTableState>(() => {
   if (platformConfigError.value) {
     return statusForError(platformConfigError.value)
   }
@@ -220,31 +220,8 @@ const error = computed(() => tableError.value?.message ?? '')
 const footerError = computed(() => (
   recordsQuery.isFetchNextPageError.value ? queryError.value?.message ?? '' : ''
 ))
-const tableState = computed<DataTableState>(() => {
-  if (loading.value) {
-    return 'loading'
-  }
-
-  if (recordStatus.value === 'forbidden') {
-    return 'forbidden'
-  }
-
-  if (recordStatus.value === 'unauthenticated') {
-    return 'unauthenticated'
-  }
-
-  if (recordStatus.value === 'empty') {
-    return 'empty'
-  }
-
-  if (recordStatus.value === 'error') {
-    return 'error'
-  }
-
-  return 'ready'
-})
 const tableStateTitle = computed(() => {
-  switch (tableState.value) {
+  switch (recordStatus.value) {
     case 'loading':
       return `Loading ${props.entityLabel} records`
     case 'empty':
@@ -261,9 +238,7 @@ const tableStateTitle = computed(() => {
   }
 })
 const tableStateMessage = computed(() => {
-  switch (tableState.value) {
-    case 'empty':
-      return 'Create the first record to start using this Entity.'
+  switch (recordStatus.value) {
     case 'forbidden':
     case 'unauthenticated':
     case 'error':
@@ -862,9 +837,9 @@ async function exportCSV() {
             :class="{ 'record-list-renderer__filter-token--dirty': filterTokenDirty(filter) }"
             aria-label="Active filter"
           >
-            <button class="record-list-renderer__filter-segment record-list-renderer__filter-segment--field" type="button">
+            <span class="record-list-renderer__filter-segment record-list-renderer__filter-segment--field">
               {{ filterLabel(filter) }}
-            </button>
+            </span>
             <select
               class="record-list-renderer__filter-segment record-list-renderer__filter-segment--operator"
               :value="filter.operator"
@@ -1065,7 +1040,7 @@ async function exportCSV() {
     <DataTable
       :columns="visibleColumns"
       :rows="rows"
-      :state="tableState"
+      :state="recordStatus"
       :state-title="tableStateTitle"
       :state-message="tableStateMessage"
       :loading="loading"

@@ -84,7 +84,6 @@ async function copyBundle() {
   >
     <PopoverRoot v-model:open="open">
       <PopoverContent class="studio-debug-indicator__panel" side="top" align="start" :side-offset="10" aria-label="Studio debug">
-        <!-- Header -->
         <div class="studio-debug-indicator__header">
           <span class="studio-debug-indicator__title">Studio</span>
           <button
@@ -97,7 +96,6 @@ async function copyBundle() {
           </button>
         </div>
 
-        <!-- Errors section -->
         <div v-if="hasErrors" class="studio-debug-indicator__errors">
           <div class="studio-debug-indicator__errors-header">
             <AlertTriangle :size="12" :stroke-width="2" aria-hidden="true" />
@@ -125,7 +123,6 @@ async function copyBundle() {
           </div>
         </div>
 
-        <!-- Info rows -->
         <dl class="studio-debug-indicator__list">
           <div class="studio-debug-indicator__row">
             <dt>Route</dt>
@@ -155,7 +152,6 @@ async function copyBundle() {
           </div>
         </dl>
 
-        <!-- Footer -->
         <div class="studio-debug-indicator__footer">
           <button class="studio-debug-indicator__btn" type="button" @click="copyBundle">
             <Copy :size="12" :stroke-width="2" aria-hidden="true" />
@@ -171,7 +167,6 @@ async function copyBundle() {
         </div>
       </PopoverContent>
 
-      <!-- Trigger badge -->
       <PopoverTrigger
         class="studio-debug-indicator__trigger"
         type="button"
@@ -200,7 +195,6 @@ async function copyBundle() {
   gap: 10px;
 }
 
-/* Trigger */
 .studio-debug-indicator__trigger {
   position: relative;
   display: inline-flex;
@@ -245,7 +239,6 @@ async function copyBundle() {
   box-shadow: 0 0 0 1.5px var(--studio-surface);
 }
 
-/* Panel */
 .studio-debug-indicator__panel {
   width: min(320px, calc(100vw - 32px));
   max-height: calc(100dvh - 78px);
@@ -290,7 +283,6 @@ async function copyBundle() {
   color: var(--studio-text);
 }
 
-/* Errors section */
 .studio-debug-indicator__errors {
   border-bottom: 1px solid var(--studio-border);
 }
@@ -369,7 +361,6 @@ async function copyBundle() {
   word-break: break-all;
 }
 
-/* Info rows */
 .studio-debug-indicator__list {
   display: grid;
   margin: 0;
@@ -420,7 +411,6 @@ async function copyBundle() {
   white-space: nowrap;
 }
 
-/* Footer */
 .studio-debug-indicator__footer {
   display: flex;
   gap: 6px;

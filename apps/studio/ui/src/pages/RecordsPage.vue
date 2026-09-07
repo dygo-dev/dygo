@@ -92,7 +92,7 @@ const actions = computed<PageHeaderAction[]>(() => {
       :actions="canShowList ? actions : []"
     />
 
-    <div v-if="entityMetaStatus === 'loading' || entityMetaStatus === 'idle'" class="records-page__state">
+    <div v-if="entityMetaStatus === 'loading' || entityMetaStatus === 'idle'" class="studio-page-state">
       <Spinner size="sm" label="Loading entity" />
       <p>Loading entity</p>
     </div>
@@ -127,17 +127,4 @@ const actions = computed<PageHeaderAction[]>(() => {
   min-height: 0;
 }
 
-.records-page__state {
-  display: grid;
-  justify-items: start;
-  gap: 10px;
-  padding: 196px 16px 44px;
-}
-
-.records-page__state p {
-  margin: 0;
-  color: var(--studio-text-muted);
-  font-size: 13px;
-  font-weight: 500;
-}
 </style>

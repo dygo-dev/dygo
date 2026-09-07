@@ -67,7 +67,7 @@ const groups = computed<EntityGroup[]>(() => {
     </div>
 
     <div v-else-if="groups.length === 0" class="entity-index__empty">
-      <p class="entity-index__empty-title">No entities are available</p>
+      <p class="entity-index__empty-title">No entities available</p>
       <p>Your Studio access does not include an entity yet.</p>
     </div>
 
