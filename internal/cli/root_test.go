@@ -206,35 +206,37 @@ func TestCommandSurfaceRegistersTargetCommands(t *testing.T) {
 }
 
 func TestCommandSurfaceRejectsRemovedPublicPaths(t *testing.T) {
-	commands := [][]string{
-		{"apps"},
-		{"entities"},
-		{"fixtures"},
-		{"hooks"},
-		{"secrets"},
-		{"migrate"},
-		{"migrate", "plan"},
-		{"patches"},
-		{"patch"},
-		{"schema"},
-		{"schema", "prune"},
-		{"db", "prepare"},
-		{"db", "schema"},
-		{"db", "schema", "dump"},
-		{"db", "schema", "check"},
-		{"setup", "admin"},
-		{"upgrade", "--cli-only"},
-		{"upgrade", "--project-only"},
-		{"upgrade", "--install-dir", "/tmp/dygo"},
-		{"serve", "--studio-dev-url", "http://127.0.0.1:6791"},
-		{"job", "run"},
-		{"job", "cancel"},
-		{"job", "retry"},
+	commands := []struct {
+		args []string
+		want string
+	}{
+		{[]string{"apps"}, "unknown command \"apps\""},
+		{[]string{"entities"}, "unknown command \"entities\""},
+		{[]string{"fixtures"}, "unknown command \"fixtures\""},
+		{[]string{"hooks"}, "unknown command \"hooks\""},
+		{[]string{"secrets"}, "unknown command \"secrets\""},
+		{[]string{"migrate"}, "unknown command \"migrate\""},
+		{[]string{"migrate", "plan"}, "unknown command \"migrate\""},
+		{[]string{"patches"}, "unknown command \"patches\""},
+		{[]string{"patch"}, "unknown command \"patch\""},
+		{[]string{"schema"}, "unknown command \"schema\""},
+		{[]string{"schema", "prune"}, "unknown command \"schema\""},
+		{[]string{"db", "schema"}, "unknown command \"schema\""},
+		{[]string{"db", "schema", "dump"}, "unknown command \"schema\""},
+		{[]string{"db", "schema", "check"}, "unknown command \"schema\""},
+		{[]string{"setup", "admin"}, "unknown command \"admin\""},
+		{[]string{"upgrade", "--cli-only"}, "unknown flag: --cli-only"},
+		{[]string{"upgrade", "--project-only"}, "unknown flag: --project-only"},
+		{[]string{"upgrade", "--install-dir", "/tmp/dygo"}, "unknown flag: --install-dir"},
+		{[]string{"serve", "--studio-dev-url", "http://127.0.0.1:6791"}, "unknown flag: --studio-dev-url"},
+		{[]string{"job", "run"}, "unknown command \"run\""},
+		{[]string{"job", "cancel"}, "unknown command \"cancel\""},
+		{[]string{"job", "retry"}, "unknown command \"retry\""},
 	}
 
 	for _, command := range commands {
 		command := command
-		t.Run(strings.Join(command, " "), func(t *testing.T) {
+		t.Run(strings.Join(command.args, " "), func(t *testing.T) {
 			root := t.TempDir()
 			writeCLIProjectRoot(t, root)
 			writeCLIConfig(t, root)
@@ -242,8 +244,8 @@ func TestCommandSurfaceRejectsRemovedPublicPaths(t *testing.T) {
 
 			var stdout bytes.Buffer
 			var stderr bytes.Buffer
-			if err := Run(context.Background(), command, strings.NewReader(""), &stdout, &stderr); err == nil {
-				t.Fatalf("Run(%v) error = nil, want removed command failure", command)
+			if err := Run(context.Background(), command.args, strings.NewReader(""), &stdout, &stderr); err == nil || !strings.Contains(err.Error(), command.want) {
+				t.Fatalf("Run(%v) error = %v, want %q", command.args, err, command.want)
 			}
 		})
 	}
@@ -929,55 +931,41 @@ func TestServeCommandFailsWhenStudioAssetsAreUnavailable(t *testing.T) {
 	}
 }
 
-func TestDBCheckCommandDefaultsToDevelopment(t *testing.T) {
-	root := t.TempDir()
-	writeCLIProjectRoot(t, root)
-	writeCLIConfig(t, root)
-	const databaseURL = "postgres://user:secret-password@localhost:5432/dygo"
-	writeCLIDatabaseSecret(t, root, secrets.EnvironmentDevelopment, databaseURL)
-	t.Chdir(root)
+func TestDBCheckCommandUsesEnvironment(t *testing.T) {
+	tests := []struct {
+		name        string
+		args        []string
+		env         secrets.Environment
+		databaseURL string
+	}{
+		{"default development", []string{"db", "check"}, secrets.EnvironmentDevelopment, "postgres://user:secret-password@localhost:5432/dygo"},
+		{"selected staging", []string{"db", "check", "--env", "staging"}, secrets.EnvironmentStaging, "postgres://staging-user:secret-password@localhost:5432/dygo_staging"},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			root := t.TempDir()
+			writeCLIProjectRoot(t, root)
+			writeCLIConfig(t, root)
+			writeCLIDatabaseSecret(t, root, tt.env, tt.databaseURL)
+			t.Chdir(root)
 
-	var stdout bytes.Buffer
-	var stderr bytes.Buffer
-	var gotURL string
-	err := run(context.Background(), []string{"db", "check"}, strings.NewReader(""), &stdout, &stderr, noopServeRunner, func(_ context.Context, url string) error {
-		gotURL = url
-		return nil
-	})
-	if err != nil {
-		t.Fatalf("Run(db check) error = %v, want nil", err)
-	}
-	if stdout.String() != "database connected (development)\n" {
-		t.Fatalf("db check stdout = %q, want development success", stdout.String())
-	}
-	if gotURL != databaseURL {
-		t.Fatalf("database checker URL = %q, want %q", gotURL, databaseURL)
-	}
-}
-
-func TestDBCheckCommandUsesSelectedEnvironment(t *testing.T) {
-	root := t.TempDir()
-	writeCLIProjectRoot(t, root)
-	writeCLIConfig(t, root)
-	const databaseURL = "postgres://staging-user:secret-password@localhost:5432/dygo_staging"
-	writeCLIDatabaseSecret(t, root, secrets.EnvironmentStaging, databaseURL)
-	t.Chdir(root)
-
-	var stdout bytes.Buffer
-	var stderr bytes.Buffer
-	var gotURL string
-	err := run(context.Background(), []string{"db", "check", "--env", "staging"}, strings.NewReader(""), &stdout, &stderr, noopServeRunner, func(_ context.Context, url string) error {
-		gotURL = url
-		return nil
-	})
-	if err != nil {
-		t.Fatalf("Run(db check --env staging) error = %v, want nil", err)
-	}
-	if stdout.String() != "database connected (staging)\n" {
-		t.Fatalf("db check stdout = %q, want staging success", stdout.String())
-	}
-	if gotURL != databaseURL {
-		t.Fatalf("database checker URL = %q, want %q", gotURL, databaseURL)
+			var stdout bytes.Buffer
+			var stderr bytes.Buffer
+			var gotURL string
+			err := run(context.Background(), tt.args, strings.NewReader(""), &stdout, &stderr, noopServeRunner, func(_ context.Context, url string) error {
+				gotURL = url
+				return nil
+			})
+			if err != nil {
+				t.Fatalf("Run(db check) error = %v, want nil", err)
+			}
+			if stdout.String() != fmt.Sprintf("database connected (%s)\n", tt.env) {
+				t.Fatalf("db check stdout = %q, want %s success", stdout.String(), tt.env)
+			}
+			if gotURL != tt.databaseURL {
+				t.Fatalf("database checker URL = %q, want %q", gotURL, tt.databaseURL)
+			}
+		})
 	}
 }
 

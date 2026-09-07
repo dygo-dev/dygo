@@ -4,7 +4,7 @@ import { Box, Settings2 } from '@lucide/vue'
 
 import { iconForEntity } from './entity-icons.ts'
 
-test('iconForEntity resolves metadata icon names without bundling all Lucide icons', () => {
+test('iconForEntity resolves metadata names and falls back for unknown icons', () => {
   assert.equal(iconForEntity('settings-2'), Settings2)
   assert.equal(iconForEntity('Settings2'), Settings2)
   assert.equal(iconForEntity('missing-icon'), Box)

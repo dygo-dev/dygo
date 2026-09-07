@@ -70,22 +70,6 @@ func TestUpgradeProjectUpdatesGoModAndGeneratedRunner(t *testing.T) {
 	}
 }
 
-func TestPlanProjectIsCurrentWhenVersionMatchesTarget(t *testing.T) {
-	root := newUpgradeTestProject(t)
-	writeUpgradeTestFile(t, filepath.Join(root, "cmd", "dygo", "main.go"), "package main\n")
-
-	result, err := PlanProject(root, "v0.0.0")
-	if err != nil {
-		t.Fatalf("PlanProject() error = %v, want nil", err)
-	}
-	if result.WouldUpdate {
-		t.Fatalf("PlanProject() result = %+v, want current project", result)
-	}
-	if result.CurrentVersion != "v0.0.0" || result.TargetVersion != "v0.0.0" {
-		t.Fatalf("PlanProject() result = %+v, want matching versions", result)
-	}
-}
-
 func TestUpgradeProjectNoOpsWhenVersionMatchesTarget(t *testing.T) {
 	root := newUpgradeTestProject(t)
 	writeUpgradeTestFile(t, filepath.Join(root, "cmd", "dygo", "main.go"), "package main\n")
@@ -112,6 +96,9 @@ func TestUpgradeProjectNoOpsWhenVersionMatchesTarget(t *testing.T) {
 	}
 	if result.WouldUpdate || result.Updated || result.RunnerUpdated || result.StudioUpdated {
 		t.Fatalf("UpgradeProject() result = %+v, want no-op", result)
+	}
+	if result.CurrentVersion != "v0.0.0" || result.TargetVersion != "v0.0.0" {
+		t.Fatalf("UpgradeProject() result = %+v, want matching versions", result)
 	}
 	if calledRunner || calledConfirm {
 		t.Fatalf("UpgradeProject() called runner=%v confirm=%v, want neither", calledRunner, calledConfirm)

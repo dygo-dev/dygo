@@ -20,10 +20,16 @@ Test the meaningful invariant at the lowest useful boundary.
 ## Rules
 
 - Test business or framework behavior, not exact implementation wording.
+- Inspect existing coverage before adding tests. Add a case for a meaningful behavior or failure mode that is not adequately covered, not merely for a new function or file.
+- Extend an existing case when it covers the same contract clearly. Test at multiple layers only when each protects a distinct failure mode.
+- Prefer observable results over source patterns or incidental markup. Keep source and file assertions when generated output, ownership markers, wire formats, or bundled assets are the contract.
+- Before removing a test, map its unique assertions and input cases to retained coverage, a stronger replacement, or a confirmed obsolete contract. Resolve fixture helpers before calling cases duplicates.
+- Consolidate repeated setup with named cases when this stays clear. Preserve distinct failure modes and useful diagnostics; fewer lines do not necessarily mean fewer executions.
+- Make assertions prove the named behavior: presence does not prove order, a preset mock decision does not prove authorization, and any error does not prove the intended rejection. Redaction checks must introduce sensitive input.
 - Add a regression test when a defect can recur and the boundary is stable.
 - Do not add tests that mirror a reversible, low-impact edit when existing validation proves the result.
 - Do not chase an arbitrary coverage percentage.
-- Keep database tests deterministic and isolate their state.
+- Keep database tests deterministic and isolate their state. SQL-construction tests do not replace PostgreSQL behavior checks; report skipped integration tests and their execution requirements.
 - Include failure and rollback cases for high-risk writes.
 - Include authorization cases for data-bearing APIs.
 - Use race or concurrency checks when ownership, workers, claims, or goroutines changed.

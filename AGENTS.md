@@ -194,6 +194,7 @@ For framework CLI development, use `.agents/skills/dygo-cli-development/SKILL.md
 
 ## Task Execution
 
+- Prefer the minimum sufficient implementation: fewer moving parts and less maintenance burden, with required behavior intact. Follow `dygo-code-quality` and `dygo-test-strategy` for implementation and risk-based verification.
 - Treat requests to implement or fix as authorization to complete the stated work and relevant checks. Keep reviews and advice read-only unless changes are requested.
 - Preserve the original objective when the user adds a correction or asks a side question. Apply new constraints to remaining work and revise affected changes.
 - Resolve routine implementation choices from the current code and user intent. Ask only when a missing decision materially changes the outcome or requires new authority; continue independent authorized work.

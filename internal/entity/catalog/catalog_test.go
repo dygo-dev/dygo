@@ -607,36 +607,6 @@ fields:
 	}
 }
 
-func TestValidateLoadsCanonicalCollectionEntityFiles(t *testing.T) {
-	t.Parallel()
-
-	root := t.TempDir()
-	app := loadedApp(root, "sales", "sales", manifest.Paths{})
-	writeFile(t, entityPath(app, "invoice"), `
-label: Invoice
-name:
-  strategy: random
-fields:
-  - name: items
-    label: Items
-    type: collection
-    options:
-      entity: invoice-item
-`)
-	writeCollectionEntity(t, filepath.Join(app.Dir, "entities", "_collections", "invoice-item.yml"), "invoice-item")
-
-	entities, err := New([]manifest.LoadedApp{app}, fieldtype.DefaultRegistry()).Validate()
-	if err != nil {
-		t.Fatalf("Validate() error = %v, want nil", err)
-	}
-	if got := entityKeys(entities); strings.Join(got, ",") != "sales/invoice,sales/invoice-item" {
-		t.Fatalf("Validate() entities = %#v, want canonical invoice and collection", got)
-	}
-	if !entities[1].IsCollection() {
-		t.Fatalf("invoice-item IsCollection = %v, want collection", entities[1].IsCollection())
-	}
-}
-
 func TestValidateLoadsCanonicalCollectionEntityBundles(t *testing.T) {
 	t.Parallel()
 

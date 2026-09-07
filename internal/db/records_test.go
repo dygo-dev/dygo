@@ -673,37 +673,6 @@ func TestSystemRecordWriterCanMutateSystemEntity(t *testing.T) {
 	}
 }
 
-func TestRecordStoreCreateRecord(t *testing.T) {
-	now := time.Date(2026, 5, 7, 12, 0, 0, 0, time.UTC)
-	queryer := newUserRecordQueryer()
-	queryer.rows = append(queryer.rows, newFakeRows([][]any{
-		{int64(7), "a@example.com", now, now, "a@example.com", "A User", true},
-	}))
-
-	record, err := NewRecordStore(queryer).CreateRecord(context.Background(), "user", recordInput(map[string]string{
-		"email":     `"a@example.com"`,
-		"full-name": `"A User"`,
-	}))
-	if err != nil {
-		t.Fatalf("CreateRecord() error = %v, want nil", err)
-	}
-	if record["id"] != int64(7) || record["enabled"] != true {
-		t.Fatalf("CreateRecord() = %+v, want returned record", record)
-	}
-	if record["name"] != "a@example.com" {
-		t.Fatalf("CreateRecord() name = %v, want email naming source", record["name"])
-	}
-	lastQuery, args := lastQueryContaining(t, queryer, `INSERT INTO "user"`)
-	for _, want := range []string{`INSERT INTO "user"`, `"email", "full_name"`, `"name"`, `RETURNING "_dygo_record"."id", "_dygo_record"."name", "_dygo_record"."created_at", "_dygo_record"."updated_at"`} {
-		if !strings.Contains(lastQuery, want) {
-			t.Fatalf("create query = %q, want %q", lastQuery, want)
-		}
-	}
-	if args[len(args)-1] != "a@example.com" {
-		t.Fatalf("CreateRecord() name arg = %#v, want source email", args[len(args)-1])
-	}
-}
-
 func TestRecordStoreCreateRecordGeneratesRandomName(t *testing.T) {
 	now := time.Date(2026, 5, 7, 12, 0, 0, 0, time.UTC)
 	queryer := newLeadRecordQueryer()
@@ -870,33 +839,6 @@ func TestRecordStoreCreateRecordRejectsNumericLinkInput(t *testing.T) {
 	assertRecordError(t, err, RecordErrorValidation, "actor")
 	if err == nil || !strings.Contains(err.Error(), "link field must be a record name") {
 		t.Fatalf("CreateRecord(numeric link) error = %v, want link name validation", err)
-	}
-}
-
-func TestRecordStoreUpdateRecord(t *testing.T) {
-	now := time.Date(2026, 5, 7, 12, 0, 0, 0, time.UTC)
-	queryer := newUserRecordQueryer()
-	queryer.rows = append(queryer.rows, newFakeRows([][]any{
-		{int64(7), "a@example.com", now, now, "a@example.com", "A User", true},
-	}))
-	queryer.rows = append(queryer.rows, newFakeRows([][]any{
-		{int64(7), "a@example.com", now, now, "a@example.com", "Renamed User", true},
-	}))
-
-	record, err := NewRecordStore(queryer).UpdateRecord(context.Background(), "user", 7, recordInput(map[string]string{
-		"full-name": `"Renamed User"`,
-	}))
-	if err != nil {
-		t.Fatalf("UpdateRecord() error = %v, want nil", err)
-	}
-	if record["full-name"] != "Renamed User" {
-		t.Fatalf("UpdateRecord() = %+v, want patched record", record)
-	}
-	lastQuery, _ := lastQueryContaining(t, queryer, `UPDATE "user"`)
-	for _, want := range []string{`UPDATE "user" AS "_dygo_record" SET "full_name" = $1`, `"updated_at" = now()`, `WHERE "id" = $2`} {
-		if !strings.Contains(lastQuery, want) {
-			t.Fatalf("update query = %q, want %q", lastQuery, want)
-		}
 	}
 }
 
@@ -1166,23 +1108,6 @@ func TestRecordStoreHashesPasswordOnUpdate(t *testing.T) {
 	}
 }
 
-func TestRecordStoreDeleteRecord(t *testing.T) {
-	now := time.Date(2026, 5, 7, 12, 0, 0, 0, time.UTC)
-	queryer := newUserRecordQueryer()
-	queryer.rows = append(queryer.rows, newFakeRows([][]any{
-		{int64(7), "a@example.com", now, now, "a@example.com", "A User", true},
-	}))
-	queryer.execTags = []pgconn.CommandTag{pgconn.NewCommandTag("DELETE 1")}
-
-	err := NewRecordStore(queryer).DeleteRecord(context.Background(), "user", 7)
-	if err != nil {
-		t.Fatalf("DeleteRecord() error = %v, want nil", err)
-	}
-	if !strings.Contains(queryer.execSQL[0], `DELETE FROM "user" WHERE "id" = $1`) {
-		t.Fatalf("delete SQL = %q, want hard delete by id", queryer.execSQL[0])
-	}
-}
-
 func TestRecordStoreDeleteRecordDeletesCollectionRows(t *testing.T) {
 	now := time.Date(2026, 5, 7, 12, 0, 0, 0, time.UTC)
 	queryer := newLeadRecordQueryer()
@@ -1227,8 +1152,20 @@ func TestRecordStoreCreateRecordWritesActivity(t *testing.T) {
 	if err != nil {
 		t.Fatalf("CreateRecord() error = %v, want nil", err)
 	}
-	if record["id"] != int64(7) {
-		t.Fatalf("CreateRecord() id = %v, want 7", record["id"])
+	if record["id"] != int64(7) || record["enabled"] != true {
+		t.Fatalf("CreateRecord() = %+v, want returned record", record)
+	}
+	if record["name"] != "a@example.com" {
+		t.Fatalf("CreateRecord() name = %v, want email naming source", record["name"])
+	}
+	lastQuery, insertArgs := lastQueryContaining(t, queryer, `INSERT INTO "user"`)
+	for _, want := range []string{`INSERT INTO "user"`, `"email", "full_name"`, `"name"`, `RETURNING "_dygo_record"."id", "_dygo_record"."name", "_dygo_record"."created_at", "_dygo_record"."updated_at"`} {
+		if !strings.Contains(lastQuery, want) {
+			t.Fatalf("create query = %q, want %q", lastQuery, want)
+		}
+	}
+	if insertArgs[len(insertArgs)-1] != "a@example.com" {
+		t.Fatalf("CreateRecord() name arg = %#v, want source email", insertArgs[len(insertArgs)-1])
 	}
 	args := activityArgs(t, queryer)
 	if args[1] != corevalues.ActivityOperationCreate || args[3] != int64(10) || args[4] != int64(7) || args[5] != int64(99) {
@@ -1276,12 +1213,21 @@ func TestRecordStoreUpdateRecordWritesActivityDiffsAndRedactsPassword(t *testing
 		{int64(7), "a@example.com", now, now, "a@example.com", "Renamed User", true},
 	}))
 
-	_, err := NewRecordStore(queryer).UpdateRecord(context.Background(), "user", 7, recordInput(map[string]string{
+	record, err := NewRecordStore(queryer).UpdateRecord(context.Background(), "user", 7, recordInput(map[string]string{
 		"full-name": `"Renamed User"`,
 		"password":  `"changed-secret"`,
 	}))
 	if err != nil {
 		t.Fatalf("UpdateRecord() error = %v, want nil", err)
+	}
+	if record["full-name"] != "Renamed User" {
+		t.Fatalf("UpdateRecord() = %+v, want patched record", record)
+	}
+	lastQuery, _ := lastQueryContaining(t, queryer, `UPDATE "user"`)
+	for _, want := range []string{`UPDATE "user" AS "_dygo_record" SET "full_name" = $1`, `"updated_at" = now()`, `WHERE "id" = $3`} {
+		if !strings.Contains(lastQuery, want) {
+			t.Fatalf("update query = %q, want %q", lastQuery, want)
+		}
 	}
 	args := activityArgs(t, queryer)
 	if args[1] != corevalues.ActivityOperationUpdate || args[4] != int64(7) {
@@ -1380,6 +1326,9 @@ func TestRecordStoreDeleteRecordWritesActivitySnapshot(t *testing.T) {
 	err := NewRecordStore(queryer).DeleteRecord(context.Background(), "user", 7)
 	if err != nil {
 		t.Fatalf("DeleteRecord() error = %v, want nil", err)
+	}
+	if !strings.Contains(queryer.execSQL[0], `DELETE FROM "user" WHERE "id" = $1`) {
+		t.Fatalf("delete SQL = %q, want hard delete by id", queryer.execSQL[0])
 	}
 	args := activityArgs(t, queryer)
 	if args[1] != corevalues.ActivityOperationDelete || args[4] != int64(7) {

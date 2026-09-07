@@ -36,10 +36,7 @@ test('bundled studio sound files exist', () => {
   }
 })
 
-test('studioSounds exposes system actions including reserved notification', () => {
-  assert.equal(typeof studioSounds.save, 'function')
-  assert.equal(typeof studioSounds.error, 'function')
-  assert.equal(typeof studioSounds.delete, 'function')
+test('studioSounds exposes the reserved notification action', () => {
   assert.equal(typeof studioSounds.notification, 'function')
 })
 

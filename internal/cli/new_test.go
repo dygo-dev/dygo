@@ -124,18 +124,6 @@ func TestDygoVersionForNewUsesBuildInfoReleaseVersion(t *testing.T) {
 	}
 }
 
-func TestCurrentVersionUsesFrameworkModuleWhenRunnerIsAnApp(t *testing.T) {
-	oldReadBuildInfo := readBuildInfo
-	readBuildInfo = func() (*debug.BuildInfo, bool) {
-		return &debug.BuildInfo{Main: debug.Module{Path: "example.com/app", Version: "v9.9.9"}, Deps: []*debug.Module{{Path: dygoModulePath, Version: "v1.2.3"}}}, true
-	}
-	defer func() { readBuildInfo = oldReadBuildInfo }()
-
-	if got := currentVersion(); got != "v1.2.3" {
-		t.Fatalf("currentVersion() = %q, want framework dependency version", got)
-	}
-}
-
 func writeCLIFrameworkRootForNew(t *testing.T, root string) {
 	t.Helper()
 

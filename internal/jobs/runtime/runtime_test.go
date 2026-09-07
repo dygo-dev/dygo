@@ -101,8 +101,8 @@ func TestWorkerRunOnceEnqueuesDueSchedulesBeforeClaim(t *testing.T) {
 	if result.Scheduled != 1 || result.Claimed != 1 || result.Succeeded != 1 {
 		t.Fatalf("result = %+v, want one scheduled and one succeeded execution", result)
 	}
-	if store.scheduleCalls != 1 || store.recoverCalls != 1 || store.claimCalls != 1 {
-		t.Fatalf("calls schedule=%d recover=%d claim=%d, want one schedule before normal claim path", store.scheduleCalls, store.recoverCalls, store.claimCalls)
+	if got := strings.Join(store.calls, ","); got != "schedule,recover,claim" {
+		t.Fatalf("store calls = %q, want schedule,recover,claim", got)
 	}
 }
 
@@ -586,9 +586,7 @@ type fakeStore struct {
 	nextRunAfter      *time.Time
 	nextScheduleRunAt *time.Time
 	scheduled         int
-	scheduleCalls     int
-	recoverCalls      int
-	claimCalls        int
+	calls             []string
 	completed         []int64
 	failures          []fakeFailure
 	finalFailures     []fakeFailure
@@ -603,21 +601,21 @@ type fakeFailure struct {
 func (s *fakeStore) RecoverExpired(context.Context, time.Time) (int, error) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
-	s.recoverCalls++
+	s.calls = append(s.calls, "recover")
 	return 0, nil
 }
 
 func (s *fakeStore) RunDueSchedules(context.Context, []string, string, time.Time, int) (int, error) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
-	s.scheduleCalls++
+	s.calls = append(s.calls, "schedule")
 	return s.scheduled, nil
 }
 
 func (s *fakeStore) Claim(_ context.Context, _ []string, _ int, _ string, _ time.Time) ([]jobstore.Execution, error) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
-	s.claimCalls++
+	s.calls = append(s.calls, "claim")
 	if s.claimSignal != nil {
 		select {
 		case s.claimSignal <- struct{}{}:

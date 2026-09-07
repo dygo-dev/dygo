@@ -30,88 +30,58 @@ timeout: 30s
 `)
 	t.Chdir(root)
 
-	fake := &fakeJobExecutionStore{
-		execution: jobstore.Execution{
-			ID:       42,
-			Name:     "manual-test",
-			AppName:  "sales",
-			JobName:  "send-email",
-			Queue:    "default",
-			Status:   jobs.StatusQueued,
-			Priority: 0,
-		},
+	tests := []struct {
+		name           string
+		args           []string
+		payload        string
+		idempotencyKey string
+	}{
+		{"execution with payload", []string{"job", "execution", "run", "sales/send-email", "--payload", `{"email":"hi@example.com"}`, "--idempotency-key", "test-1"}, `{"email":"hi@example.com"}`, "test-1"},
+		{"exec alias with default payload", []string{"job", "exec", "run", "sales/send-email"}, "{}", ""},
 	}
-	withJobExecutionStore(t, fake)
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			fake := &fakeJobExecutionStore{
+				execution: jobstore.Execution{
+					ID:       42,
+					Name:     "manual-test",
+					AppName:  "sales",
+					JobName:  "send-email",
+					Queue:    "default",
+					Status:   jobs.StatusQueued,
+					Priority: 0,
+				},
+			}
+			withJobExecutionStore(t, fake)
 
-	var stdout bytes.Buffer
-	var stderr bytes.Buffer
-	err := Run(context.Background(), []string{"job", "execution", "run", "sales/send-email", "--payload", `{"email":"hi@example.com"}`, "--idempotency-key", "test-1"}, strings.NewReader(""), &stdout, &stderr)
-	if err != nil {
-		t.Fatalf("Run(job execution run) error = %v, want nil", err)
-	}
-	if fake.databaseURL != "postgres://user:secret-password@localhost:5432/dygo" {
-		t.Fatalf("databaseURL = %q, want configured secret", fake.databaseURL)
-	}
-	if fake.closed != 1 {
-		t.Fatalf("closed = %d, want 1", fake.closed)
-	}
-	if fake.appName != "sales" || fake.jobName != "send-email" {
-		t.Fatalf("job target = %s/%s, want sales/send-email", fake.appName, fake.jobName)
-	}
-	if string(fake.payload) != `{"email":"hi@example.com"}` {
-		t.Fatalf("payload = %s, want provided JSON", fake.payload)
-	}
-	if fake.options.IdempotencyKey != "test-1" {
-		t.Fatalf("IdempotencyKey = %q, want test-1", fake.options.IdempotencyKey)
-	}
-	if stdout.String() != "job execution queued: sales/send-email id=42 name=manual-test queue=default status=queued (development)\n" {
-		t.Fatalf("job execution run stdout = %q, want queued output", stdout.String())
-	}
-	if stderr.Len() != 0 {
-		t.Fatalf("job execution run stderr = %q, want empty", stderr.String())
-	}
-}
-
-func TestJobExecRunAliasEnqueuesExecution(t *testing.T) {
-	root := t.TempDir()
-	writeCLIProjectRoot(t, root)
-	writeCLIGoModule(t, root, "example.com/acme")
-	writeCLIConfig(t, root)
-	writeCLIDatabaseSecret(t, root, secrets.EnvironmentDevelopment, "postgres://user:secret-password@localhost:5432/dygo")
-	writeCLIApp(t, filepath.Join(root, "apps", "sales"), "sales")
-	writeCLIJob(t, filepath.Join(root, "apps", "sales", "jobs", "send-email", "job.yml"), `
-label: Send Email
-queue: default
-timeout: 30s
-`)
-	t.Chdir(root)
-
-	fake := &fakeJobExecutionStore{
-		execution: jobstore.Execution{
-			ID:      42,
-			Name:    "manual-test",
-			AppName: "sales",
-			JobName: "send-email",
-			Queue:   "default",
-			Status:  jobs.StatusQueued,
-		},
-	}
-	withJobExecutionStore(t, fake)
-
-	var stdout bytes.Buffer
-	var stderr bytes.Buffer
-	err := Run(context.Background(), []string{"job", "exec", "run", "sales/send-email"}, strings.NewReader(""), &stdout, &stderr)
-	if err != nil {
-		t.Fatalf("Run(job exec run) error = %v, want nil", err)
-	}
-	if fake.appName != "sales" || fake.jobName != "send-email" {
-		t.Fatalf("job target = %s/%s, want sales/send-email", fake.appName, fake.jobName)
-	}
-	if string(fake.payload) != `{}` {
-		t.Fatalf("payload = %s, want default JSON object", fake.payload)
-	}
-	if stdout.String() != "job execution queued: sales/send-email id=42 name=manual-test queue=default status=queued (development)\n" {
-		t.Fatalf("job exec run stdout = %q, want queued output", stdout.String())
+			var stdout bytes.Buffer
+			var stderr bytes.Buffer
+			err := Run(context.Background(), tt.args, strings.NewReader(""), &stdout, &stderr)
+			if err != nil {
+				t.Fatalf("Run(job execution run) error = %v, want nil", err)
+			}
+			if fake.databaseURL != "postgres://user:secret-password@localhost:5432/dygo" {
+				t.Fatalf("databaseURL = %q, want configured secret", fake.databaseURL)
+			}
+			if fake.closed != 1 {
+				t.Fatalf("closed = %d, want 1", fake.closed)
+			}
+			if fake.appName != "sales" || fake.jobName != "send-email" {
+				t.Fatalf("job target = %s/%s, want sales/send-email", fake.appName, fake.jobName)
+			}
+			if string(fake.payload) != tt.payload {
+				t.Fatalf("payload = %s, want %s", fake.payload, tt.payload)
+			}
+			if fake.options.IdempotencyKey != tt.idempotencyKey {
+				t.Fatalf("IdempotencyKey = %q, want %q", fake.options.IdempotencyKey, tt.idempotencyKey)
+			}
+			if stdout.String() != "job execution queued: sales/send-email id=42 name=manual-test queue=default status=queued (development)\n" {
+				t.Fatalf("job execution run stdout = %q, want queued output", stdout.String())
+			}
+			if stderr.Len() != 0 {
+				t.Fatalf("job execution run stderr = %q, want empty", stderr.String())
+			}
+		})
 	}
 }
 

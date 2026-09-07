@@ -17,16 +17,11 @@ class TestApiError extends ApiClientError {
 }
 
 test('apiRequest applies credentials and returns successful envelopes', async (t) => {
-  const originalFetch = globalThis.fetch
-  t.after(() => {
-    globalThis.fetch = originalFetch
-  })
-
   let observedCredentials: RequestCredentials | undefined
-  globalThis.fetch = (async (_input, init) => {
+  t.mock.method(globalThis, 'fetch', async (_input: RequestInfo | URL, init?: RequestInit) => {
     observedCredentials = init?.credentials
-    return new Response(JSON.stringify({ data: { ok: true } }), { status: 200 })
-  }) as typeof fetch
+    return Response.json({ data: { ok: true } })
+  })
 
   const payload = await apiRequest<DataEnvelope<{ ok: boolean }>, TestApiError>('/api/test', { method: 'GET' }, requestOptions())
 
@@ -34,238 +29,86 @@ test('apiRequest applies credentials and returns successful envelopes', async (t
   assert.equal(observedCredentials, 'include')
 })
 
-test('apiRequest emits successful response dialogs', async (t) => {
-  const originalFetch = globalThis.fetch
-  t.after(() => {
-    globalThis.fetch = originalFetch
-    setAPIDialogHandler(null)
-  })
+for (const [kind, setHandler] of [
+  ['dialog', setAPIDialogHandler],
+  ['toast', setAPIToastHandler],
+] as const) {
+  for (const handlerFails of [false, true]) {
+    const handlerState = handlerFails ? 'throwing' : 'working'
 
-  let observedTitle = ''
-  setAPIDialogHandler((dialog) => {
-    observedTitle = dialog.title
-  })
-  globalThis.fetch = (async () => new Response(JSON.stringify({
-    data: { ok: true },
-    dialog: { title: 'Saved' },
-  }), { status: 200 })) as typeof fetch
+    test(`apiRequest returns success with a ${handlerState} ${kind} handler`, async (t) => {
+      t.after(() => setHandler(null))
+      const titles: string[] = []
+      setHandler((message) => {
+        titles.push(message.title)
+        if (handlerFails) throw new Error(`${kind} failed`)
+      })
+      t.mock.method(globalThis, 'fetch', async () => Response.json({
+        data: { ok: true },
+        [kind]: { title: 'Saved' },
+      }))
 
-  await apiRequest<DataEnvelope<{ ok: boolean }>, TestApiError>('/api/test', { method: 'GET' }, requestOptions())
+      const payload = await apiRequest<DataEnvelope<{ ok: boolean }>, TestApiError>('/api/test', { method: 'GET' }, requestOptions())
 
-  assert.equal(observedTitle, 'Saved')
-})
+      assert.deepEqual(payload.data, { ok: true })
+      assert.deepEqual(titles, ['Saved'])
+    })
 
-test('apiRequest emits successful response toasts', async (t) => {
-  const originalFetch = globalThis.fetch
-  t.after(() => {
-    globalThis.fetch = originalFetch
-    setAPIToastHandler(null)
-  })
+    test(`apiRequest emits ${kind} before rejection with a ${handlerState} handler`, async (t) => {
+      t.after(() => setHandler(null))
+      const titles: string[] = []
+      setHandler((message) => {
+        titles.push(message.title)
+        if (handlerFails) throw new Error(`${kind} failed`)
+      })
+      t.mock.method(globalThis, 'fetch', async () => Response.json({
+        error: {
+          code: 'forbidden',
+          message: 'permission denied',
+          [kind]: { title: 'Access denied' },
+        },
+      }, { status: 403 }))
 
-  let observedTitle = ''
-  setAPIToastHandler((toast) => {
-    observedTitle = toast.title
-  })
-  globalThis.fetch = (async () => new Response(JSON.stringify({
-    data: { ok: true },
-    toast: { title: 'Saved' },
-  }), { status: 200 })) as typeof fetch
-
-  await apiRequest<DataEnvelope<{ ok: boolean }>, TestApiError>('/api/test', { method: 'GET' }, requestOptions())
-
-  assert.equal(observedTitle, 'Saved')
-})
-
-test('apiRequest ignores dialog handler failures on successful responses', async (t) => {
-  const originalFetch = globalThis.fetch
-  t.after(() => {
-    globalThis.fetch = originalFetch
-    setAPIDialogHandler(null)
-  })
-
-  setAPIDialogHandler(() => {
-    throw new Error('dialog failed')
-  })
-  globalThis.fetch = (async () => new Response(JSON.stringify({
-    data: { ok: true },
-    dialog: { title: 'Saved' },
-  }), { status: 200 })) as typeof fetch
-
-  const payload = await apiRequest<DataEnvelope<{ ok: boolean }>, TestApiError>('/api/test', { method: 'GET' }, requestOptions())
-
-  assert.deepEqual(payload.data, { ok: true })
-})
-
-test('apiRequest ignores toast handler failures on successful responses', async (t) => {
-  const originalFetch = globalThis.fetch
-  t.after(() => {
-    globalThis.fetch = originalFetch
-    setAPIToastHandler(null)
-  })
-
-  setAPIToastHandler(() => {
-    throw new Error('toast failed')
-  })
-  globalThis.fetch = (async () => new Response(JSON.stringify({
-    data: { ok: true },
-    toast: { title: 'Saved' },
-  }), { status: 200 })) as typeof fetch
-
-  const payload = await apiRequest<DataEnvelope<{ ok: boolean }>, TestApiError>('/api/test', { method: 'GET' }, requestOptions())
-
-  assert.deepEqual(payload.data, { ok: true })
-})
+      await assert.rejects(
+        apiRequest<DataEnvelope<unknown>, TestApiError>('/api/test', { method: 'GET' }, requestOptions()),
+        (error) => {
+          assert.deepEqual(titles, ['Access denied'])
+          assert.ok(error instanceof TestApiError)
+          assert.equal(error.code, 'forbidden')
+          assert.equal(error.message, 'mapped: permission denied')
+          return true
+        },
+      )
+    })
+  }
+}
 
 test('apiRequest maps error envelopes through the domain error class', async (t) => {
-  const originalFetch = globalThis.fetch
-  t.after(() => {
-    globalThis.fetch = originalFetch
-  })
-
-  globalThis.fetch = (async () => new Response(JSON.stringify({
-    error: {
-      code: 'forbidden',
-      message: 'permission denied',
-      details: { entity: 'user' },
-    },
-  }), { status: 403 })) as typeof fetch
+  t.mock.method(globalThis, 'fetch', async () => Response.json({
+    error: { code: 'forbidden', message: 'permission denied', details: { entity: 'user' } },
+  }, { status: 403 }))
 
   await assert.rejects(
     apiRequest<DataEnvelope<unknown>, TestApiError>('/api/test', { method: 'GET' }, requestOptions()),
     (error) => {
-      assert.equal(error instanceof TestApiError, true)
-      assert.equal((error as TestApiError).code, 'forbidden')
-      assert.deepEqual((error as TestApiError).details, { entity: 'user' })
-      assert.equal((error as Error).message, 'mapped: permission denied')
-      return true
-    },
-  )
-})
-
-test('apiRequest emits error response dialogs before throwing', async (t) => {
-  const originalFetch = globalThis.fetch
-  t.after(() => {
-    globalThis.fetch = originalFetch
-    setAPIDialogHandler(null)
-  })
-
-  let observedTitle = ''
-  setAPIDialogHandler((dialog) => {
-    observedTitle = dialog.title
-  })
-  globalThis.fetch = (async () => new Response(JSON.stringify({
-    error: {
-      code: 'forbidden',
-      message: 'permission denied',
-      dialog: { title: 'Access denied' },
-    },
-  }), { status: 403 })) as typeof fetch
-
-  await assert.rejects(
-    apiRequest<DataEnvelope<unknown>, TestApiError>('/api/test', { method: 'GET' }, requestOptions()),
-    TestApiError,
-  )
-  assert.equal(observedTitle, 'Access denied')
-})
-
-test('apiRequest emits error response toasts before throwing', async (t) => {
-  const originalFetch = globalThis.fetch
-  t.after(() => {
-    globalThis.fetch = originalFetch
-    setAPIToastHandler(null)
-  })
-
-  let observedTitle = ''
-  setAPIToastHandler((toast) => {
-    observedTitle = toast.title
-  })
-  globalThis.fetch = (async () => new Response(JSON.stringify({
-    error: {
-      code: 'forbidden',
-      message: 'permission denied',
-      toast: { title: 'Access denied' },
-    },
-  }), { status: 403 })) as typeof fetch
-
-  await assert.rejects(
-    apiRequest<DataEnvelope<unknown>, TestApiError>('/api/test', { method: 'GET' }, requestOptions()),
-    TestApiError,
-  )
-  assert.equal(observedTitle, 'Access denied')
-})
-
-test('apiRequest preserves mapped errors when dialog handler fails', async (t) => {
-  const originalFetch = globalThis.fetch
-  t.after(() => {
-    globalThis.fetch = originalFetch
-    setAPIDialogHandler(null)
-  })
-
-  setAPIDialogHandler(() => {
-    throw new Error('dialog failed')
-  })
-  globalThis.fetch = (async () => new Response(JSON.stringify({
-    error: {
-      code: 'forbidden',
-      message: 'permission denied',
-      dialog: { title: 'Access denied' },
-    },
-  }), { status: 403 })) as typeof fetch
-
-  await assert.rejects(
-    apiRequest<DataEnvelope<unknown>, TestApiError>('/api/test', { method: 'GET' }, requestOptions()),
-    (error) => {
-      assert.equal(error instanceof TestApiError, true)
-      assert.equal((error as TestApiError).code, 'forbidden')
-      assert.equal((error as Error).message, 'mapped: permission denied')
-      return true
-    },
-  )
-})
-
-test('apiRequest preserves mapped errors when toast handler fails', async (t) => {
-  const originalFetch = globalThis.fetch
-  t.after(() => {
-    globalThis.fetch = originalFetch
-    setAPIToastHandler(null)
-  })
-
-  setAPIToastHandler(() => {
-    throw new Error('toast failed')
-  })
-  globalThis.fetch = (async () => new Response(JSON.stringify({
-    error: {
-      code: 'forbidden',
-      message: 'permission denied',
-      toast: { title: 'Access denied' },
-    },
-  }), { status: 403 })) as typeof fetch
-
-  await assert.rejects(
-    apiRequest<DataEnvelope<unknown>, TestApiError>('/api/test', { method: 'GET' }, requestOptions()),
-    (error) => {
-      assert.equal(error instanceof TestApiError, true)
-      assert.equal((error as TestApiError).code, 'forbidden')
-      assert.equal((error as Error).message, 'mapped: permission denied')
+      assert.ok(error instanceof TestApiError)
+      assert.equal(error.code, 'forbidden')
+      assert.deepEqual(error.details, { entity: 'user' })
+      assert.equal(error.message, 'mapped: permission denied')
       return true
     },
   )
 })
 
 test('apiRequest reports invalid JSON with the domain error class', async (t) => {
-  const originalFetch = globalThis.fetch
-  t.after(() => {
-    globalThis.fetch = originalFetch
-  })
-
-  globalThis.fetch = (async () => new Response('not json', { status: 200 })) as typeof fetch
+  t.mock.method(globalThis, 'fetch', async () => new Response('not json', { status: 200 }))
 
   await assert.rejects(
     apiRequest<DataEnvelope<unknown>, TestApiError>('/api/test', { method: 'GET' }, requestOptions()),
     (error) => {
-      assert.equal(error instanceof TestApiError, true)
-      assert.equal((error as TestApiError).code, 'invalid_response')
-      assert.equal((error as Error).message, 'invalid response')
+      assert.ok(error instanceof TestApiError)
+      assert.equal(error.code, 'invalid_response')
+      assert.equal(error.message, 'invalid response')
       return true
     },
   )

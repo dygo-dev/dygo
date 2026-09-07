@@ -11,28 +11,36 @@ import (
 	"github.com/jackc/pgx/v5"
 )
 
-func TestCheckerAllowsEnabledUserWithEnabledRolePermission(t *testing.T) {
-	queryer := &fakePermissionQueryer{row: fakePermissionRow{allowed: true}}
+// TODO: Verify multi-role authorization with PostgreSQL; this fake checks action dispatch only.
+func TestCheckerReturnsAllowedDecisionForAction(t *testing.T) {
+	for _, action := range []Action{ActionRead, ActionDelete} {
+		t.Run(string(action), func(t *testing.T) {
+			queryer := &fakePermissionQueryer{row: fakePermissionRow{allowed: true}}
 
-	decision, err := NewChecker(queryer).Check(context.Background(), Request{
-		Actor:  Actor{UserID: 7},
-		Entity: "user",
-		Action: ActionRead,
-	})
-	if err != nil {
-		t.Fatalf("Check() error = %v, want nil", err)
-	}
-	if !decision.Allowed || decision.Reason != ReasonAllowed || decision.Actor.UserID != 7 || decision.Entity != "user" || decision.Action != ActionRead {
-		t.Fatalf("Check() decision = %+v, want allowed read on user", decision)
-	}
-	if err := NewChecker(queryer).Can(context.Background(), Request{Actor: Actor{UserID: 7}, Entity: "user", Action: ActionRead}); err != nil {
-		t.Fatalf("Can() error = %v, want nil", err)
-	}
-	if len(queryer.sql) != 2 {
-		t.Fatalf("Check()/Can() queries = %d, want 2", len(queryer.sql))
-	}
-	if !reflect.DeepEqual(queryer.args[0], []any{int64(7), "user"}) {
-		t.Fatalf("Check() args = %#v, want user id and entity", queryer.args[0])
+			decision, err := NewChecker(queryer).Check(context.Background(), Request{
+				Actor:  Actor{UserID: 7},
+				Entity: "user",
+				Action: action,
+			})
+			if err != nil {
+				t.Fatalf("Check() error = %v, want nil", err)
+			}
+			if !decision.Allowed || decision.Reason != ReasonAllowed || decision.Actor.UserID != 7 || decision.Entity != "user" || decision.Action != action {
+				t.Fatalf("Check() decision = %+v, want allowed action on user", decision)
+			}
+			if err := NewChecker(queryer).Can(context.Background(), Request{Actor: Actor{UserID: 7}, Entity: "user", Action: action}); err != nil {
+				t.Fatalf("Can() error = %v, want nil", err)
+			}
+			if len(queryer.sql) != 2 {
+				t.Fatalf("Check()/Can() queries = %d, want 2", len(queryer.sql))
+			}
+			if !reflect.DeepEqual(queryer.args[0], []any{int64(7), "user"}) {
+				t.Fatalf("Check() args = %#v, want user id and entity", queryer.args[0])
+			}
+			if !strings.Contains(queryer.sql[0], `COALESCE(p."`+string(action)+`", false) = true`) {
+				t.Fatalf("Check() SQL = %q, want %s action column", queryer.sql[0], action)
+			}
+		})
 	}
 }
 
@@ -111,25 +119,6 @@ func TestCheckerDenied(t *testing.T) {
 	assertPermissionError(t, err, ErrorDenied)
 	if !IsDenied(err) {
 		t.Fatalf("IsDenied(%v) = false, want true", err)
-	}
-}
-
-func TestCheckerMultipleRolesAreORCombined(t *testing.T) {
-	queryer := &fakePermissionQueryer{row: fakePermissionRow{allowed: true}}
-
-	decision, err := NewChecker(queryer).Check(context.Background(), Request{
-		Actor:  Actor{UserID: 7},
-		Entity: "user",
-		Action: ActionDelete,
-	})
-	if err != nil {
-		t.Fatalf("Check() error = %v, want nil", err)
-	}
-	if !decision.Allowed {
-		t.Fatalf("Check() decision = %+v, want allowed", decision)
-	}
-	if !strings.Contains(queryer.sql[0], `COALESCE(p."delete", false) = true`) {
-		t.Fatalf("Check() SQL = %q, want delete action column", queryer.sql[0])
 	}
 }
 
