@@ -126,14 +126,10 @@ func NewRecordStore(queryer RecordQueryer) RecordStore {
 
 // NewRecordStoreWithHookPolicy returns a Record store backed by queryer and an explicit hook policy.
 func NewRecordStoreWithHookPolicy(queryer RecordQueryer, policy RecordMutationHookPolicy) RecordStore {
-	switch policy {
-	case RecordMutationHooksNone:
+	if policy == RecordMutationHooksNone {
 		return NewRecordStoreWithHooks(queryer, nil)
-	case RecordMutationHooksFrameworkOnly, "":
-		return NewRecordStoreWithHooks(queryer, DefaultRecordHookRegistry())
-	default:
-		return NewRecordStoreWithHooks(queryer, DefaultRecordHookRegistry())
 	}
+	return NewRecordStoreWithHooks(queryer, DefaultRecordHookRegistry())
 }
 
 // NewRecordStoreWithHooks returns a Record store backed by queryer and hooks.
@@ -671,10 +667,6 @@ func (s RecordStore) updateRecordWithLayout(ctx context.Context, layout recordLa
 		return nil, err
 	}
 	changes := layout.activityChanges(input, oldRecord, record)
-	recordID, err = activityRecordID(record)
-	if err != nil {
-		return nil, err
-	}
 	afterCtx := newRecordHookContext(RecordAfterUpdate, layout)
 	afterCtx.Operation = corevalues.ActivityOperationUpdate
 	afterCtx.RecordID = recordID
@@ -1916,11 +1908,6 @@ func normalizeRecordValue(fieldType string, value any) any {
 			}
 			return typed
 		}
-	case float64:
-		if math.Trunc(typed) == typed {
-			return typed
-		}
-		return typed
 	default:
 		return typed
 	}

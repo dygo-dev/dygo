@@ -8,8 +8,6 @@ import {
   SwitchField,
   TextareaField,
   TextField,
-  type FieldOption,
-  type TextInputType,
 } from '@/design'
 import { linkOptions, type MetadataEntityMeta, type MetadataField } from '@/features/metadata/metadata.api'
 import { useMetadataEntitiesQuery } from '@/features/metadata/metadata.query'
@@ -21,6 +19,7 @@ import RecordCollectionTable from './RecordCollectionTable.vue'
 import LinkPicker from './LinkPicker.vue'
 import AttachmentEditor from './AttachmentEditor.vue'
 import { RouteName } from '@/router/routes'
+import { booleanValue, editorForField, inputTypeForField, isTextareaField, isTextField, selectOptions, textValue } from './record-field-utils'
 
 const props = withDefaults(defineProps<{
   entity: string
@@ -98,67 +97,6 @@ function isReadonlyField(field: MetadataField): boolean {
   return props.mode !== 'new' && field.name === 'name'
 }
 
-function textValue(field: MetadataField): string {
-  const value = props.modelValue[field.name]
-  if (value === null || value === undefined) {
-    return ''
-  }
-
-  if (typeof value === 'string') {
-    return value
-  }
-
-  if (typeof value === 'number' || typeof value === 'bigint' || typeof value === 'boolean') {
-    return String(value)
-  }
-
-  return JSON.stringify(value, null, 2)
-}
-
-function booleanValue(field: MetadataField): boolean {
-  return props.modelValue[field.name] === true
-}
-
-function inputTypeForField(field: MetadataField): Exclude<TextInputType, 'password'> {
-  switch (editorForField(field)) {
-    case 'email':
-      return 'email'
-    case 'date':
-      return 'date'
-    case 'number':
-      return 'number'
-    default:
-      return 'text'
-  }
-}
-
-function editorForField(field: MetadataField): string {
-  return field.studio?.editor || field.type
-}
-
-function isTextField(field: MetadataField): boolean {
-  return ['text', 'email', 'number', 'link', 'date', 'datetime', 'time'].includes(editorForField(field))
-}
-
-function isTextareaField(field: MetadataField): boolean {
-  return editorForField(field) === 'textarea' || editorForField(field) === 'json'
-}
-
-function selectOptions(field: MetadataField): FieldOption[] {
-  const options = field.options
-  if (!options || typeof options !== 'object' || !('values' in options)) {
-    return []
-  }
-
-  const values = (options as { values?: unknown }).values
-  if (!Array.isArray(values)) {
-    return []
-  }
-
-  return values
-    .filter((value): value is string | number => typeof value === 'string' || typeof value === 'number')
-    .map((value) => ({ value: String(value), label: String(value) }))
-}
 </script>
 
 <template>
@@ -196,7 +134,7 @@ function selectOptions(field: MetadataField): FieldOption[] {
         v-else-if="editorForField(field) === 'password'"
         :id="fieldId(field)"
         :label="recordFieldLabel(field)"
-        :model-value="textValue(field)"
+        :model-value="textValue(modelValue[field.name])"
         :name="field.name"
         :required="mode === 'new' && field.required"
         :disabled="disabled"
@@ -211,7 +149,7 @@ function selectOptions(field: MetadataField): FieldOption[] {
         v-else-if="editorForField(field) === 'switch'"
         :id="fieldId(field)"
         :label="recordFieldLabel(field)"
-        :model-value="booleanValue(field)"
+        :model-value="booleanValue(modelValue[field.name])"
         :name="field.name"
         :required="field.required"
         :disabled="disabled"
@@ -224,7 +162,7 @@ function selectOptions(field: MetadataField): FieldOption[] {
         v-else-if="editorForField(field) === 'select'"
         :id="fieldId(field)"
         :label="recordFieldLabel(field)"
-        :model-value="textValue(field)"
+        :model-value="textValue(modelValue[field.name])"
         :name="field.name"
         :options="selectOptions(field)"
         :required="field.required"
@@ -240,7 +178,7 @@ function selectOptions(field: MetadataField): FieldOption[] {
         :id="fieldId(field)"
         :label="recordFieldLabel(field)"
         :field="field"
-        :model-value="textValue(field)"
+        :model-value="textValue(modelValue[field.name])"
         :current-values="modelValue"
         :required="field.required"
         :disabled="disabled"
@@ -255,7 +193,7 @@ function selectOptions(field: MetadataField): FieldOption[] {
         v-else-if="isTextareaField(field)"
         :id="fieldId(field)"
         :label="recordFieldLabel(field)"
-        :model-value="textValue(field)"
+        :model-value="textValue(modelValue[field.name])"
         :name="field.name"
         :required="field.required"
         :disabled="disabled"
@@ -269,7 +207,7 @@ function selectOptions(field: MetadataField): FieldOption[] {
         v-else-if="isTextField(field)"
         :id="fieldId(field)"
         :label="recordFieldLabel(field)"
-        :model-value="textValue(field)"
+        :model-value="textValue(modelValue[field.name])"
         :name="field.name"
         :type="inputTypeForField(field)"
         :required="field.required"
@@ -283,7 +221,7 @@ function selectOptions(field: MetadataField): FieldOption[] {
         v-else-if="field.type === 'attachment'"
         :id="fieldId(field)"
         :label="recordFieldLabel(field)"
-        :model-value="textValue(field)"
+        :model-value="textValue(modelValue[field.name])"
         :upload="attachmentUpload(field)"
         :disabled="disabled"
         :readonly="isReadonlyField(field)"
@@ -295,7 +233,7 @@ function selectOptions(field: MetadataField): FieldOption[] {
         v-else
         :id="fieldId(field)"
         :label="recordFieldLabel(field)"
-        :model-value="textValue(field)"
+        :model-value="textValue(modelValue[field.name])"
         :name="field.name"
         readonly
         :disabled="disabled"

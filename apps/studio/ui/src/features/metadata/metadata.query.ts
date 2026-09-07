@@ -28,7 +28,7 @@ export function metadataEntityMetaQueryOptions(entity: string) {
 export function useMetadataEntitiesQuery(options: { enabled?: QueryToggle } = {}) {
   return useQuery({
     ...metadataEntitiesQueryOptions(),
-    enabled: queryEnabled(options.enabled),
+    enabled: computed(() => toValue(options.enabled ?? true)),
   })
 }
 
@@ -40,8 +40,4 @@ export function useMetadataEntityMetaQuery(entity: MaybeRefOrGetter<string>, opt
     queryFn: ({ signal }) => getEntityMeta(currentEntity.value, { signal }),
     enabled: computed(() => currentEntity.value !== '' && toValue(options.enabled ?? true)),
   })
-}
-
-function queryEnabled(enabled: QueryToggle | undefined) {
-  return computed(() => toValue(enabled ?? true))
 }

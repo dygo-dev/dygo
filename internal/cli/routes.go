@@ -15,14 +15,7 @@ import (
 )
 
 func newRouteCommand(stdout io.Writer) *cobra.Command {
-	cmd := &cobra.Command{
-		Use:   "route",
-		Short: "Inspect and validate dygo routes",
-		Args:  cobra.NoArgs,
-		RunE: func(cmd *cobra.Command, _ []string) error {
-			return cmd.Help()
-		},
-	}
+	cmd := newCommandGroup("route", "Inspect and validate dygo routes")
 
 	cmd.AddCommand(newRouteListCommand(stdout))
 	cmd.AddCommand(newRouteValidateCommand(stdout))

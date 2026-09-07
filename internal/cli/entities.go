@@ -21,14 +21,7 @@ type entityRelation struct {
 }
 
 func newEntityCommand(stdout io.Writer) *cobra.Command {
-	cmd := &cobra.Command{
-		Use:   "entity",
-		Short: "Manage dygo entities",
-		Args:  cobra.NoArgs,
-		RunE: func(cmd *cobra.Command, _ []string) error {
-			return cmd.Help()
-		},
-	}
+	cmd := newCommandGroup("entity", "Manage dygo entities")
 
 	cmd.AddCommand(newEntitiesListCommand(stdout))
 	cmd.AddCommand(newEntitiesValidateCommand(stdout))

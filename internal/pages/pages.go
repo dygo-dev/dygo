@@ -236,9 +236,6 @@ func ValidatePage(p dygo.Page) error {
 	} else if p.Renderer != "entity-index" {
 		problems = append(problems, fmt.Sprintf("renderer %q is not supported", p.Renderer))
 	}
-	if p.Options == nil {
-		p.Options = map[string]any{}
-	}
 	if len(problems) > 0 {
 		return ValidationError{Problems: problems}
 	}

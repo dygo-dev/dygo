@@ -47,50 +47,30 @@ var operatorsByKey = map[string]Operator{
 	OperatorNotEmpty:           {Key: OperatorNotEmpty, Label: "is not empty", Arity: ArityNone},
 }
 
-var profileByFieldType = map[string][]string{
-	"link": {
+var (
+	basicOperators = []string{
 		OperatorEqual,
 		OperatorNotEqual,
 		OperatorEmpty,
 		OperatorNotEmpty,
-	},
-	"select": {
-		OperatorEqual,
-		OperatorNotEqual,
-		OperatorEmpty,
-		OperatorNotEmpty,
-	},
-	"boolean": {
-		OperatorEqual,
-		OperatorNotEqual,
-		OperatorEmpty,
-		OperatorNotEmpty,
-	},
-	"date": {
+	}
+	temporalOperators = []string{
 		OperatorEqual,
 		OperatorBefore,
 		OperatorAfter,
 		OperatorBetween,
 		OperatorEmpty,
 		OperatorNotEmpty,
-	},
-	"datetime": {
-		OperatorEqual,
-		OperatorBefore,
-		OperatorAfter,
-		OperatorBetween,
-		OperatorEmpty,
-		OperatorNotEmpty,
-	},
-	"time": {
-		OperatorEqual,
-		OperatorBefore,
-		OperatorAfter,
-		OperatorBetween,
-		OperatorEmpty,
-		OperatorNotEmpty,
-	},
-}
+	}
+	profileByFieldType = map[string][]string{
+		"link":     basicOperators,
+		"select":   basicOperators,
+		"boolean":  basicOperators,
+		"date":     temporalOperators,
+		"datetime": temporalOperators,
+		"time":     temporalOperators,
+	}
+)
 
 var numericOperators = []string{
 	OperatorEqual,

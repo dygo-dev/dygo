@@ -14,14 +14,7 @@ import (
 )
 
 func newAccessCommand(ctx context.Context, stdin io.Reader, stdout, stderr io.Writer, runner accessRunner) *cobra.Command {
-	cmd := &cobra.Command{
-		Use:   "access",
-		Short: "Manage app access metadata",
-		Args:  cobra.NoArgs,
-		RunE: func(cmd *cobra.Command, _ []string) error {
-			return cmd.Help()
-		},
-	}
+	cmd := newCommandGroup("access", "Manage app access metadata")
 
 	cmd.AddCommand(newAccessValidateCommand(ctx, stdout, runner))
 	cmd.AddCommand(newAccessApplyCommand(ctx, stdin, stdout, stderr, runner))

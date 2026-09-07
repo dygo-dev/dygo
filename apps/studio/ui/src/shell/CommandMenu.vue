@@ -217,10 +217,8 @@ onKeyStroke((event) => {
 
 }, { passive: false })
 
-async function openMenu() {
+function openMenu() {
   navigationStore.openCommandMenu()
-  await nextTick()
-  searchInput.value?.focus()
 }
 
 function closeMenu() {

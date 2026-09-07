@@ -13,15 +13,7 @@ import (
 )
 
 func newGenerateCommand(stdout io.Writer) *cobra.Command {
-	cmd := &cobra.Command{
-		Use:     "generate",
-		Aliases: []string{"g"},
-		Short:   "Generate dygo source scaffolding",
-		Args:    cobra.NoArgs,
-		RunE: func(cmd *cobra.Command, _ []string) error {
-			return cmd.Help()
-		},
-	}
+	cmd := newCommandGroup("generate", "Generate dygo source scaffolding", "g")
 
 	cmd.AddCommand(newGenerateAppCommand(stdout))
 	cmd.AddCommand(newGenerateEntityCommand(stdout))

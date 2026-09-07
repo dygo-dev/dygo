@@ -28,7 +28,7 @@ The Core app owns a system Entity with key `log`, label `Log`, and Studio naviga
 
 The Entity should be append-only by default. App code and framework code create Logs; normal app workflows should not edit them.
 
-Proposed fields:
+Fields:
 
 | Field | Type | Required | Purpose |
 | --- | --- | --- | --- |
@@ -49,36 +49,6 @@ All Log `link` fields should use `foreign-key: false` so old Logs survive target
 Do not use `fetch.from` for `app`. Logs often belong to an app without belonging to a specific Record, and an explicit producer app should not be overwritten by a reference-derived value.
 
 Do not add custom indexes in the first pass. Logs should start with the normal Core Record storage shape, and dygo should add indexes later only after Studio usage shows a repeated access pattern that needs one.
-
-## Field Review
-
-Common loggers and observability tools converge on a small set of concepts:
-
-- level or severity
-- message or body
-- timestamp
-- source, logger, scope, or resource
-- error or exception details
-- trace correlation
-- structured attributes, tags, or context
-- user context for application errors
-
-The proposed Log fields cover those concepts without making the Entity too wide:
-
-| Common concept | dygo field |
-| --- | --- |
-| level or severity | `type` |
-| message or body | `title`, optionally `message` |
-| timestamp | Core Record `created-at` |
-| source, logger, scope, or resource | `source`, optionally `metadata` |
-| error, exception, stack trace, traceback, or longer detail | `message` |
-| trace correlation | `trace-id` |
-| structured attributes, tags, or context | `metadata` |
-| user context | `actor`, optionally `metadata` |
-| producing app | `app` |
-| related object | `reference-entity`, `reference-record-id`, `reference-record-name` |
-
-Do not add dedicated v1 fields for `span-id`, `environment`, `release`, `logger`, `request-path`, `status-code`, `fingerprint`, or breadcrumbs. Put those in `metadata` until dygo has a clear Studio workflow that needs first-class filtering or display.
 
 ## Types
 
@@ -244,12 +214,3 @@ Activity stays focused on human-meaningful Record history.
 Audit Log remains a future compliance/security feature with stricter immutability, access rules, and lifecycle requirements.
 
 Local console logging remains useful while developing, especially before the database is available.
-
-## Implementation Order
-
-Recommended first pass:
-
-1. Add Core `log` Entity metadata.
-2. Add dygo helpers for `Debug`, `Info`, `Warning`, `Error`, and structured `Log`.
-3. Dogfood Logs with recovered panic writers first.
-4. Expose Logs through the generic Record API and Studio list/detail UI.

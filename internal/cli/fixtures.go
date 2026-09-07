@@ -12,14 +12,7 @@ import (
 )
 
 func newFixtureCommand(ctx context.Context, stdin io.Reader, stdout, stderr io.Writer, runner fixtureRunner) *cobra.Command {
-	cmd := &cobra.Command{
-		Use:   "fixture",
-		Short: "Manage app-owned fixture records",
-		Args:  cobra.NoArgs,
-		RunE: func(cmd *cobra.Command, _ []string) error {
-			return cmd.Help()
-		},
-	}
+	cmd := newCommandGroup("fixture", "Manage app-owned fixture records")
 
 	cmd.AddCommand(newFixtureApplyCommand(ctx, stdin, stdout, stderr, runner))
 	cmd.AddCommand(newFixtureExportCommand(ctx, stdin, stdout, stderr, runner))

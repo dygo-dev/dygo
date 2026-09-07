@@ -13,14 +13,7 @@ import (
 )
 
 func newHookCommand(stdout io.Writer) *cobra.Command {
-	cmd := &cobra.Command{
-		Use:   "hook",
-		Short: "Inspect and maintain dygo hooks",
-		Args:  cobra.NoArgs,
-		RunE: func(cmd *cobra.Command, _ []string) error {
-			return cmd.Help()
-		},
-	}
+	cmd := newCommandGroup("hook", "Inspect and maintain dygo hooks")
 
 	cmd.AddCommand(newHookListCommand(stdout))
 	cmd.AddCommand(newHookValidateCommand(stdout))

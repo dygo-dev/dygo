@@ -35,6 +35,11 @@ type jobExecutionStore interface {
 	Retry(context.Context, string, string) (jobstore.Execution, error)
 }
 
+type labeledJobValue struct {
+	label string
+	value string
+}
+
 var openJobExecutionStore = func(ctx context.Context, databaseURL string, queueConfig ...queues.Config) (jobExecutionStore, func(), error) {
 	pool, err := pgxpool.New(ctx, databaseURL)
 	if err != nil {
@@ -49,14 +54,7 @@ var openJobExecutionStore = func(ctx context.Context, databaseURL string, queueC
 }
 
 func newJobCommand(ctx context.Context, stdout io.Writer) *cobra.Command {
-	cmd := &cobra.Command{
-		Use:   "job",
-		Short: "Manage dygo Jobs",
-		Args:  cobra.NoArgs,
-		RunE: func(cmd *cobra.Command, _ []string) error {
-			return cmd.Help()
-		},
-	}
+	cmd := newCommandGroup("job", "Manage dygo Jobs")
 
 	cmd.AddCommand(newJobListCommand(ctx, stdout))
 	cmd.AddCommand(newJobShowCommand(ctx, stdout))
@@ -195,15 +193,7 @@ func newJobEnableCommand(ctx context.Context, stdout io.Writer) *cobra.Command {
 }
 
 func newJobExecutionCommand(ctx context.Context, stdout io.Writer) *cobra.Command {
-	cmd := &cobra.Command{
-		Use:     "execution",
-		Aliases: []string{"exec"},
-		Short:   "Manage Job Executions",
-		Args:    cobra.NoArgs,
-		RunE: func(cmd *cobra.Command, _ []string) error {
-			return cmd.Help()
-		},
-	}
+	cmd := newCommandGroup("execution", "Manage Job Executions", "exec")
 
 	cmd.AddCommand(newJobExecutionRunCommand(ctx, stdout))
 	cmd.AddCommand(newJobExecutionListCommand(ctx, stdout))
@@ -431,10 +421,7 @@ func writeJobList(stdout io.Writer, jobs []jobstore.Job) error {
 }
 
 func writeJobShow(stdout io.Writer, job jobstore.Job) error {
-	lines := []struct {
-		label string
-		value string
-	}{
+	lines := []labeledJobValue{
 		{"id", strconv.FormatInt(job.ID, 10)},
 		{"name", emptyDash(job.Name)},
 		{"app", emptyDash(job.AppName)},
@@ -449,12 +436,7 @@ func writeJobShow(stdout io.Writer, job jobstore.Job) error {
 		{"timeout", emptyDash(job.Timeout)},
 		{"retry", formatJobExecutionRetry(job.Retry)},
 	}
-	for _, line := range lines {
-		if _, err := fmt.Fprintf(stdout, "%s: %s\n", line.label, line.value); err != nil {
-			return fmt.Errorf("write job show output: %w", err)
-		}
-	}
-	return nil
+	return writeLabeledJobValues(stdout, "job show", lines)
 }
 
 func writeJobExecutionList(stdout io.Writer, executions []jobstore.Execution) error {
@@ -485,10 +467,7 @@ func writeJobExecutionList(stdout io.Writer, executions []jobstore.Execution) er
 }
 
 func writeJobExecutionShow(stdout io.Writer, execution jobstore.Execution) error {
-	lines := []struct {
-		label string
-		value string
-	}{
+	lines := []labeledJobValue{
 		{"id", strconv.FormatInt(execution.ID, 10)},
 		{"name", emptyDash(execution.Name)},
 		{"job", execution.AppName + "/" + execution.JobName},
@@ -508,9 +487,13 @@ func writeJobExecutionShow(stdout io.Writer, execution jobstore.Execution) error
 		{"result", formatJobExecutionJSON(execution.Result)},
 		{"error", emptyDash(execution.Error)},
 	}
+	return writeLabeledJobValues(stdout, "job execution show", lines)
+}
+
+func writeLabeledJobValues(stdout io.Writer, context string, lines []labeledJobValue) error {
 	for _, line := range lines {
 		if _, err := fmt.Fprintf(stdout, "%s: %s\n", line.label, line.value); err != nil {
-			return fmt.Errorf("write job execution show output: %w", err)
+			return fmt.Errorf("write %s output: %w", context, err)
 		}
 	}
 	return nil
@@ -518,10 +501,7 @@ func writeJobExecutionShow(stdout io.Writer, execution jobstore.Execution) error
 
 func parseJobExecutionRunPayload(value string) (json.RawMessage, error) {
 	payload := strings.TrimSpace(value)
-	if payload == "" {
-		return nil, fmt.Errorf("job payload must be valid JSON")
-	}
-	if !json.Valid([]byte(payload)) {
+	if payload == "" || !json.Valid([]byte(payload)) {
 		return nil, fmt.Errorf("job payload must be valid JSON")
 	}
 	return json.RawMessage(payload), nil

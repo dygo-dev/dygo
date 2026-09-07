@@ -125,9 +125,6 @@ func (r ActivityReader) AddEventByIdentity(ctx context.Context, appName string, 
 }
 
 func (r ActivityReader) addEvent(ctx context.Context, entity string, entityID int64, entityName string, recordID int64, event TimelineEvent) error {
-	if err := r.requireQueryer(); err != nil {
-		return err
-	}
 	if recordID <= 0 {
 		return invalidRecordIDError(entity)
 	}
