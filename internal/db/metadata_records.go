@@ -60,6 +60,7 @@ type entityRecord struct {
 	IsSystem     bool
 	IsCollection bool
 	Naming       []byte
+	Tree         []byte
 }
 
 type pageRecord struct {
@@ -146,6 +147,9 @@ type constraintRecord struct {
 }
 
 func persistMetadataRecords(ctx context.Context, tx pgx.Tx, metadata metadataCatalog) (metadataPersistResult, error) {
+	if err := validateTreeData(ctx, tx, metadata.Entities); err != nil {
+		return metadataPersistResult{}, err
+	}
 	records, err := buildMetadataRecords(metadata)
 	if err != nil {
 		return metadataPersistResult{}, err
@@ -180,8 +184,8 @@ RETURNING id`, app.Name, app.Label, app.Version, app.Status).Scan(&id); err != n
 		}
 		var id int64
 		if err := tx.QueryRow(ctx, `
-INSERT INTO "entity" (app_id, name, key, slug, label, description, icon, is_single, is_system, is_collection, naming)
-VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11)
+INSERT INTO "entity" (app_id, name, key, slug, label, description, icon, is_single, is_system, is_collection, naming, tree)
+VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12)
 ON CONFLICT (name) DO UPDATE
 SET app_id = EXCLUDED.app_id,
 	name = EXCLUDED.name,
@@ -194,9 +198,10 @@ SET app_id = EXCLUDED.app_id,
 	is_system = EXCLUDED.is_system,
 	is_collection = EXCLUDED.is_collection,
 	naming = EXCLUDED.naming,
+	tree = EXCLUDED.tree,
 	retired = false,
 	updated_at = now()
-RETURNING id`, appID, entity.Name, entity.Key, entity.Slug, entity.Label, entity.Description, entity.Icon, entity.IsSingle, entity.IsSystem, entity.IsCollection, entity.Naming).Scan(&id); err != nil {
+RETURNING id`, appID, entity.Name, entity.Key, entity.Slug, entity.Label, entity.Description, entity.Icon, entity.IsSingle, entity.IsSystem, entity.IsCollection, entity.Naming, entity.Tree).Scan(&id); err != nil {
 			return metadataPersistResult{}, fmt.Errorf("persist entity metadata %s/%s: %w", entity.AppName, entity.Key, err)
 		}
 		entityIDs[entityKey(entity.AppName, entity.Key)] = id
@@ -533,6 +538,13 @@ func buildMetadataRecords(metadata metadataCatalog) (metadataRecordSet, error) {
 			return metadataRecordSet{}, fmt.Errorf("build entity metadata %s/%s name: %w", loaded.AppName, loaded.Entity.Name, err)
 		}
 		slug := stringPointerOrNil(loaded.RouteSlug())
+		var treeJSON []byte
+		if loaded.Entity.Tree != nil {
+			treeJSON, err = json.Marshal(loaded.Entity.Tree)
+			if err != nil {
+				return metadataRecordSet{}, err
+			}
+		}
 		records.Entities = append(records.Entities, entityRecord{
 			AppName:      loaded.AppName,
 			Name:         entityName,
@@ -545,6 +557,7 @@ func buildMetadataRecords(metadata metadataCatalog) (metadataRecordSet, error) {
 			IsSystem:     loaded.Entity.IsSystem,
 			IsCollection: loaded.IsCollection() || loaded.Entity.IsCollection,
 			Naming:       namingJSON,
+			Tree:         treeJSON,
 		})
 		for index, field := range loaded.Entity.Fields {
 			defaultJSON, err := fieldDefaultJSON(field.Default)

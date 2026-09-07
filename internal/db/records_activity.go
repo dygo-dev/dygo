@@ -136,6 +136,8 @@ func (s RecordStore) withRecordMutation(ctx context.Context, fn func(RecordStore
 	txStore.allowSystemMutations = s.allowSystemMutations
 	txStore.logQueryer = s.logQueryer
 	txStore.scope = s.scope
+	txStore.treeReadScope = s.treeReadScope
+	txStore.treeReadScopeResolver = s.treeReadScopeResolver
 	record, err := fn(txStore)
 	if err != nil {
 		_ = tx.Rollback(ctx)

@@ -6,6 +6,7 @@ export type MetadataAppRef = {
 }
 
 export type MetadataEntity = {
+  tree?: { 'parent-field': string; 'label-field'?: string }
   name: string
   key: string
   slug: string | null

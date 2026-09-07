@@ -99,6 +99,14 @@ Saved filters are private and belong to one Entity. Save the applied filters, re
 
 Filter and sort state stays in the URL. A fresh Entity visit starts unfiltered. Preference keys use App namespaces and canonical App/Entity identity for per-Entity display choices.
 
+## Record Views
+
+The Record view selector shows List for normal Entities and List/Tree for Tree Entities. List is the default. Studio saves the selected view per user and Entity. Switching views keeps URL filters and sort, but resets selection and pagination. Grid, calendar, and Gantt views are not implemented.
+
+Tree view loads roots first and children when expanded. Use the chevron or Left/Right arrow keys to collapse or expand. Use Up/Down to move focus. Click a Record label or press Enter to open the existing Record page. Create and move Records through the normal form and parent Link field. Siblings default to Record-name order; an explicit sort applies within each sibling group.
+
+Filtered trees show matching Records with readable ancestors marked as context. Context nodes do not have to match the filter. An inaccessible path is marked unavailable; hidden ancestor details are not exposed. Each sibling group and matching result set has its own Load more control.
+
 ## Command Menu
 
 Use Command K on macOS or Control K elsewhere. The menu shows current-page actions and recent pages before typing. It also searches navigation and app actions.

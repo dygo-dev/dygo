@@ -108,6 +108,37 @@ Studio record pages use `/{slug}` at the root. The route does not prepend the ap
 
 When dygo needs a SQL table name from Entity metadata, Core tables keep their historical singular names, such as `user` and `entity`. Non-Core app tables are app-scoped by default, so `crm/lead` maps to `crm_lead` and `support/contact` maps to `support_contact`.
 
+## Tree Entities
+
+Declare one parent Link to model a hierarchy:
+
+```yaml
+label: Department
+tree:
+  parent-field: parent
+  label-field: title
+fields:
+  - name: title
+    label: Title
+    type: text
+  - name: parent
+    label: Parent
+    type: link
+    index: true
+    options:
+      entity: department
+```
+
+The parent must be an optional, indexed Link to the same App and Entity. Its foreign key must remain enabled. Do not give it a default, fetch rule, or uniqueness rule. Single and Collection Entities cannot be trees.
+
+A null parent defines a root. Multiple roots are allowed. Every Record can have children. `label-field` is optional and must name a stored text field. Studio falls back to the Record name when the label is empty or unreadable.
+
+Tree mutations use the normal Record pipeline. Self-parenting and cycles are rejected, including concurrent moves. A Record with children cannot be deleted. Move or delete its children explicitly first. A move requires update access to the Record and parent field, plus read access to the destination. Tree relationships do not grant permissions.
+
+Schema preparation validates existing data before activating Tree metadata. Invalid hierarchies require an explicit data repair. No nested-set bounds, stored paths, or auxiliary tree tables are maintained.
+
+Apply fixtures and import rows in parent-before-child order. Use parent Record names as Link values. Missing parents and cycles follow the existing fixture/import error and transaction rules; dygo does not reorder rows automatically.
+
 ## Collection Entities
 
 Collection row Entities live in the app's `entities/_collections/` folder. Normal Entity folders under `entities/<entity>/` define routeable or Single Entities.

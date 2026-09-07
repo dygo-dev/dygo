@@ -56,7 +56,14 @@ func (d RecordData) scopedStore(ctx context.Context, appName string, entity stri
 	if err != nil {
 		return db.RecordStore{}, err
 	}
-	return store.WithScope(db.RecordScope{Where: scope.Where, Args: scope.Args, FieldRead: scope.FieldRead, FieldWrite: scope.FieldWrite}), nil
+	store = store.WithScope(db.RecordScope{Where: scope.Where, Args: scope.Args, FieldRead: scope.FieldRead, FieldWrite: scope.FieldWrite})
+	if action != permissions.ActionRead {
+		store = store.WithTreeReadScopeResolver(func(ctx context.Context, queryer db.RecordQueryer) (db.RecordScope, error) {
+			read, err := permissions.NewChecker(queryer).RecordScope(ctx, permissions.Request{Actor: *d.actor, Resource: dygo.Resource{Kind: dygo.ResourceEntity, App: appName, Name: entity}, Action: permissions.ActionRead})
+			return db.RecordScope{Where: read.Where, Args: read.Args, FieldRead: read.FieldRead}, err
+		})
+	}
+	return store, nil
 }
 
 // WithLockAction returns an internal Record view whose Lock uses a custom Entity action scope.

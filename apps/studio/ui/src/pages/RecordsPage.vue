@@ -13,15 +13,24 @@ import { humanizeEntity } from '@/stores/metadata.identity'
 import { statusForError, storeError, type LoadStatus } from '@/stores/status'
 import type { PinnedItem } from '@/features/pinned/pinned'
 import RecordFormPage from './RecordFormPage.vue'
+import { recordViews } from '@/features/records/views'
+import { usePreferencesStore } from '@/features/preferences/preferences.store'
 
 const props = defineProps<{
   entity: string
 }>()
 
 const router = useRouter()
+const preferences = usePreferencesStore()
 const entityMetaQuery = useMetadataEntityMetaQuery(() => props.entity)
 
 const entityMeta = computed(() => entityMetaQuery.data.value ?? null)
+const views = computed(() => recordViews.filter((view) => !view.requiresTree || !!entityMeta.value?.tree))
+const viewKey = computed(() => `studio.records.${entityMeta.value?.app.name}.${entityMeta.value?.key}.view`)
+const selectedView = computed(() => views.value.find((view) => view.id === preferences.get(viewKey.value, 'list')) ?? recordViews[0])
+function selectView(value: string) {
+  if (views.value.some((view) => view.id === value)) preferences.set(viewKey.value, value)
+}
 const entityMetaError = computed(() => (
   entityMetaQuery.error.value
     ? storeError(entityMetaQuery.error.value, 'Studio could not load entity metadata.')
@@ -119,13 +128,33 @@ const actions = computed<PageHeaderAction[]>(() => {
       :app-name="entityMeta?.app.name ?? ''"
       :entity-key="entityMeta?.key ?? ''"
       :read-only="isSystem"
+      :view-key="selectedView.id"
       @create-record="openNewRecord"
       @open-record="openRecord"
-    />
+    >
+      <template #view-selector>
+        <select class="records-page__view" aria-label="Record view" :value="selectedView.id" @change="selectView(($event.target as HTMLSelectElement).value)">
+          <option v-for="view in views" :key="view.id" :value="view.id">{{ view.label }}</option>
+        </select>
+      </template>
+      <template v-if="selectedView.renderer" #records="{ query, pageSize, revision }">
+        <component :is="selectedView.renderer" :key="`${entity}:${revision}`" :entity="entity" :tree="entityMeta!.tree!" :query="query" :page-size="pageSize" @open-record="openRecord" />
+      </template>
+    </RecordListRenderer>
   </section>
 </template>
 
 <style scoped>
+.records-page__view {
+  height: var(--studio-control-height-sm);
+  border: 1px solid var(--studio-border);
+  border-radius: var(--studio-radius-control);
+  background: var(--studio-surface);
+  color: var(--studio-text);
+  padding: 0 8px;
+  font: inherit;
+}
+
 .records-page {
   gap: 0;
   grid-template-rows: auto minmax(0, 1fr);

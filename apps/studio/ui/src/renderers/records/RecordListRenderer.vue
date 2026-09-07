@@ -54,6 +54,7 @@ const props = defineProps<{
   actions?: EntityActionDefinition[]
   appName: string
   entityKey: string
+  viewKey?: string
 }>()
 
 const emit = defineEmits<{
@@ -89,6 +90,7 @@ const storedPageSize = useStorage(PAGE_SIZE_STORAGE_KEY, 0, undefined, {
 })
 const pageSize = ref(0)
 const selectedRowKeys = ref<DataTableRowKey[]>([])
+const viewRevision = ref(0)
 const selectedAction = ref('')
 const exporting = ref(false)
 const importOpen = ref(false)
@@ -168,7 +170,7 @@ const visibleColumns = computed(() => columns.value.filter((column) => (
   column.key === 'name' || !hiddenColumnKeySet.value.has(column.key)
 )))
 const sortableColumns = computed(() => columns.value.filter((column) => column.sortable))
-const effectiveListSort = computed(() => listQuery.value.sort ?? DEFAULT_RECORD_LIST_SORT)
+const effectiveListSort = computed<DataTableSort>(() => listQuery.value.sort ?? (props.viewKey === 'tree' ? { key: 'name', direction: 'asc' } : DEFAULT_RECORD_LIST_SORT))
 const orderingField = computed(() => effectiveListSort.value.key)
 const orderingDirection = computed(() => effectiveListSort.value.direction)
 const orderingOptions = computed<OrderingOption[]>(() => {
@@ -207,7 +209,7 @@ const recordsQuery = useInfiniteQuery({
     const totalRows = lastPage.meta.total ?? loadedRows
     return loadedRows < totalRows ? loadedRows : undefined
   },
-  enabled: computed(() => recordListReady.value && !!auth.currentUser),
+  enabled: computed(() => recordListReady.value && !!auth.currentUser && (!props.viewKey || props.viewKey === 'list')),
 })
 const recordPages = computed(() => recordsQuery.data.value?.pages ?? [])
 const rows = computed<RecordData[]>(() => recordPages.value.flatMap((page) => page.data))
@@ -281,8 +283,14 @@ const hasMore = computed(() => (
   recordListReady.value && recordsQuery.hasNextPage.value && !platformConfigError.value
 ))
 const showToolbar = computed(() => (
-  rows.value.length > 0 || listQuery.value.filters.length > 0 || idSearch.value !== '' || filterTokens.value.length > 0 || !props.readOnly
+  !!props.viewKey || rows.value.length > 0 || listQuery.value.filters.length > 0 || idSearch.value !== '' || filterTokens.value.length > 0 || !props.readOnly
 ))
+watch(() => props.viewKey, () => {
+  clearScheduledRecordListRouteReplace()
+  syncFilterControlsFromRoute(listQuery.value.filters)
+  selectedRowKeys.value = []
+  viewRevision.value++
+})
 watch(
   [recordListPolicy, () => preferences.get('studio.records.page-size', 0)],
   ([policy]) => {
@@ -491,6 +499,7 @@ function removeFilter(id: number) {
 }
 
 function clearFilters() {
+  viewRevision.value++
   clearScheduledRecordListRouteReplace()
   idSearch.value = ''
   filterTokens.value = []
@@ -507,6 +516,7 @@ function applySavedFilter(item: SavedFilter) {
     return
   }
   clearScheduledRecordListRouteReplace()
+  viewRevision.value++
   filterTokens.value = []
   selectedRowKeys.value = []
   syncFilterControlsFromRoute(item.filters)
@@ -834,6 +844,7 @@ async function exportCSV() {
   <section class="record-list-renderer" aria-label="Record list view">
     <PageToolbar v-if="showToolbar">
       <template #left>
+        <slot name="view-selector" />
         <div class="record-list-renderer__name-search">
           <Input
             :model-value="idSearch"
@@ -898,7 +909,7 @@ async function exportCSV() {
 
       <template #right>
         <select
-          v-if="availableActions.length > 0"
+          v-if="availableActions.length > 0 && (!viewKey || viewKey === 'list')"
           v-model="selectedAction"
           class="record-list-renderer__action-select"
           aria-label="Entity action"
@@ -909,7 +920,7 @@ async function exportCSV() {
           </option>
         </select>
         <Button
-          v-if="availableActions.length > 0"
+          v-if="availableActions.length > 0 && (!viewKey || viewKey === 'list')"
           variant="secondary"
           size="sm"
           :disabled="!canRunSelectedAction"
@@ -919,7 +930,7 @@ async function exportCSV() {
           <Play :size="13" :stroke-width="1.9" aria-hidden="true" />
           Run
         </Button>
-        <Button variant="ghost" size="sm" :disabled="exporting || loading" :loading="exporting" @click="exportCSV">
+        <Button variant="ghost" size="sm" :disabled="exporting || !recordListReady" :loading="exporting" @click="exportCSV">
           <Download :size="13" :stroke-width="1.9" aria-hidden="true" />
           Export CSV
         </Button>
@@ -984,7 +995,7 @@ async function exportCSV() {
                 </div>
               </section>
 
-              <section class="record-list-renderer__view-options-section">
+              <section v-if="!viewKey || viewKey === 'list'" class="record-list-renderer__view-options-section">
                 <div class="record-list-renderer__view-options-heading">Display properties</div>
                 <div class="record-list-renderer__property-list">
                   <label
@@ -1024,9 +1035,10 @@ async function exportCSV() {
       :entity-key="entityKey"
       :fields="fields"
       @close="importOpen = false"
-      @imported="() => recordsQuery.refetch()"
+      @imported="() => { recordsQuery.refetch(); viewRevision++ }"
     />
 
+    <slot name="records" :query="listQuery" :page-size="pageSize" :revision="viewRevision">
     <DataTable
       :columns="visibleColumns"
       :rows="rows"
@@ -1053,6 +1065,7 @@ async function exportCSV() {
       @load-more="recordsQuery.fetchNextPage()"
       @empty-action="createRecord"
     />
+    </slot>
   </section>
 </template>
 

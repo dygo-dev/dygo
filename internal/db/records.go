@@ -52,12 +52,14 @@ type RecordQueryer interface {
 
 // RecordStore reads and mutates Records through persisted Entity metadata.
 type RecordStore struct {
-	queryer              RecordQueryer
-	logQueryer           RecordQueryer
-	metadata             MetadataReader
-	hooks                *RecordHookRegistry
-	allowSystemMutations bool
-	scope                *RecordScope
+	queryer               RecordQueryer
+	logQueryer            RecordQueryer
+	metadata              MetadataReader
+	hooks                 *RecordHookRegistry
+	allowSystemMutations  bool
+	scope                 *RecordScope
+	treeReadScope         *RecordScope
+	treeReadScopeResolver func(context.Context, RecordQueryer) (RecordScope, error)
 }
 
 // Record is one metadata-backed saved Entity instance.
@@ -445,6 +447,9 @@ func (s RecordStore) createRecordByIdentity(ctx context.Context, appName string,
 }
 
 func (s RecordStore) createRecordWithLayout(ctx context.Context, layout recordLayout, input RecordInput) (Record, error) {
+	if err := s.lockTree(ctx, layout); err != nil {
+		return nil, err
+	}
 	if layout.IsSingle {
 		return nil, singleRecordOperationError(layout, "create")
 	}
@@ -473,6 +478,9 @@ func (s RecordStore) createRecordWithLayout(ctx context.Context, layout recordLa
 		return nil, err
 	}
 
+	if err := s.validateTreeParent(ctx, layout, 0, input); err != nil {
+		return nil, err
+	}
 	record, err := s.insertRecordWithLayout(ctx, layout, input)
 	if err != nil {
 		return nil, err
@@ -599,6 +607,9 @@ func (s RecordStore) updateRecordByIdentity(ctx context.Context, appName string,
 }
 
 func (s RecordStore) updateRecordWithLayout(ctx context.Context, layout recordLayout, id int64, input RecordInput) (Record, error) {
+	if err := s.lockTree(ctx, layout); err != nil {
+		return nil, err
+	}
 	if err := s.rejectSystemMutation(layout, "update"); err != nil {
 		return nil, err
 	}
@@ -628,6 +639,9 @@ func (s RecordStore) updateRecordWithLayout(ctx context.Context, layout recordLa
 	beforeCtx.Input = input
 	beforeCtx.OldRecord = oldRecord
 	if err := s.runRecordHooks(ctx, beforeCtx); err != nil {
+		return nil, err
+	}
+	if err := s.validateTreeParent(ctx, layout, id, input); err != nil {
 		return nil, err
 	}
 	mutation, err := s.updateMutation(ctx, layout, input)
@@ -725,6 +739,9 @@ func (s RecordStore) deleteRecordByIdentity(ctx context.Context, appName string,
 }
 
 func (s RecordStore) deleteRecordWithLayout(ctx context.Context, layout recordLayout, entity string, id int64) error {
+	if err := s.lockTree(ctx, layout); err != nil {
+		return err
+	}
 	if layout.IsSingle {
 		return singleRecordOperationError(layout, "delete")
 	}
@@ -743,6 +760,9 @@ func (s RecordStore) deleteRecordWithLayout(ctx context.Context, layout recordLa
 	beforeCtx.RecordID = id
 	beforeCtx.OldRecord = oldRecord
 	if err := s.runRecordHooks(ctx, beforeCtx); err != nil {
+		return err
+	}
+	if err := s.restrictTreeDelete(ctx, layout, id); err != nil {
 		return err
 	}
 	if err := s.deleteRecordCollections(ctx, layout, id); err != nil {
@@ -940,6 +960,7 @@ type recordLayout struct {
 	IsCollection bool
 	Table        string
 	Naming       schema.Naming
+	Tree         *schema.Tree
 	Fields       []recordField
 	FieldByName  map[string]recordField
 	Collections  map[string]recordCollection
@@ -1020,6 +1041,7 @@ func newRecordLayout(meta MetadataEntityMeta) (recordLayout, error) {
 		IsCollection: meta.IsCollection,
 		Table:        entityTableName(meta.App.Name, meta.Key),
 		Naming:       naming,
+		Tree:         meta.Tree,
 		FieldByName:  map[string]recordField{},
 		Collections:  map[string]recordCollection{},
 	}

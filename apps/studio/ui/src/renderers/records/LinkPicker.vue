@@ -8,6 +8,8 @@ import { useMetadataEntitiesQuery } from '@/features/metadata/metadata.query'
 import { linkOptions, type MetadataField } from '@/features/metadata/metadata.api'
 import { getRecordByName, listRecords, type RecordData } from '@/features/records/records.api'
 import { resolveLinkFilters } from './link-options'
+import { listTreeRecords } from '@/features/records/tree.api'
+import { useAuthStore } from '@/stores/auth.store'
 
 const props = withDefaults(defineProps<{
   id: string
@@ -20,6 +22,7 @@ const props = withDefaults(defineProps<{
   required?: boolean
   disabled?: boolean
   readonly?: boolean
+  excludeSubtree?: string
 }>(), {
   modelValue: '',
   currentValues: () => ({}),
@@ -37,6 +40,7 @@ const emit = defineEmits<{
 }>()
 
 const search = ref('')
+const auth = useAuthStore()
 const open = ref(false)
 const activeIndex = ref(0)
 const options = computed(() => linkOptions(props.field))
@@ -53,21 +57,28 @@ const target = computed(() => {
 const targetSlug = computed(() => target.value?.slug || options.value?.entity || '')
 const targetFilters = computed(() => resolveLinkFilters(options.value?.filters ?? [], props.currentValues))
 const listQuery = useQuery({
-  queryKey: computed(() => ['records', 'link-options', targetSlug.value, search.value.trim(), targetFilters.value]),
-  queryFn: ({ signal }) => listRecords(targetSlug.value, {
+  queryKey: computed(() => ['records', 'link-options', auth.currentUser?.id, auth.sessionVersion, targetSlug.value, search.value.trim(), targetFilters.value, props.excludeSubtree]),
+  queryFn: async ({ signal }) => {
+    const params = {
     limit: 20,
     offset: 0,
     filters: [
       ...targetFilters.value,
       ...(search.value.trim() ? [{ field: 'name', operator: 'contains', value: search.value.trim() }] : []),
     ],
-  }, { signal }),
-  enabled: computed(() => open.value && targetSlug.value !== ''),
+    }
+    if (props.excludeSubtree) {
+      const result = await listTreeRecords(targetSlug.value, 'search', params, { excludeSubtree: props.excludeSubtree, signal })
+      return { ...result, data: result.data.map((node) => node.record) }
+    }
+    return listRecords(targetSlug.value, params, { signal })
+  },
+  enabled: computed(() => !!auth.currentUser && open.value && targetSlug.value !== '' && targetFilters.value.length === (options.value?.filters.length ?? 0)),
 })
 const selectedQuery = useQuery({
-  queryKey: computed(() => ['records', 'link-option', targetSlug.value, props.modelValue]),
+  queryKey: computed(() => ['records', 'link-option', auth.currentUser?.id, auth.sessionVersion, targetSlug.value, props.modelValue]),
   queryFn: ({ signal }) => getRecordByName(targetSlug.value, props.modelValue, { signal }),
-  enabled: computed(() => targetSlug.value !== '' && props.modelValue.trim() !== ''),
+  enabled: computed(() => !!auth.currentUser && targetSlug.value !== '' && props.modelValue.trim() !== ''),
 })
 const choices = computed(() => (listQuery.data.value?.data ?? []).flatMap((record) => {
   const name = recordName(record)

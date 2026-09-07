@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"github.com/hapyco/dygo/internal/entity/schema"
 	"reflect"
 	"sort"
 	"strings"
@@ -55,9 +56,9 @@ func TestMetadataReaderGetApp(t *testing.T) {
 func TestMetadataReaderListEntities(t *testing.T) {
 	queryer := &fakeMetadataQueryer{
 		rows: []pgx.Rows{newFakeRows([][]any{
-			{"core.app", "app", "app", "App", "Runtime state", "package", false, false, false, []byte(`{"strategy":"manual","label":"Name"}`), "core", "Core"},
-			{"core.user", "user", "user", "User", "User identity", "user", true, true, false, []byte(`{"strategy":"format","format":"{email}"}`), "core", "Core"},
-			{"core.user-role", "user-role", nil, "User Role", "Collection row", "users", false, false, true, nil, "core", "Core"},
+			{"core.app", "app", "app", "App", "Runtime state", "package", false, false, false, []byte(`{"strategy":"manual","label":"Name"}`), "core", "Core", nil},
+			{"core.user", "user", "user", "User", "User identity", "user", true, true, false, []byte(`{"strategy":"format","format":"{email}"}`), "core", "Core", nil},
+			{"core.user-role", "user-role", nil, "User Role", "Collection row", "users", false, false, true, nil, "core", "Core", nil},
 		})},
 	}
 
@@ -75,7 +76,7 @@ func TestMetadataReaderListEntities(t *testing.T) {
 
 func TestMetadataReaderGetEntityMeta(t *testing.T) {
 	queryer := &fakeMetadataQueryer{
-		row: newFakeRow(int64(10), "core.user", "user", "user", "User", "User identity", "user", true, true, false, []byte(`{"strategy":"format","format":"{email}"}`), "core", "Core"),
+		row: newFakeRow(int64(10), "core.user", "user", "user", "User", "User identity", "user", true, true, false, []byte(`{"strategy":"format","format":"{email}"}`), "core", "Core", nil),
 		rows: []pgx.Rows{
 			newFakeRows([][]any{
 				{int64(1), "email", "Email", "email", true, true, true, nil, nil, []byte(`{"from":"profile.email"}`), 1, []byte(`{"entity":"user"}`)},
@@ -123,9 +124,9 @@ func TestMetadataReaderGetEntityMeta(t *testing.T) {
 
 func TestMetadataReaderEmbedsCollectionMetadata(t *testing.T) {
 	queryer := &fakeMetadataQueryer{
-		row: newFakeRow(int64(20), "crm.lead", "lead", "lead", "Lead", "Sales lead", "contact", false, false, false, []byte(`{"strategy":"random","length":16}`), "crm", "CRM"),
+		row: newFakeRow(int64(20), "crm.lead", "lead", "lead", "Lead", "Sales lead", "contact", false, false, false, []byte(`{"strategy":"random","length":16}`), "crm", "CRM", nil),
 		identityRows: map[string]pgx.Row{
-			"crm/lead-contact": newFakeRow(int64(21), "crm.lead-contact", "lead-contact", "", "Lead Contact", "Child row", "contact", false, false, true, nil, "crm", "CRM"),
+			"crm/lead-contact": newFakeRow(int64(21), "crm.lead-contact", "lead-contact", "", "Lead Contact", "Child row", "contact", false, false, true, nil, "crm", "CRM", nil),
 		},
 		rows: []pgx.Rows{
 			newFakeRows([][]any{
@@ -160,7 +161,7 @@ func TestMetadataReaderEmbedsCollectionMetadata(t *testing.T) {
 
 func TestMetadataReaderGetEntityMetaByIdentity(t *testing.T) {
 	queryer := &fakeMetadataQueryer{
-		row: newFakeRow(int64(20), "crm.lead", "lead", "crm-lead", "Lead", "Sales lead", "contact", false, false, false, []byte(`{"strategy":"random","length":16}`), "crm", "CRM"),
+		row: newFakeRow(int64(20), "crm.lead", "lead", "crm-lead", "Lead", "Sales lead", "contact", false, false, false, []byte(`{"strategy":"random","length":16}`), "crm", "CRM", nil),
 		rows: []pgx.Rows{
 			newFakeRows([][]any{
 				{int64(1), "status", "Status", "select", true, false, false, nil, nil, nil, 1, []byte(`{"values":["New"]}`)},
@@ -429,6 +430,14 @@ func assignScanValues(values []any, dest []any) error {
 	}
 	for i, value := range values {
 		switch target := dest[i].(type) {
+		case **schema.Tree:
+			if value == nil {
+				*target = nil
+				continue
+			}
+			if err := json.Unmarshal(value.([]byte), target); err != nil {
+				return err
+			}
 		case *int:
 			v, ok := value.(int)
 			if !ok {

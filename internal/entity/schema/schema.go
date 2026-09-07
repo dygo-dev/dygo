@@ -26,9 +26,16 @@ type Entity struct {
 	IsCollection bool         `yaml:"-"`
 	Route        Route        `yaml:"route,omitempty"`
 	Naming       Naming       `yaml:"name,omitempty"`
+	Tree         *Tree        `yaml:"tree,omitempty"`
 	Fields       []Field      `yaml:"fields"`
 	Indexes      []Index      `yaml:"indexes,omitempty"`
 	Constraints  []Constraint `yaml:"constraints,omitempty"`
+}
+
+// Tree declares the parent link and optional display field of a forest.
+type Tree struct {
+	ParentField string `yaml:"parent-field" json:"parent-field"`
+	LabelField  string `yaml:"label-field,omitempty" json:"label-field,omitempty"`
 }
 
 // Route describes the user-facing Studio route metadata for an Entity.
@@ -274,6 +281,7 @@ func (e Entity) Validate(registry fieldtype.Registry) error {
 		}
 	}
 	validateIndexes(e, fields, fieldTypes, &problems)
+	validateTree(e, fields, &problems)
 	validateConstraints(e, fields, fieldTypes, &problems)
 	if e.IsCollection && hasExplicitNaming(e.Naming) {
 		line := e.Naming.Line

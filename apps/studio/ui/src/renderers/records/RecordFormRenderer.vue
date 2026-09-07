@@ -29,6 +29,7 @@ const props = withDefaults(defineProps<{
   fields: MetadataField[]
   systemFields?: MetadataField[]
   collections?: Record<string, MetadataEntityMeta>
+  tree?: MetadataEntityMeta['tree']
   secretStatus?: SecretStatus
   record?: RecordData | null
   mode: 'new' | 'record' | 'single'
@@ -180,6 +181,7 @@ function isReadonlyField(field: MetadataField): boolean {
         :field="field"
         :model-value="textValue(modelValue[field.name])"
         :current-values="modelValue"
+        :exclude-subtree="tree?.['parent-field'] === field.name ? textValue(record?.name) : ''"
         :required="field.required"
         :disabled="disabled"
         :readonly="isReadonlyField(field)"

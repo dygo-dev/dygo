@@ -977,6 +977,7 @@ func registerRecordRoutes(router chi.Router, store RecordStore, activity Activit
 		records.Use(handler.resolveEntity)
 		records.Get("/", handler.listRecords)
 		records.Get("/export", handler.exportRecords)
+		records.Get("/tree/{operation}", handler.treeRecords)
 		records.Post("/", handler.createRecord)
 		records.Post("/actions/{action}", handler.executeAction)
 		records.Get("/{id}/secret-status", handler.secretStatus)
@@ -1517,7 +1518,15 @@ func (h recordHandler) storeFor(r *http.Request, entity string, action permissio
 	if err != nil {
 		return nil, err
 	}
-	return store.WithScope(db.RecordScope{Where: scope.Where, Args: scope.Args, FieldRead: scope.FieldRead, FieldWrite: scope.FieldWrite}), nil
+	store = store.WithScope(db.RecordScope{Where: scope.Where, Args: scope.Args, FieldRead: scope.FieldRead, FieldWrite: scope.FieldWrite})
+	if action != permissions.ActionRead && meta.Tree != nil {
+		read, err := scoper.RecordScope(r.Context(), permissions.Request{Actor: permissions.Actor{UserID: user.ID, Email: user.Email}, Resource: permissions.Resource{Kind: permissions.ResourceEntity, App: meta.App.Name, Name: meta.Key}, Action: permissions.ActionRead})
+		if err != nil {
+			return nil, err
+		}
+		store = store.WithTreeReadScope(db.RecordScope{Where: read.Where, Args: read.Args, FieldRead: read.FieldRead})
+	}
+	return store, nil
 }
 
 func activityRequestContext(r *http.Request) context.Context {

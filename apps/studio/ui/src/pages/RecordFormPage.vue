@@ -816,6 +816,7 @@ function draftValuesEqual(left: unknown, right: unknown): boolean {
           :system-fields="systemFields"
           :collections="entityMeta.collections"
           :record="record"
+          :tree="entityMeta?.tree"
           :secret-status="secretStatus"
           :mode="props.mode"
           :model-value="draft"

@@ -115,6 +115,27 @@ Create a saved filter with `{"entity":"crm/contact","label":"Active","filters":[
 
 Request bodies cannot set ownership. Saved-filter requests require target Entity read access and validate predicates against current metadata and Field access. Studio Preference and Saved Filter storage are private: generic Record routes cannot expose them, including through Administrator access. These state changes do not copy private values into the generic Activity feed. Trusted system SDK code remains privileged.
 
+## Tree Record API
+
+Tree Entities add authenticated GET routes under `/api/v1/records/{entity}/tree/`:
+
+| Route | Result |
+| --- | --- |
+| `roots` | Root Records |
+| `children?name=...` | Direct children |
+| `descendants?name=...` | Descendants |
+| `ancestors?name=...` | Root-to-parent chain |
+| `path?name=...` | Root-to-Record chain |
+| `search` | Filtered matches with readable ancestor context |
+
+URL-encode anchor Record names. Paged routes accept existing Record filters, `limit`, `offset`, and `sort`. Search also accepts `exclude-subtree` with an anchor Record name to omit that node and its descendants.
+
+Each `data` item contains `record`, `hasChildren`, `matched`, and `pathUnavailable`. Search returns paginated matches plus ordered display `context`, which can include matching Records to preserve sibling order. Deduplicate by Record name. All returned data respects Record and Field access. Complete paths fail when an ancestor is inaccessible. Tree reads do not grant access through ancestry.
+
+Traversal rejects paths deeper than 2,500 Records or batches above 10,000 path steps. Narrow the search or reduce the page size when this limit is reached; paths are never silently truncated.
+
+Use the existing Record create and update endpoints to set the parent Link. Use null to create a root. There is no separate HTTP mutation path for trees. Deleting a Record with children returns a conflict without exposing child details.
+
 ## Metadata API
 
 The first runtime API is read-only and powered by persisted Core metadata records:

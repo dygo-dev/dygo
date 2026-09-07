@@ -6,6 +6,9 @@ name:
   strategy: format
   format: "{app}.{key}"
 fields:
+  - name: tree
+    label: Tree
+    type: json
   - name: app
     label: App
     type: link

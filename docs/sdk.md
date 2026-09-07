@@ -31,6 +31,21 @@ The current SDK exposes:
 - durable in-app notifications with optional email delivery
 - project runner integration types
 
+## Tree Records
+
+Use `records.Tree(app, entity)` for an Entity with Tree metadata. The returned `TreeData` retains the caller's actor and transaction. Use it from the same Record service supplied to Hooks, actions, or Jobs.
+
+```go
+tree := hook.Records.Tree("hr", "department")
+children, err := tree.Children(ctx, departmentID, dygo.RecordListParams{Limit: 20})
+```
+
+`Roots`, `Children`, and `Descendants` return paginated nodes. `Ancestors` returns root-to-parent order; `Path` includes the selected Record. `Search` accepts `TreeSearchParams`, which embeds Record list filters and pagination. It returns matching nodes and their readable ancestor context. `ExcludeSubtree` excludes an anchor and its descendants, for example when selecting a new parent.
+
+Anchors use internal numeric Record IDs, as other SDK methods do. `Move(ctx, recordID, parentName)` accepts a parent Record name; a nil parent makes the Record a root. Create roots and children with ordinary `RecordData.Create`. Moves, creates, and deletes use the same validation, permission, Hook, Activity, and transaction rules as other Record writes.
+
+Use `AsActor` for user-scoped access. Tree access does not inherit permissions from parents. A full path or ancestor request fails if its chain is not readable. Search can return an independently readable match with `PathUnavailable` instead of exposing hidden ancestors. Child indicators describe readable children only.
+
 ## Record Hooks
 
 Record hooks register functions for Entity lifecycle events:

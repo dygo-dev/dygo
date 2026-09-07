@@ -47,7 +47,7 @@ func (c linkValueCodec) displaySQL(layout recordLayout, field recordField) strin
 	if !ok {
 		return recordSourceColumn(field.Column)
 	}
-	return fmt.Sprintf("(SELECT %s FROM %s WHERE %s = %s)", quoteIdent("name"), quoteIdent(targetTable), quoteIdent("id"), recordSourceColumn(field.Column))
+	return fmt.Sprintf("(SELECT %s FROM %s WHERE %s = %s) AS %s", quoteIdent("name"), quoteIdent(targetTable), quoteIdent("id"), recordSourceColumn(field.Column), quoteIdent(field.Column))
 }
 
 func (c linkValueCodec) nameFromRaw(ctx context.Context, layout recordLayout, field recordField, raw json.RawMessage) (string, error) {
