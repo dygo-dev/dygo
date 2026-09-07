@@ -9,7 +9,7 @@ Build a reusable platform primitive. Keep business-specific behavior in Business
 
 ## Start
 
-Read `AGENTS.md`, `docs/doctrine.md`, `docs/app-model.md`, `docs/sdk.md`, `docs/dir.md`, and the relevant subsystem document. Inspect nearby implementations and tests before you choose a new abstraction.
+Apply `AGENTS.md` and read the affected subsystem contract. Use `docs/doctrine.md` and `docs/app-model.md` for ownership decisions, `docs/sdk.md` for public contracts, and `docs/dir.md` for file placement. Inspect nearby implementations and tests before choosing a new abstraction.
 
 ## Rules
 

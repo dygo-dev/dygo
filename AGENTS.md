@@ -192,6 +192,17 @@ First-party dygo skills live under `.agents/skills/`. Use the narrowest skill th
 
 For framework CLI development, use `.agents/skills/dygo-cli-development/SKILL.md`. The `dygo-cli` name is reserved for the future business-operator skill.
 
+## Task Execution
+
+- Treat requests to implement or fix as authorization to complete the stated work and relevant checks. Keep reviews and advice read-only unless changes are requested.
+- Preserve the original objective when the user adds a correction or asks a side question. Apply new constraints to remaining work and revise affected changes.
+- Resolve routine implementation choices from the current code and user intent. Ask only when a missing decision materially changes the outcome or requires new authority; continue independent authorized work.
+- Prepare a concrete, reviewable result before requesting any required approval for an external action. Existing authorization remains valid within its stated scope.
+- Explicit user instructions take precedence over skill guidelines. If a skill blocks progress, link the exact `SKILL.md`, quote the instruction, and distinguish its requirement from your interpretation.
+- Read the documents and sections needed for the affected contract. Reuse context already read unless it may have changed; retain required safety and release procedures.
+- Delegate independent work when available tools can improve speed or review quality. Give each agent a bounded scope and clear ownership; review and integrate its results before declaring completion.
+- Report the outcome, relevant verification, and remaining limits in concise, plain language.
+
 ## Tone of the Codebase
 
 dygo should feel:

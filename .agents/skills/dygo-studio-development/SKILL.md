@@ -9,12 +9,13 @@ Treat Studio as the first-party product UI, not as a temporary admin panel.
 
 ## Start
 
-Read `docs/studio.md`, `docs/app-model.md`, and the affected UI contract. Inspect the existing feature, renderer, shell, store, query, and design-system patterns before adding a new one.
+Read the affected UI contract and relevant sections of `docs/studio.md`; use `docs/app-model.md` when App ownership is involved. Inspect nearby feature, renderer, shell, store, query, and design-system patterns before adding a new one.
 
 ## Rules
 
 - Let Business Apps provide metadata and behavior. Let Studio render supported contracts consistently.
 - Prefer shared renderers and design components over feature-local copies.
+- Preserve reusable UI components and exports even when they have no current consumers. Remove them only when the user authorizes their removal.
 - Keep server state in TanStack Query and cross-feature client state in Pinia only when it has a clear owner.
 - Give applied route state, draft filter input, persisted preferences, and server results distinct owners. Do not add another synchronized copy of the same state.
 - When a renderer mixes route synchronization, data fetching, actions, import/export, and presentation, separate the affected responsibility with a small contract. Avoid a mechanical file split or a new generic controller.

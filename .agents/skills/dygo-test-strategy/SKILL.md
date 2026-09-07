@@ -21,10 +21,11 @@ Test the meaningful invariant at the lowest useful boundary.
 
 - Test business or framework behavior, not exact implementation wording.
 - Add a regression test when a defect can recur and the boundary is stable.
-- Do not require a test for a trivial change when existing validation proves the result.
+- Do not add tests that mirror a reversible, low-impact edit when existing validation proves the result.
 - Do not chase an arbitrary coverage percentage.
 - Keep database tests deterministic and isolate their state.
 - Include failure and rollback cases for high-risk writes.
 - Include authorization cases for data-bearing APIs.
 - Use race or concurrency checks when ownership, workers, claims, or goroutines changed.
 - Run the narrowest relevant checks during development. Run broader checks before a major commit or release.
+- After relevant and required checks pass, repeat or broaden them only for new changes, failures, or unresolved concerns.

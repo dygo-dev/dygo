@@ -16,6 +16,7 @@ Inspect `apps/studio/ui/src/design`, the shell, existing CSS tokens, and represe
 - Use Tailwind v4 and the repository's CSS-first token approach.
 - Prefer semantic tokens over raw repeated color, spacing, shadow, and state values.
 - Reuse or extend atoms, primitives, molecules, and organisms at the canonical layer.
+- Preserve reusable UI components and exports even when they have no current consumers. Remove them only when the user authorizes their removal.
 - Keep component variants small and named by purpose or state.
 - Design dense business workflows for clarity, scan speed, and keyboard use.
 - Include hover, focus, active, disabled, loading, error, empty, and destructive states when applicable.

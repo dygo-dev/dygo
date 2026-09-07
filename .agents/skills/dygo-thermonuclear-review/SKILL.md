@@ -26,7 +26,8 @@ Challenge:
 
 ## Boundaries
 
-- Preserve behavior unless the user also authorized implementation changes.
+- Keep an audit read-only unless implementation is authorized. Refactoring must preserve behavior; change behavior only within an authorized feature or fix, and explain the difference.
+- For parallel reviews, assign distinct subsystems or concerns and require code evidence. Reconcile overlapping findings before applying changes.
 - Do not reward novelty. Prefer direct and boring structure.
 - Support every finding with concrete code evidence and maintenance impact.
 - Distinguish a defect from an ambitious redesign opportunity.
