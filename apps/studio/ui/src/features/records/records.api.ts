@@ -220,3 +220,9 @@ function recordErrorMessage(payload: ApiErrorEnvelope): string {
       return payload.error?.message ?? 'Studio could not load records.'
   }
 }
+
+export type SecretStatus = { fields: Record<string, boolean>, collections?: Record<string, Record<string, Record<string, boolean>>> }
+export async function getSecretStatus(entity: string, id: number, signal?: AbortSignal): Promise<SecretStatus> {
+  const response = await apiRequest<DataEnvelope<SecretStatus>, RecordApiError>(`/api/v1/records/${encodeURIComponent(entity)}/${id}/secret-status`, { method: 'GET', signal }, recordRequestOptions('secret_status_failed'))
+  return response.data
+}

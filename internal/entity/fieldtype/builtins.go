@@ -18,6 +18,11 @@ func builtIns() []Definition {
 
 		// Sensitive fields.
 		{
+			Name: "secret", Label: "Secret", AllowRequired: true,
+			Behavior: Behavior{Stored: true, ColumnSuffix: "_encrypted", SQLType: "text", ValueKind: "secret", WriteOnly: true, StudioEditor: "secret", StudioDisplay: "hidden"},
+			Validate: NoOptions,
+		},
+		{
 			Name:          "password",
 			Label:         "Password",
 			AllowRequired: true,

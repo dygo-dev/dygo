@@ -253,7 +253,8 @@ func ServeListener(ctx context.Context, listener net.Listener, options ...Option
 	}
 
 	httpServer := &http.Server{
-		Handler: NewRouter(opts),
+		Handler:     NewRouter(opts),
+		BaseContext: func(net.Listener) context.Context { return ctx },
 	}
 
 	done := make(chan error, 1)
@@ -964,6 +965,7 @@ func registerRecordRoutes(router chi.Router, store RecordStore, activity Activit
 		records.Get("/export", handler.exportRecords)
 		records.Post("/", handler.createRecord)
 		records.Post("/actions/{action}", handler.executeAction)
+		records.Get("/{id}/secret-status", handler.secretStatus)
 		records.Get("/{id}/activity", handler.listRecordActivity)
 		records.Post("/{id}/activity", handler.addRecordComment)
 		records.Get("/name/{name}", handler.getRecordByName)

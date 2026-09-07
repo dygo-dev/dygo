@@ -88,6 +88,8 @@ type RecordListResult struct {
 // RecordData gives hooks transactional access to metadata-backed Records by app/entity identity.
 // Writes run dygo framework hooks, such as Activity, but do not re-enter app hooks.
 type RecordData interface {
+	DecryptSecret(ctx context.Context, appName string, entity string, recordID int64, field string) (string, error)
+	SecretStatus(ctx context.Context, appName string, entity string, recordID int64) (SecretStatus, error)
 	List(ctx context.Context, appName string, entity string, params RecordListParams) (RecordListResult, error)
 	Count(ctx context.Context, appName string, entity string, params RecordListParams) (int64, error)
 	Exists(ctx context.Context, appName string, entity string, params RecordListParams) (bool, error)

@@ -209,3 +209,41 @@ Administrator users are privileged through the permission engine.
 The permission engine applies row conditions, owner rules, and field read/write restrictions to Record access. Collection fields use the parent Record's field restrictions. See [Access](access.md) for policy metadata.
 
 Sharing, saved views, and richer Studio list UI remain separate follow-up work.
+
+## Secret fields
+
+A `secret` field accepts a non-empty string and stores age ciphertext in a
+nullable `<field>_encrypted` text column. Field names use the normal kebab-case
+to snake_case storage conversion. Encryption is randomized and bound to the
+App, Entity, and field identity. It is separate from password hashing.
+
+Omit a secret field to keep its value. Send `null` to clear an optional field.
+Empty strings and clearing required fields are rejected. Required fields must
+be supplied when creating a Record. Adding a required secret to existing Records
+does not populate them; provision their values explicitly. No existing text or
+password values are converted automatically.
+
+Generic Record reads, mutation responses, exports, and Activity snapshots omit
+both plaintext and ciphertext. Secret fields cannot have defaults, indexes,
+uniqueness, checks, fetch rules, filters, sorts, grouping, aggregates, or naming
+roles. Fixtures cannot supply secret values.
+
+`GET /api/v1/records/{entity}/{id}/secret-status` returns presence only:
+
+```json
+{"data":{"fields":{"token":true},"collections":{"connections":{"42":{"token":false}}}}}
+```
+
+This endpoint requires normal Record read permission and applies row and field
+read rules. Collection status uses the parent's collection-field permission.
+Use the saved Record ID for Single Entities. There is no HTTP reveal endpoint.
+
+Studio shows presence, a masked replacement input, and a Clear control for
+optional fields. An untouched or emptied input does not replace the saved value.
+A failed status request displays an error rather than reporting an unset value.
+
+Hooks do not receive submitted secrets, including secrets in collection rows.
+They may edit other submitted values. They cannot inject secret fields into Hook
+input. Collection rows containing secret metadata retain their submitted row
+structure and order during Hooks; use explicit Record operations for structural
+changes. After-write Hooks can use the system SDK to decrypt persisted values.

@@ -6,12 +6,14 @@ import { Button, IconButton, Input, Select, Switch, Textarea, type FieldOption, 
 import type { MetadataEntityMeta, MetadataField } from '@/features/metadata/metadata.api'
 import type { RecordData } from '@/features/records/records.api'
 import { recordFieldLabel } from '@/features/records/system-fields'
+import SecretEditor from './SecretEditor.vue'
 import LinkPicker from './LinkPicker.vue'
 
 const props = withDefaults(defineProps<{
   id: string
   label: string
   field: MetadataField
+  secretStatus?: Record<string, Record<string, boolean>>
   childMeta?: MetadataEntityMeta
   modelValue?: unknown
   error?: string
@@ -272,6 +274,16 @@ function isHiddenCollectionField(field: MetadataField): boolean {
                 @update:model-value="updateCell(rowIndex, column, $event)"
               />
 
+              <SecretEditor
+                v-else-if="column.type === 'secret'"
+                :id="fieldId(column, rowIndex)"
+                :label="recordFieldLabel(column)"
+                :model-value="row[column.name]"
+                :present="row.id ? secretStatus?.[String(row.id)]?.[column.name] : false"
+                :required="column.required"
+                :disabled="disabled"
+                @update:model-value="updateCell(rowIndex, column, $event)"
+              />
               <Input
                 v-else-if="isTextField(column)"
                 :id="fieldId(column, rowIndex)"

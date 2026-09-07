@@ -917,7 +917,18 @@ func (s RecordStore) runRecordHooks(ctx context.Context, hookCtx RecordHookConte
 	}
 	hookCtx.Queryer = s.queryer
 	hookCtx.LogQueryer = s.logQueryer
-	return s.hooks.Run(ctx, hookCtx)
+	if hookCtx.layout == nil {
+		return s.hooks.Run(ctx, hookCtx)
+	}
+	clean, restore, err := hiddenHookInput(*hookCtx.layout, hookCtx.Input)
+	if err != nil {
+		return err
+	}
+	hookCtx.Input = clean
+	if err := s.hooks.Run(ctx, hookCtx); err != nil {
+		return err
+	}
+	return restore()
 }
 
 type recordLayout struct {
@@ -1590,6 +1601,9 @@ func (l recordLayout) validateInputFields(input RecordInput, create bool, match 
 				continue
 			}
 			return recordError(RecordErrorValidation, "field is not supported by record runtime", map[string]any{"entity": l.Entity, "field": name}, nil)
+		}
+		if match && field.Type == "secret" {
+			return recordError(RecordErrorValidation, "write-only field cannot be used for matching", map[string]any{"field": name}, nil)
 		}
 		if rawIsNull(raw) && field.Required {
 			return recordError(RecordErrorValidation, "required field cannot be null", map[string]any{"entity": l.Entity, "field": name}, nil)

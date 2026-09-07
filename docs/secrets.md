@@ -184,3 +184,60 @@ Secrets can only be changed through `dygo secret edit` and read through `dygo se
 `.dygo/secrets/master.key` is intentionally project-local for now. Sharing it, backing it up, and injecting it into deployment environments are operational concerns outside this first implementation.
 
 dygo still uses one local root key for development, staging, and production. Per-environment recipients, KMS, Vault, and other external production secret providers are coming soon.
+
+## Record encryption keys
+
+The `secret` Entity field uses the existing credential store. Its dedicated
+Record keys are a structured `_record_encryption` mapping inside
+`config/secrets/<environment>.yml.age`. The existing master key protects this
+file. No separate plaintext Record key file is created. Do not edit this mapping
+by hand or copy its contents into source code.
+
+Initialize the existing credential store with `dygo secret init` if necessary.
+Then initialize the Record key for the selected environment:
+
+```sh
+dygo secret record-key init --env development --dry-run
+dygo secret record-key init --env development --yes
+```
+
+Initialization preserves existing keys. Invalid key configuration produces an
+error; initialization does not replace it. Projects without `secret` fields do
+not need Record keys. The CLI supplies the selected environment's key provider
+to server, worker, and other runtime command contexts. Missing keys prevent
+secret encryption and decryption. Ordinary reads do not decrypt secrets.
+
+### Rotate a Record key
+
+1. Stop all servers, workers, and other database writers for the environment.
+2. Back up the database, encrypted environment YAML, and existing master key.
+   Keep the master key in secure storage separate from the database backup.
+3. Review the target, then run the rotation command:
+
+```sh
+dygo secret record-key rotate --env production --offline --dry-run
+dygo secret record-key rotate --env production --offline --yes
+```
+
+4. Wait for `Record key rotate complete`. Restart servers and workers.
+
+`--offline` confirms that you stopped the writers; it does not stop them for you.
+An advisory lock prevents two Record key commands from running together.
+Rotation saves the new key in encrypted YAML before it rewrites any Record.
+It commits batches of 100 values and verifies all live metadata-defined secret
+columns, including Single Entities and collection rows. It does not run
+business Hooks or change Record timestamps.
+
+If rotation stops, keep writers stopped and run the same command again. The
+saved rotation state reuses the new key and skips values already encrypted with
+it. A missing old key or corrupt ciphertext stops rotation. Restore the affected
+key or value from a backup before retrying; do not replace the entire key ring.
+
+Old identities remain in encrypted YAML after rotation so older database backups
+remain readable. Automatic key deletion is not supported. Back up the updated
+encrypted YAML after rotation.
+
+`dygo secret rotate-key` changes the credential store's master key and re-encrypts
+the environment YAML files. `dygo secret record-key rotate` changes the Record
+data key and re-encrypts database values. These are separate operations. Do not
+run credential edits or master-key rotation during Record-key rotation.

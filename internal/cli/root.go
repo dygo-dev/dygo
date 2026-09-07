@@ -26,6 +26,8 @@ import (
 	importsvc "github.com/hapyco/dygo/internal/imports"
 	jobruntime "github.com/hapyco/dygo/internal/jobs/runtime"
 	"github.com/hapyco/dygo/internal/permissions"
+	"github.com/hapyco/dygo/internal/recordsecret"
+	"github.com/hapyco/dygo/internal/secrets"
 	"github.com/hapyco/dygo/internal/server"
 	"github.com/hapyco/dygo/internal/shape"
 	"github.com/hapyco/dygo/internal/studio"
@@ -189,7 +191,28 @@ func newRootCommand(ctx context.Context, stdin io.Reader, stdout, stderr io.Writ
 		return nil, fmt.Errorf("create root command: %w", err)
 	}
 
+	// Resolve keys only when a Record secret is used. Commands without secrets
+	// do not require a project or a key ring.
+	environment := secrets.EnvironmentDevelopment
+	ctx = recordsecret.WithProvider(ctx, func() (recordsecret.Ring, error) {
+		path, err := workingRootPath()
+		if err != nil {
+			return recordsecret.Ring{}, recordsecret.ErrUnavailable
+		}
+		return recordsecret.Load(secrets.NewStore(path), environment)
+	})
 	root := &cobra.Command{
+		PersistentPreRunE: func(cmd *cobra.Command, _ []string) error {
+			environment = secrets.EnvironmentDevelopment
+			if flag := cmd.Flags().Lookup("env"); flag != nil {
+				parsed, err := secrets.ParseEnvironment(flag.Value.String())
+				if err != nil {
+					return err
+				}
+				environment = parsed
+			}
+			return nil
+		},
 		Use:           "dygo",
 		Short:         "dygo is a metadata-driven business application platform.",
 		SilenceUsage:  true,

@@ -23,6 +23,9 @@ func (s RecordStore) linkValueCodec() linkValueCodec {
 }
 
 func (c linkValueCodec) storageValue(ctx context.Context, layout recordLayout, field recordField, raw json.RawMessage) (any, error) {
+	if field.Type == "secret" {
+		return secretStorageValue(ctx, layout, field, raw)
+	}
 	if field.Type != "link" {
 		return recordDBValue(field, raw)
 	}

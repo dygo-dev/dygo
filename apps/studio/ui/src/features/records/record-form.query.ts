@@ -5,6 +5,7 @@ import { queryClient } from '@/app/query'
 import { studioSounds } from '@/features/sounds'
 import { recordListBaseQueryKey } from './record-list.query'
 import {
+  getSecretStatus,
   createRecord,
   addRecordComment,
   deleteRecord,
@@ -191,5 +192,14 @@ function cacheNamedRecord(entity: string, record: RecordData) {
 }
 
 function invalidateRecordLists(entity: string) {
+  void queryClient.invalidateQueries({ queryKey: ['records', 'secret-status', entity] })
   void queryClient.invalidateQueries({ queryKey: recordListBaseQueryKey(entity) })
+}
+
+export function useSecretStatusQuery(entity: MaybeRefOrGetter<string>, id: MaybeRefOrGetter<number>, enabled: QueryToggle) {
+  return useQuery({
+    queryKey: computed(() => ['records', 'secret-status', toValue(entity), toValue(id)]),
+    queryFn: ({ signal }) => getSecretStatus(toValue(entity), toValue(id), signal),
+    enabled: computed(() => toValue(enabled) && toValue(id) > 0),
+  })
 }
