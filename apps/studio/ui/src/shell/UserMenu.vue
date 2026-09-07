@@ -1,12 +1,18 @@
 <script setup lang="ts">
 import { ref } from 'vue'
-import { LogOut, RefreshCw } from '@lucide/vue'
+import { Check, ChevronRight, LogOut, Palette, RefreshCw } from '@lucide/vue'
 import {
   DropdownMenuContent,
   DropdownMenuItem,
+  DropdownMenuItemIndicator,
   DropdownMenuPortal,
+  DropdownMenuRadioGroup,
+  DropdownMenuRadioItem,
   DropdownMenuRoot,
   DropdownMenuSeparator,
+  DropdownMenuSub,
+  DropdownMenuSubContent,
+  DropdownMenuSubTrigger,
   DropdownMenuTrigger,
 } from 'reka-ui'
 import { useRouter } from 'vue-router'
@@ -14,6 +20,13 @@ import { useRouter } from 'vue-router'
 import { queryClient } from '@/app/query'
 import { reloadStudioApp } from '@/app/reload'
 import Avatar from '@/design/atoms/Avatar.vue'
+import {
+  getStudioThemePreference,
+  isStudioThemePreference,
+  setStudioThemePreference,
+  studioThemeOptions,
+  type StudioThemePreference,
+} from '@/features/theme'
 import { RouteName } from '@/router/routes'
 import { useAuthStore } from '@/stores/auth.store'
 
@@ -27,6 +40,7 @@ withDefaults(defineProps<{
 const router = useRouter()
 const authStore = useAuthStore()
 const reloading = ref(false)
+const themePreference = ref<StudioThemePreference>(getStudioThemePreference())
 
 async function reloadApp() {
   if (reloading.value) {
@@ -39,6 +53,15 @@ async function reloadApp() {
   } finally {
     reloading.value = false
   }
+}
+
+function onThemePreference(value: unknown) {
+  if (!isStudioThemePreference(value)) {
+    return
+  }
+
+  themePreference.value = value
+  setStudioThemePreference(value)
 }
 
 async function logout() {
@@ -66,6 +89,30 @@ async function logout() {
           <RefreshCw :size="14" :stroke-width="1.8" aria-hidden="true" />
           <span>Reload</span>
         </DropdownMenuItem>
+        <DropdownMenuSub>
+          <DropdownMenuSubTrigger class="studio-user-menu__item">
+            <Palette :size="14" :stroke-width="1.8" aria-hidden="true" />
+            <span>Theme</span>
+            <ChevronRight class="studio-user-menu__chevron" :size="14" :stroke-width="1.8" aria-hidden="true" />
+          </DropdownMenuSubTrigger>
+          <DropdownMenuPortal>
+            <DropdownMenuSubContent class="studio-user-menu__content" :side-offset="6">
+              <DropdownMenuRadioGroup :model-value="themePreference" @update:model-value="onThemePreference">
+                <DropdownMenuRadioItem
+                  v-for="option in studioThemeOptions"
+                  :key="option.value"
+                  class="studio-user-menu__item studio-user-menu__item--radio"
+                  :value="option.value"
+                >
+                  <DropdownMenuItemIndicator class="studio-user-menu__indicator">
+                    <Check :size="13" :stroke-width="2.2" aria-hidden="true" />
+                  </DropdownMenuItemIndicator>
+                  <span>{{ option.label }}</span>
+                </DropdownMenuRadioItem>
+              </DropdownMenuRadioGroup>
+            </DropdownMenuSubContent>
+          </DropdownMenuPortal>
+        </DropdownMenuSub>
         <DropdownMenuSeparator class="studio-user-menu__separator" />
         <DropdownMenuItem class="studio-user-menu__item" @select="logout">
           <LogOut :size="14" :stroke-width="1.8" aria-hidden="true" />
@@ -119,7 +166,13 @@ async function logout() {
   user-select: none;
 }
 
-.studio-user-menu__item[data-highlighted] {
+.studio-user-menu__item--radio {
+  position: relative;
+  padding-left: 28px;
+}
+
+.studio-user-menu__item[data-highlighted],
+.studio-user-menu__item[data-state='open'] {
   background: var(--studio-surface-raised);
   color: var(--studio-text);
 }
@@ -127,6 +180,19 @@ async function logout() {
 .studio-user-menu__item[data-disabled] {
   color: var(--studio-text-subtle);
   pointer-events: none;
+}
+
+.studio-user-menu__chevron {
+  margin-left: auto;
+}
+
+.studio-user-menu__indicator {
+  position: absolute;
+  left: 8px;
+  display: inline-flex;
+  width: 14px;
+  align-items: center;
+  justify-content: center;
 }
 
 .studio-user-menu__separator {

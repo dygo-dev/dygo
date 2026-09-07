@@ -80,7 +80,7 @@ async function selectNotification(id: number) {
   </DropdownMenuRoot>
 </template>
 
-<style scoped>
+<style>
 .studio-notifications__trigger {
   position: relative;
   display: inline-flex;
@@ -113,7 +113,7 @@ async function selectNotification(id: number) {
   border: 2px solid var(--studio-bg);
   border-radius: 999px;
   background: var(--studio-danger);
-  color: white;
+  color: var(--studio-danger-contrast);
   font-size: 9px;
   font-weight: 700;
   line-height: 12px;

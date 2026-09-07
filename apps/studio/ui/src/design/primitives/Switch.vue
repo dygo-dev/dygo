@@ -98,13 +98,14 @@ function updateValue(value: boolean) {
   width: 14px;
   height: 14px;
   border-radius: 999px;
-  background: var(--studio-surface);
-  box-shadow: 0 1px 2px oklch(0.225 0.018 246 / 0.2);
+  background: var(--studio-control-knob);
+  box-shadow: var(--studio-shadow-control);
   transform: translateX(0);
   transition: transform 160ms ease;
 }
 
 .d-switch[data-state='checked'] .d-switch__thumb {
+  background: var(--studio-accent-contrast);
   transform: translateX(14px);
 }
 </style>

@@ -37,31 +37,31 @@ withDefaults(defineProps<{
 }
 
 .d-badge--accent {
-  border-color: oklch(0.49 0.118 248 / 0.22);
+  border-color: var(--studio-accent-border);
   background: var(--studio-accent-soft);
   color: var(--studio-accent-strong);
 }
 
 .d-badge--success {
-  border-color: oklch(0.52 0.105 156 / 0.22);
+  border-color: var(--studio-success-border);
   background: var(--studio-success-soft);
   color: var(--studio-success);
 }
 
 .d-badge--warning {
-  border-color: oklch(0.63 0.13 74 / 0.26);
+  border-color: var(--studio-warning-border);
   background: var(--studio-warning-soft);
-  color: oklch(0.42 0.098 74);
+  color: var(--studio-warning);
 }
 
 .d-badge--danger {
-  border-color: oklch(0.55 0.15 28 / 0.22);
+  border-color: var(--studio-danger-border);
   background: var(--studio-danger-soft);
   color: var(--studio-danger);
 }
 
 .d-badge--info {
-  border-color: oklch(0.56 0.12 231 / 0.22);
+  border-color: var(--studio-info-border);
   background: var(--studio-info-soft);
   color: var(--studio-info);
 }

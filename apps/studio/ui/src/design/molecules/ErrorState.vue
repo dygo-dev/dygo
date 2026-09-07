@@ -16,9 +16,9 @@ defineProps<{
 .d-error-state {
   display: grid;
   gap: 3px;
-  border: 1px solid oklch(0.55 0.15 28 / 0.24);
+  border: 1px solid color-mix(in oklch, var(--studio-danger) 24%, transparent);
   border-radius: 7px;
-  background: oklch(0.98 0.02 28);
+  background: var(--studio-danger-soft);
   color: var(--studio-danger);
   padding: 10px 12px;
 }

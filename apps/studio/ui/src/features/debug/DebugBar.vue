@@ -188,7 +188,7 @@ async function copyBundle() {
   </div>
 </template>
 
-<style scoped>
+<style>
 .studio-debug-indicator {
   position: fixed;
   left: 16px;
@@ -208,22 +208,18 @@ async function copyBundle() {
   height: 36px;
   align-items: center;
   justify-content: center;
-  border: 1px solid rgb(255 255 255 / 0.08);
+  border: 1px solid var(--studio-border-strong);
   border-radius: 10px;
-  background: #0a0a0a;
-  box-shadow:
-    0 0 0 1px rgb(0 0 0 / 0.08),
-    0 8px 24px rgb(0 0 0 / 0.18);
-  color: #fafafa;
+  background: var(--studio-surface);
+  box-shadow: var(--studio-shadow);
+  color: var(--studio-text);
   cursor: pointer;
   transition: transform 120ms ease, box-shadow 120ms ease;
 }
 
 .studio-debug-indicator__trigger:hover {
   transform: translateY(-1px);
-  box-shadow:
-    0 0 0 1px rgb(0 0 0 / 0.1),
-    0 12px 28px rgb(0 0 0 / 0.22);
+  box-shadow: var(--studio-shadow-sheet);
 }
 
 .studio-debug-indicator__trigger:focus-visible {
@@ -245,8 +241,8 @@ async function copyBundle() {
   width: 6px;
   height: 6px;
   border-radius: 50%;
-  background: oklch(0.55 0.15 28);
-  box-shadow: 0 0 0 1.5px #0a0a0a;
+  background: var(--studio-danger);
+  box-shadow: 0 0 0 1.5px var(--studio-surface);
 }
 
 /* Panel */
@@ -254,13 +250,11 @@ async function copyBundle() {
   width: min(320px, calc(100vw - 32px));
   max-height: calc(100dvh - 78px);
   overflow-y: auto;
-  border: 1px solid rgb(255 255 255 / 0.08);
+  border: 1px solid var(--studio-border-strong);
   border-radius: 12px;
-  background: #0a0a0a;
-  box-shadow:
-    0 0 0 1px rgb(0 0 0 / 0.2),
-    0 18px 40px rgb(0 0 0 / 0.28);
-  color: #fafafa;
+  background: var(--studio-surface);
+  box-shadow: var(--studio-shadow-sheet);
+  color: var(--studio-text);
 }
 
 .studio-debug-indicator__header {
@@ -268,7 +262,7 @@ async function copyBundle() {
   align-items: center;
   justify-content: space-between;
   gap: 8px;
-  border-bottom: 1px solid rgb(255 255 255 / 0.08);
+  border-bottom: 1px solid var(--studio-border);
   padding: 10px 12px;
 }
 
@@ -287,18 +281,18 @@ async function copyBundle() {
   border: 0;
   border-radius: 5px;
   background: transparent;
-  color: #737373;
+  color: var(--studio-text-muted);
   cursor: pointer;
 }
 
 .studio-debug-indicator__icon-btn:hover {
-  background: rgb(255 255 255 / 0.08);
-  color: #fafafa;
+  background: var(--studio-surface-raised);
+  color: var(--studio-text);
 }
 
 /* Errors section */
 .studio-debug-indicator__errors {
-  border-bottom: 1px solid rgb(255 255 255 / 0.08);
+  border-bottom: 1px solid var(--studio-border);
 }
 
 .studio-debug-indicator__errors-header {
@@ -306,7 +300,7 @@ async function copyBundle() {
   align-items: center;
   gap: 6px;
   padding: 8px 12px 6px;
-  color: oklch(0.72 0.15 28);
+  color: var(--studio-danger);
   font-size: 11px;
   font-weight: 600;
 }
@@ -315,18 +309,18 @@ async function copyBundle() {
   margin-left: auto;
   border: 0;
   background: transparent;
-  color: #737373;
+  color: var(--studio-text-muted);
   font-size: 11px;
   font-weight: 600;
   cursor: pointer;
 }
 
 .studio-debug-indicator__clear:hover {
-  color: #fafafa;
+  color: var(--studio-text);
 }
 
 .studio-debug-indicator__error {
-  border-top: 1px solid rgb(255 255 255 / 0.05);
+  border-top: 1px solid var(--studio-border);
 }
 
 .studio-debug-indicator__error-toggle {
@@ -336,20 +330,20 @@ async function copyBundle() {
   gap: 6px;
   border: 0;
   background: transparent;
-  color: #fafafa;
+  color: var(--studio-text);
   padding: 7px 12px;
   text-align: left;
   cursor: pointer;
 }
 
 .studio-debug-indicator__error-toggle:hover {
-  background: rgb(255 255 255 / 0.04);
+  background: var(--studio-surface-raised);
 }
 
 .studio-debug-indicator__error-toggle svg {
   flex: 0 0 auto;
   margin-top: 1px;
-  color: #737373;
+  color: var(--studio-text-muted);
 }
 
 .studio-debug-indicator__error-msg {
@@ -364,9 +358,9 @@ async function copyBundle() {
 .studio-debug-indicator__stack {
   overflow-x: auto;
   margin: 0;
-  border-top: 1px solid rgb(255 255 255 / 0.05);
-  background: rgb(255 255 255 / 0.03);
-  color: #a1a1a1;
+  border-top: 1px solid var(--studio-border);
+  background: var(--studio-surface-raised);
+  color: var(--studio-text-muted);
   padding: 8px 12px;
   font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace;
   font-size: 10px;
@@ -392,7 +386,7 @@ async function copyBundle() {
 
 .studio-debug-indicator__row dt {
   margin: 0;
-  color: #737373;
+  color: var(--studio-text-muted);
   font-size: 11px;
   font-weight: 600;
   line-height: 1.35;
@@ -409,7 +403,7 @@ async function copyBundle() {
 
 .studio-debug-indicator__mono {
   overflow: hidden;
-  color: #fafafa;
+  color: var(--studio-text);
   font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace;
   font-size: 11px;
   font-weight: 550;
@@ -419,7 +413,7 @@ async function copyBundle() {
 
 .studio-debug-indicator__path {
   overflow: hidden;
-  color: #737373;
+  color: var(--studio-text-muted);
   font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace;
   font-size: 11px;
   text-overflow: ellipsis;
@@ -430,7 +424,7 @@ async function copyBundle() {
 .studio-debug-indicator__footer {
   display: flex;
   gap: 6px;
-  border-top: 1px solid rgb(255 255 255 / 0.08);
+  border-top: 1px solid var(--studio-border);
   padding: 10px 12px;
 }
 
@@ -440,10 +434,10 @@ async function copyBundle() {
   align-items: center;
   justify-content: center;
   gap: 6px;
-  border: 1px solid rgb(255 255 255 / 0.1);
+  border: 1px solid var(--studio-border-strong);
   border-radius: 7px;
-  background: rgb(255 255 255 / 0.06);
-  color: #fafafa;
+  background: var(--studio-control-bg);
+  color: var(--studio-text);
   padding: 0 10px;
   font-size: 11px;
   font-weight: 600;
@@ -451,19 +445,19 @@ async function copyBundle() {
 }
 
 .studio-debug-indicator__btn:hover {
-  background: rgb(255 255 255 / 0.1);
+  background: var(--studio-control-bg-hover);
 }
 
 .studio-debug-indicator__btn--muted {
   margin-left: auto;
   border-color: transparent;
   background: transparent;
-  color: #737373;
+  color: var(--studio-text-muted);
 }
 
 .studio-debug-indicator__btn--muted:hover {
-  background: rgb(255 255 255 / 0.06);
-  color: #fafafa;
+  background: var(--studio-surface-raised);
+  color: var(--studio-text);
 }
 
 @media (prefers-reduced-motion: reduce) {
