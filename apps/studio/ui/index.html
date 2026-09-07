@@ -4,6 +4,23 @@
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
     <title>dygo Studio</title>
+    <script>
+      (function () {
+        var preference = 'system'
+        try {
+          var stored = window.localStorage.getItem('studio:theme')
+          preference = stored === 'light' || stored === 'dark' || stored === 'system' ? stored : 'system'
+        } catch {}
+
+        var prefersDark = false
+        try {
+          prefersDark = window.matchMedia('(prefers-color-scheme: dark)').matches
+        } catch {}
+
+        var dark = preference === 'dark' || (preference === 'system' && prefersDark)
+        document.documentElement.dataset.theme = dark ? 'dark' : 'light'
+      })()
+    </script>
   </head>
   <body>
     <div id="app"></div>

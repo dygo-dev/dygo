@@ -78,3 +78,13 @@ The default path is:
 3. Let Studio render the app globally.
 
 Custom UI is coming soon, but the basic app shape should work through Studio metadata first.
+
+## Appearance
+
+Studio uses Light, Dark, or System appearance.
+
+Open the user menu in the header and choose Theme.
+
+Light and Dark stay fixed. System follows the operating system color scheme.
+
+Studio stores the preference in the browser. The choice applies across Records, lists, forms, login, and the rest of the Studio shell.

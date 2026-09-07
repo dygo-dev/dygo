@@ -484,7 +484,7 @@ function activateRow(row: DataTableRow, index: number, event: MouseEvent | Keybo
   overflow-x: hidden;
   overflow-y: auto;
   position: relative;
-  scrollbar-color: oklch(0.58 0.018 246 / 0.3) transparent;
+  scrollbar-color: var(--studio-scrollbar) transparent;
   scrollbar-width: thin;
 }
 
@@ -600,7 +600,7 @@ function activateRow(row: DataTableRow, index: number, event: MouseEvent | Keybo
 }
 
 .data-table__row--selected:hover td {
-  background: oklch(0.941 0.034 248);
+  background: var(--studio-accent-soft-strong);
 }
 
 .data-table__state {
@@ -626,13 +626,13 @@ function activateRow(row: DataTableRow, index: number, event: MouseEvent | Keybo
 
 .data-table__state[data-state='forbidden'] .data-table__state-icon,
 .data-table__state[data-state='unauthenticated'] .data-table__state-icon {
-  border-color: oklch(0.56 0.12 231 / 0.24);
+  border-color: var(--studio-info-border);
   background: var(--studio-info-soft);
   color: var(--studio-info);
 }
 
 .data-table__state[data-state='error'] .data-table__state-icon {
-  border-color: oklch(0.55 0.15 28 / 0.24);
+  border-color: var(--studio-danger-border);
   background: var(--studio-danger-soft);
   color: var(--studio-danger);
 }

@@ -602,7 +602,7 @@ function itemDomId(item: CommandItem): string {
   position: fixed;
   z-index: 60;
   inset: 0;
-  background: oklch(0.225 0.018 246 / 0.18);
+  background: var(--studio-overlay);
 }
 
 .studio-command-menu__dialog {

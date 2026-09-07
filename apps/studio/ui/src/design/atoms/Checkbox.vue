@@ -59,7 +59,7 @@ defineEmits<{
   border: 1px solid var(--studio-border-strong);
   border-radius: 5px;
   background: var(--studio-control-bg);
-  color: oklch(0.99 0.004 246);
+  color: var(--studio-accent-contrast);
   box-shadow: var(--studio-shadow-control);
   line-height: 0;
   vertical-align: middle;

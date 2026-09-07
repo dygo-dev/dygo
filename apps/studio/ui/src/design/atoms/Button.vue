@@ -76,7 +76,7 @@ withDefaults(
 
 .d-button--primary {
   background: var(--studio-accent);
-  color: oklch(0.99 0.004 246);
+  color: var(--studio-accent-contrast);
 }
 
 .d-button--primary:hover:not(:disabled) {
@@ -107,11 +107,11 @@ withDefaults(
 
 .d-button--danger {
   background: var(--studio-danger);
-  color: oklch(0.99 0.004 246);
+  color: var(--studio-danger-contrast);
 }
 
 .d-button--danger:hover:not(:disabled) {
-  background: oklch(48% 0.16 28);
+  background: var(--studio-danger-hover);
 }
 
 .d-button__spinner {

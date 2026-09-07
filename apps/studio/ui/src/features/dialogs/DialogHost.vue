@@ -73,12 +73,12 @@ function buttonVariant(variant: StudioDialogActionVariant): 'primary' | 'seconda
   </DialogRoot>
 </template>
 
-<style scoped>
+<style>
 .studio-dialog__overlay {
   position: fixed;
   inset: 0;
   z-index: 80;
-  background: oklch(18% 0.02 246 / 0.34);
+  background: var(--studio-overlay);
 }
 
 .studio-dialog {

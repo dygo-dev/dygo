@@ -91,7 +91,7 @@ withDefaults(defineProps<{
 }
 
 .d-icon-button--danger {
-  border-color: oklch(0.55 0.15 28 / 0.24);
+  border-color: var(--studio-danger-border);
   background: var(--studio-danger-soft);
   color: var(--studio-danger);
 }
