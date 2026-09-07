@@ -90,6 +90,19 @@ type Options struct {
 	Jobs          []dygo.JobRegistrar
 }
 
+func newCommandGroup(use string, short string, aliases ...string) *cobra.Command {
+	cmd := &cobra.Command{
+		Use:     use,
+		Aliases: aliases,
+		Short:   short,
+		Args:    cobra.NoArgs,
+		RunE: func(cmd *cobra.Command, _ []string) error {
+			return cmd.Help()
+		},
+	}
+	return cmd
+}
+
 var startStudioDevServer = startStudioDevServerProcess
 
 // Run executes the dygo command-line interface.
@@ -99,24 +112,32 @@ func Run(ctx context.Context, args []string, stdin io.Reader, stdout, stderr io.
 
 // RunWithOptions executes the dygo command-line interface with compiled extensions.
 func RunWithOptions(ctx context.Context, args []string, stdin io.Reader, stdout, stderr io.Writer, options Options) error {
+	dependencies, err := newCommandDependencies(options)
+	if err != nil {
+		return err
+	}
+	return execute(ctx, args, stdin, stdout, stderr, dependencies)
+}
+
+func newCommandDependencies(options Options) (commandDependencies, error) {
 	migrator := db.NewMigrator()
 	recordHooks, err := recordhooks.NewRecordHookRegistry(options.RecordHooks)
 	if err != nil {
-		return fmt.Errorf("configure record hooks: %w", err)
+		return commandDependencies{}, fmt.Errorf("configure record hooks: %w", err)
 	}
 	actionRegistry, err := entityactions.NewRegistry(options.EntityActions)
 	if err != nil {
-		return fmt.Errorf("configure Entity actions: %w", err)
+		return commandDependencies{}, fmt.Errorf("configure Entity actions: %w", err)
 	}
 	jobRegistrars := append([]dygo.JobRegistrar{filedata.CleanupJobRegistrar(), importsvc.JobRegistrar()}, options.Jobs...)
 	jobRegistry, err := jobruntime.NewRegistry(jobRegistrars)
 	if err != nil {
-		return fmt.Errorf("configure jobs: %w", err)
+		return commandDependencies{}, fmt.Errorf("configure jobs: %w", err)
 	}
-	return execute(ctx, args, stdin, stdout, stderr, commandDependencies{
+	return commandDependencies{
 		serve: server.Serve, database: db.NewManager(migrator), sync: migrator, setup: defaultAdminSetupRunner{}, fixture: defaultFixtureRunner{recordHooks: recordHooks},
 		access: defaultAccessRunner{}, recordHooks: recordHooks, actionRegistry: actionRegistry, jobRegistry: jobRegistry,
-	})
+	}, nil
 }
 
 func execute(ctx context.Context, args []string, stdin io.Reader, stdout, stderr io.Writer, dependencies commandDependencies) error {
@@ -136,24 +157,11 @@ func execute(ctx context.Context, args []string, stdin io.Reader, stdout, stderr
 
 // NewRootCommand creates the root dygo CLI command.
 func NewRootCommand(ctx context.Context, stdin io.Reader, stdout, stderr io.Writer) (*cobra.Command, error) {
-	migrator := db.NewMigrator()
-	recordHooks, err := recordhooks.NewRecordHookRegistry(nil)
+	dependencies, err := newCommandDependencies(Options{})
 	if err != nil {
-		return nil, fmt.Errorf("configure record hooks: %w", err)
+		return nil, err
 	}
-	actionRegistry, err := entityactions.NewRegistry(nil)
-	if err != nil {
-		return nil, fmt.Errorf("configure Entity actions: %w", err)
-	}
-	jobRegistry, err := jobruntime.NewRegistry([]dygo.JobRegistrar{filedata.CleanupJobRegistrar(), importsvc.JobRegistrar()})
-	if err != nil {
-		return nil, fmt.Errorf("configure jobs: %w", err)
-	}
-	return newRootCommand(ctx, stdin, stdout, stderr, commandDependencies{
-		serve: server.Serve, database: db.NewManager(migrator), sync: migrator, setup: defaultAdminSetupRunner{},
-		fixture: defaultFixtureRunner{recordHooks: recordHooks}, access: defaultAccessRunner{}, recordHooks: recordHooks,
-		actionRegistry: actionRegistry, jobRegistry: jobRegistry,
-	})
+	return newRootCommand(ctx, stdin, stdout, stderr, dependencies)
 }
 
 func newRootCommand(ctx context.Context, stdin io.Reader, stdout, stderr io.Writer, dependencies commandDependencies) (*cobra.Command, error) {

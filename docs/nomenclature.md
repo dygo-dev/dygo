@@ -48,17 +48,3 @@ Technical implementation details may still use words such as document when they 
 | Generated print/PDF design | Print Format |
 | Report definition/output | Report |
 | Dashboard/chart area | Dashboard |
-
-## Example Language
-
-The Studio contains Spaces.
-
-A Space organizes work around a business function.
-
-An Entity defines Fields and Record Collections. Apps attach Permissions, Hooks, Fixtures, and Patches around Entities.
-
-A Record is saved data created from an Entity.
-
-A Record Collection contains Rows inside a Record.
-
-The Studio globally renders Entities and Records.

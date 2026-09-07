@@ -20,7 +20,6 @@ Source: local staging list for `hapyco/dygo`, last updated on 2026-05-31.
 - [ ] #261 Make reserved names and fixture eligibility policies extendable by apps
 - [ ] #262 Design versioned metadata import and replacement behavior for duplicate authored Records
 - [ ] #33 Add site command group
-- [x] #38 Add one-command local project setup
 - [ ] #51 Add Studio metadata browser
 - [ ] #65 Add secret field type
 - [ ] #68 Add account invitations and password recovery

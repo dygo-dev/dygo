@@ -2,7 +2,7 @@
 
 [![Go](https://img.shields.io/badge/go-1.26.2-00ADD8?logo=go&logoColor=white)](https://go.dev/)
 [![License](https://img.shields.io/badge/license-O%27Saasy-blue)](LICENSE)
-[![Status](https://img.shields.io/badge/status-early%20framework%20development-f2cc60)](https://github.com/hapyco/dygo/commits/develop)
+[![Status](https://img.shields.io/badge/status-early%20framework%20development-f2cc60)](https://github.com/hapyco/dygo/commits/main)
 [![Contributions](https://img.shields.io/badge/contributions-paused-lightgrey)](CONTRIBUTING.md)
 [![Issues](https://img.shields.io/badge/issues-GitHub-2ea44f)](https://github.com/hapyco/dygo/issues)
 
@@ -69,21 +69,7 @@ See [CLI](docs/cli.md) for the full command surface.
 
 ## Documentation
 
-- [Documentation Index](docs/index.md)
-- [Installation](docs/installation.md)
-- [CLI](docs/cli.md)
-- [App Model](docs/app-model.md)
-- [Entity Metadata](docs/entity-metadata.md)
-- [Database](docs/database.md)
-- [Records](docs/records.md)
-- [Record Hooks](docs/record-hooks.md)
-- [Jobs](docs/jobs.md)
-- [Queues And Workers](docs/queues.md)
-- [Schedules](docs/schedule.md)
-- [Server](docs/server.md)
-- [Studio](docs/studio.md)
-- [App SDK](docs/sdk.md)
-- [Encrypted Secrets](docs/secrets.md)
+See the [Documentation Index](docs/index.md) for the full reference.
 
 ## Repository Development
 

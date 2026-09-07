@@ -22,9 +22,11 @@ GET    /api/v1/records/{entity}?limit=50&offset=0&status:eq=Open&sort=-created-a
 GET    /api/v1/records/{entity}/{id}
 GET    /api/v1/records/{entity}/name/{name}
 GET    /api/v1/records/{entity}/single
+GET    /api/v1/records/{entity}/export
 GET    /api/v1/records/{entity}/{id}/activity?limit=50&offset=0
 POST   /api/v1/records/{entity}/{id}/activity
 POST   /api/v1/records/{entity}
+POST   /api/v1/records/{entity}/actions/{action}
 PATCH  /api/v1/records/{entity}/{id}
 PATCH  /api/v1/records/{entity}/single
 DELETE /api/v1/records/{entity}/{id}
@@ -183,7 +185,7 @@ The endpoint returns newest-first Activity ordered by `created-at DESC, id DESC`
 {"data":[],"meta":{"limit":50,"offset":0,"count":0}}
 ```
 
-Activity lookup uses the target Entity and Record ID, so history can still be read after the live Record row has been deleted. It requires authentication and `read` permission on the target Entity with the target Record ID. It does not require generic `activity` Entity permission.
+Activity lookup requires the live target Record, authentication, and `read` permission on the target Entity with the target Record ID. It does not require generic `activity` Entity permission.
 
 Activity items include `id`, `created-at`, `entity`, `record-id`, `kind`, `operation`, `status`, `title`, `message`, `actor`, `changes`, `snapshot`, and `details`. `actor` is `null` when no user caused the change, otherwise it contains `id`, `email`, and `full-name`.
 

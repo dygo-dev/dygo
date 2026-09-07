@@ -11,14 +11,7 @@ import (
 )
 
 func newAppCommand(stdout io.Writer) *cobra.Command {
-	cmd := &cobra.Command{
-		Use:   "app",
-		Short: "Manage dygo apps",
-		Args:  cobra.NoArgs,
-		RunE: func(cmd *cobra.Command, _ []string) error {
-			return cmd.Help()
-		},
-	}
+	cmd := newCommandGroup("app", "Manage dygo apps")
 
 	cmd.AddCommand(newAppsListCommand(stdout))
 	cmd.AddCommand(newAppsValidateCommand(stdout))

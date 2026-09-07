@@ -86,6 +86,10 @@ func LoadSchedules(apps []manifest.LoadedApp, loadedJobs []jobs.LoadedJob) ([]sc
 
 // LoadMetadata loads the validated app and Entity metadata context for a project root.
 func LoadMetadata(root string) (Metadata, error) {
+	return loadBaseMetadata(root)
+}
+
+func loadBaseMetadata(root string) (Metadata, error) {
 	apps, err := LoadApps(root)
 	if err != nil {
 		return Metadata{}, err
@@ -103,15 +107,7 @@ func LoadMetadata(root string) (Metadata, error) {
 
 // LoadRuntimeMetadata loads metadata needed by database runtime sync.
 func LoadRuntimeMetadata(root string) (RuntimeMetadata, error) {
-	apps, err := LoadApps(root)
-	if err != nil {
-		return RuntimeMetadata{}, err
-	}
-	entities, err := LoadEntities(apps)
-	if err != nil {
-		return RuntimeMetadata{}, err
-	}
-	loadedPages, err := LoadPages(apps)
+	base, err := loadBaseMetadata(root)
 	if err != nil {
 		return RuntimeMetadata{}, err
 	}
@@ -119,13 +115,13 @@ func LoadRuntimeMetadata(root string) (RuntimeMetadata, error) {
 	if err != nil {
 		return RuntimeMetadata{}, err
 	}
-	loadedJobs, err := LoadJobs(apps, queueConfig)
+	loadedJobs, err := LoadJobs(base.Apps, queueConfig)
 	if err != nil {
 		return RuntimeMetadata{}, err
 	}
-	loadedSchedules, err := LoadSchedules(apps, loadedJobs)
+	loadedSchedules, err := LoadSchedules(base.Apps, loadedJobs)
 	if err != nil {
 		return RuntimeMetadata{}, err
 	}
-	return RuntimeMetadata{Apps: apps, Entities: entities, Pages: loadedPages, Queues: queueConfig, Jobs: loadedJobs, Schedules: loadedSchedules}, nil
+	return RuntimeMetadata{Apps: base.Apps, Entities: base.Entities, Pages: base.Pages, Queues: queueConfig, Jobs: loadedJobs, Schedules: loadedSchedules}, nil
 }

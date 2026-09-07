@@ -13,14 +13,7 @@ import (
 )
 
 func newDBCommand(ctx context.Context, stdin io.Reader, stdout, stderr io.Writer, database databaseRunner, sync schemaSyncRunner, fixture fixtureRunner, accessRunner accessRunner) *cobra.Command {
-	cmd := &cobra.Command{
-		Use:   "db",
-		Short: "Manage dygo database lifecycle",
-		Args:  cobra.NoArgs,
-		RunE: func(cmd *cobra.Command, _ []string) error {
-			return cmd.Help()
-		},
-	}
+	cmd := newCommandGroup("db", "Manage dygo database lifecycle")
 
 	cmd.AddCommand(newDBCheckCommand(ctx, stdout, database))
 	cmd.AddCommand(newDBCreateCommand(ctx, stdout, database))
@@ -563,8 +556,47 @@ func applyDBPreparation(ctx context.Context, sync schemaSyncRunner, fixture fixt
 }
 
 func writeDBMigratePlan(stdout io.Writer, env secrets.Environment, plan dbMigrationPlan) error {
+	return writeDBSchemaPlan(stdout, env, "db migrate plan", plan)
+}
+
+func writeDBMigrateResult(stdout io.Writer, env secrets.Environment, result dbMigrationResult) error {
+	return writeDBMigrationResult(stdout, env, "database migrated", result)
+}
+
+func writeDBPrepareHeader(stdout io.Writer, env secrets.Environment, status db.DatabaseStatus) error {
+	state := "exists"
+	if !status.Exists {
+		state = "missing"
+	}
+	_, err := fmt.Fprintf(stdout, "database %s: %s (%s)\n", state, status.Name, env)
+	return err
+}
+
+func writeDBPreparePlan(stdout io.Writer, env secrets.Environment, plan dbPreparationPlan) error {
+	if err := writeDBSchemaPlan(stdout, env, "db prepare plan", plan.Migration); err != nil {
+		return err
+	}
+	if _, err := fmt.Fprintf(stdout, "access: %d roles, %d policy files, %d permissions\n", plan.Access.Roles, plan.Access.Policies, plan.Access.Permissions); err != nil {
+		return err
+	}
+	_, err := fmt.Fprintf(stdout, "fixtures: %d files, %d records\n", plan.Fixtures.FileCount(), plan.Fixtures.RecordCount())
+	return err
+}
+
+func writeDBPrepareResult(stdout io.Writer, env secrets.Environment, result dbPreparationResult) error {
+	if err := writeDBMigrationResult(stdout, env, "database prepared", result.Migration); err != nil {
+		return err
+	}
+	if _, err := fmt.Fprintf(stdout, "access records: %d roles, %d permissions\n", result.Access.Roles, result.Access.Permissions); err != nil {
+		return err
+	}
+	_, err := fmt.Fprintf(stdout, "fixture records: %d created, %d updated\n", result.Fixtures.Created, result.Fixtures.Updated)
+	return err
+}
+
+func writeDBSchemaPlan(stdout io.Writer, env secrets.Environment, title string, plan dbMigrationPlan) error {
 	unsafeCount, unsupportedCount := schemaDiagnosticCounts(plan.Schema)
-	if _, err := fmt.Fprintf(stdout, "db migrate plan (%s)\n", env); err != nil {
+	if _, err := fmt.Fprintf(stdout, "%s (%s)\n", title, env); err != nil {
 		return err
 	}
 	if _, err := fmt.Fprintf(stdout, "pre-sync patches: %d pending, %d applied\n", len(plan.PreSync.Pending), len(plan.PreSync.Applied)); err != nil {
@@ -579,14 +611,12 @@ func writeDBMigratePlan(stdout io.Writer, env secrets.Environment, plan dbMigrat
 	if _, err := fmt.Fprintf(stdout, "schema unsupported diagnostics: %d\n", unsupportedCount); err != nil {
 		return err
 	}
-	if _, err := fmt.Fprintf(stdout, "post-sync patches: %d pending, %d applied\n", len(plan.PostSync.Pending), len(plan.PostSync.Applied)); err != nil {
-		return err
-	}
-	return nil
+	_, err := fmt.Fprintf(stdout, "post-sync patches: %d pending, %d applied\n", len(plan.PostSync.Pending), len(plan.PostSync.Applied))
+	return err
 }
 
-func writeDBMigrateResult(stdout io.Writer, env secrets.Environment, result dbMigrationResult) error {
-	if _, err := fmt.Fprintf(stdout, "database migrated (%s)\n", env); err != nil {
+func writeDBMigrationResult(stdout io.Writer, env secrets.Environment, title string, result dbMigrationResult) error {
+	if _, err := fmt.Fprintf(stdout, "%s (%s)\n", title, env); err != nil {
 		return err
 	}
 	if _, err := fmt.Fprintf(stdout, "pre-sync patches applied: %d\n", len(result.PreSync.Applied)); err != nil {
@@ -599,65 +629,6 @@ func writeDBMigrateResult(stdout io.Writer, env secrets.Environment, result dbMi
 		return err
 	}
 	_, err := fmt.Fprintln(stdout, "schema snapshot: refreshed")
-	return err
-}
-
-func writeDBPrepareHeader(stdout io.Writer, env secrets.Environment, status db.DatabaseStatus) error {
-	state := "exists"
-	if !status.Exists {
-		state = "missing"
-	}
-	_, err := fmt.Fprintf(stdout, "database %s: %s (%s)\n", state, status.Name, env)
-	return err
-}
-
-func writeDBPreparePlan(stdout io.Writer, env secrets.Environment, plan dbPreparationPlan) error {
-	unsafeCount, unsupportedCount := schemaDiagnosticCounts(plan.Migration.Schema)
-	if _, err := fmt.Fprintf(stdout, "db prepare plan (%s)\n", env); err != nil {
-		return err
-	}
-	if _, err := fmt.Fprintf(stdout, "pre-sync patches: %d pending, %d applied\n", len(plan.Migration.PreSync.Pending), len(plan.Migration.PreSync.Applied)); err != nil {
-		return err
-	}
-	if _, err := fmt.Fprintf(stdout, "schema safe operations: %d\n", len(plan.Migration.Schema.Operations)); err != nil {
-		return err
-	}
-	if _, err := fmt.Fprintf(stdout, "schema unsafe diagnostics: %d\n", unsafeCount); err != nil {
-		return err
-	}
-	if _, err := fmt.Fprintf(stdout, "schema unsupported diagnostics: %d\n", unsupportedCount); err != nil {
-		return err
-	}
-	if _, err := fmt.Fprintf(stdout, "post-sync patches: %d pending, %d applied\n", len(plan.Migration.PostSync.Pending), len(plan.Migration.PostSync.Applied)); err != nil {
-		return err
-	}
-	if _, err := fmt.Fprintf(stdout, "access: %d roles, %d policy files, %d permissions\n", plan.Access.Roles, plan.Access.Policies, plan.Access.Permissions); err != nil {
-		return err
-	}
-	_, err := fmt.Fprintf(stdout, "fixtures: %d files, %d records\n", plan.Fixtures.FileCount(), plan.Fixtures.RecordCount())
-	return err
-}
-
-func writeDBPrepareResult(stdout io.Writer, env secrets.Environment, result dbPreparationResult) error {
-	if _, err := fmt.Fprintf(stdout, "database prepared (%s)\n", env); err != nil {
-		return err
-	}
-	if _, err := fmt.Fprintf(stdout, "pre-sync patches applied: %d\n", len(result.Migration.PreSync.Applied)); err != nil {
-		return err
-	}
-	if _, err := fmt.Fprintln(stdout, migrateResultLine(result.Migration.Schema, env)); err != nil {
-		return err
-	}
-	if _, err := fmt.Fprintf(stdout, "post-sync patches applied: %d\n", len(result.Migration.PostSync.Applied)); err != nil {
-		return err
-	}
-	if _, err := fmt.Fprintln(stdout, "schema snapshot: refreshed"); err != nil {
-		return err
-	}
-	if _, err := fmt.Fprintf(stdout, "access records: %d roles, %d permissions\n", result.Access.Roles, result.Access.Permissions); err != nil {
-		return err
-	}
-	_, err := fmt.Fprintf(stdout, "fixture records: %d created, %d updated\n", result.Fixtures.Created, result.Fixtures.Updated)
 	return err
 }
 

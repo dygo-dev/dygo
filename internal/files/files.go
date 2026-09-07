@@ -359,9 +359,6 @@ func validateUpload(upload dygo.FileUpload) error {
 	if upload.Size < -1 || upload.Size > maxFileSize {
 		return fileError("invalid_request", "file size is invalid")
 	}
-	if !hasTarget(upload.Target) && upload.Size == 0 {
-		return nil
-	}
 	return nil
 }
 

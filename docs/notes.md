@@ -38,39 +38,6 @@ These are intentionally not part of the current public CLI contract:
 - Studio retry and cancel controls for Job Executions
 - production secret providers such as KMS or Vault
 
-## Reduction Scan
-
-These notes came from a static reduction scan. Re-check each item before deleting or refactoring code.
-
-High-confidence delete candidates:
-
-- `apps/studio/ui/src/design/atoms/Divider.vue`
-- `apps/studio/ui/src/design/molecules/FieldRow.vue`
-- `apps/studio/ui/src/design/molecules/FormSection.vue`
-- `apps/studio/ui/src/design/molecules/SearchBox.vue`
-- `apps/studio/ui/src/design/molecules/RadioGroupField.vue`
-- `apps/studio/ui/src/design/primitives/RadioGroup.vue`
-
-DRY candidates:
-
-- Share fixture dependency sorting between validation and apply.
-- Share nested fixture link decoding between validation and apply.
-- Reduce repeated public identity and layout dispatch in Record CRUD.
-- Table-drive generator command construction.
-- Share field normalization and editor selection across record renderers.
-
-Large files to watch:
-
-- `internal/db/records.go`
-- `internal/db/schema_plan.go`
-- `internal/fixtures/fixtures.go`
-- `internal/cli/db.go`
-- `apps/studio/ui/src/design/organisms/DataTable.vue`
-- `apps/studio/ui/src/pages/RecordFormPage.vue`
-- `apps/studio/ui/src/renderers/records/RecordCollectionTable.vue`
-- `internal/cli/root_test.go`
-- `internal/db/records_test.go`
-
 Naming notes:
 
 - `internal/studio/assets.go` is really Studio bundle source resolution, cache installation, and static handler wiring.

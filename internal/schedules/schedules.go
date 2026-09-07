@@ -57,10 +57,7 @@ type Schedule struct {
 
 // EffectiveEnabled returns whether this Schedule should create future Job Executions.
 func (s Schedule) EffectiveEnabled() bool {
-	if s.Enabled == nil {
-		return true
-	}
-	return *s.Enabled
+	return s.Enabled == nil || *s.Enabled
 }
 
 // JobRef returns the target app/job reference.

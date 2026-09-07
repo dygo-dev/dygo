@@ -53,15 +53,7 @@ export type ImportInfo = {
 }
 export type FileInfo = { id: number, filename: string }
 
-type ListRecordsOptions = {
-  signal?: AbortSignal
-}
-
-type ReadRecordOptions = {
-  signal?: AbortSignal
-}
-
-type ActivityOptions = {
+type RequestOptions = {
   signal?: AbortSignal
 }
 
@@ -71,7 +63,7 @@ export class RecordApiError extends ApiClientError {
   }
 }
 
-export async function listRecords(entity: string, params: ListRecordsParams, options: ListRecordsOptions = {}): Promise<ListEnvelope<RecordData[], RecordListMeta>> {
+export async function listRecords(entity: string, params: ListRecordsParams, options: RequestOptions = {}): Promise<ListEnvelope<RecordData[], RecordListMeta>> {
   const query = buildRecordListQuery(params)
 
   return apiRequest<ListEnvelope<RecordData[], RecordListMeta>, RecordApiError>(`/api/v1/records/${encodeURIComponent(entity)}?${query.toString()}`, {
@@ -115,7 +107,7 @@ export async function uploadRecordFile(app: string, entity: string, recordID: nu
   return payload.data
 }
 
-export async function getRecordByName(entity: string, recordName: string, options: ReadRecordOptions = {}): Promise<RecordData> {
+export async function getRecordByName(entity: string, recordName: string, options: RequestOptions = {}): Promise<RecordData> {
   const payload = await apiRequest<DataEnvelope<RecordData>, RecordApiError>(`/api/v1/records/${encodeURIComponent(entity)}/name/${encodeURIComponent(recordName)}`, {
     method: 'GET',
     signal: options.signal,
@@ -124,7 +116,7 @@ export async function getRecordByName(entity: string, recordName: string, option
   return payload.data
 }
 
-export async function getSingleRecord(entity: string, options: ReadRecordOptions = {}): Promise<RecordData> {
+export async function getSingleRecord(entity: string, options: RequestOptions = {}): Promise<RecordData> {
   const payload = await apiRequest<DataEnvelope<RecordData>, RecordApiError>(`/api/v1/records/${encodeURIComponent(entity)}/single`, {
     method: 'GET',
     signal: options.signal,
@@ -169,7 +161,7 @@ export async function updateSingleRecord(entity: string, data: RecordData): Prom
   return payload.data
 }
 
-export async function listRecordActivity(entity: string, id: string | number, options: ActivityOptions = {}): Promise<ListEnvelope<ActivityEntry[], ActivityListMeta>> {
+export async function listRecordActivity(entity: string, id: string | number, options: RequestOptions = {}): Promise<ListEnvelope<ActivityEntry[], ActivityListMeta>> {
   const query = new URLSearchParams({ limit: '50', offset: '0' })
   return apiRequest<ListEnvelope<ActivityEntry[], ActivityListMeta>, RecordApiError>(`/api/v1/records/${encodeURIComponent(entity)}/${encodeURIComponent(String(id))}/activity?${query.toString()}`, {
     method: 'GET',

@@ -56,4 +56,4 @@ Use this index to find the right document for the task. The docs are kept in the
 - [Project README](../README.md) gives a short overview and quick start.
 - [Contributing](../CONTRIBUTING.md) explains the current paused contribution status.
 - [Security Policy](../SECURITY.md) explains private vulnerability reporting and safe research guidelines.
-- [Agent Instructions](../AGENT.md) stores repo-level guidance for coding agents.
+- [Agent Instructions](../AGENTS.md) stores repo-level guidance for coding agents.

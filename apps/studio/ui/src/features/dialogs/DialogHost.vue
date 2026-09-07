@@ -10,7 +10,7 @@ import {
 } from 'reka-ui'
 
 import { Button } from '@/design'
-import { useDialogStore, type StudioDialog, type StudioDialogActionVariant } from './dialogs.store'
+import { useDialogStore, type StudioDialog } from './dialogs.store'
 
 const dialogStore = useDialogStore()
 const topDialog = computed(() => dialogStore.topDialog)
@@ -35,9 +35,6 @@ function choose(dialog: StudioDialog, key: string) {
   dialogStore.selectAction(dialog.id, key)
 }
 
-function buttonVariant(variant: StudioDialogActionVariant): 'primary' | 'secondary' | 'danger' {
-  return variant === 'danger' ? 'danger' : variant
-}
 </script>
 
 <template>
@@ -61,7 +58,7 @@ function buttonVariant(variant: StudioDialogActionVariant): 'primary' | 'seconda
           <Button
             v-for="action in topDialog.actions"
             :key="action.key"
-            :variant="buttonVariant(action.variant)"
+            :variant="action.variant"
             size="sm"
             @click="choose(topDialog, action.key)"
           >

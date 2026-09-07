@@ -15,14 +15,7 @@ import (
 )
 
 func newSecretCommand(ctx context.Context, stdin io.Reader, stdout, stderr io.Writer) *cobra.Command {
-	cmd := &cobra.Command{
-		Use:   "secret",
-		Short: "Manage encrypted dygo secrets",
-		Args:  cobra.NoArgs,
-		RunE: func(cmd *cobra.Command, _ []string) error {
-			return cmd.Help()
-		},
-	}
+	cmd := newCommandGroup("secret", "Manage encrypted dygo secrets")
 
 	cmd.AddCommand(newRecordKeyCommand(ctx, stdout))
 	cmd.AddCommand(newSecretInitCommand(stdout))
@@ -48,7 +41,7 @@ func newSecretInitCommand(stdout io.Writer) *cobra.Command {
 			if err != nil {
 				return err
 			}
-			if _, err := fmt.Fprintf(stdout, "initialized secrets\nkey: %s\n%s", rel(paths.MasterKeyFile), formatSecretFiles(store)); err != nil {
+			if _, err := fmt.Fprintf(stdout, "initialized secrets\nkey: %s\n%s", relToWorkingRoot(paths.MasterKeyFile), formatSecretFiles(store)); err != nil {
 				return fmt.Errorf("write init output: %w", err)
 			}
 			return nil
@@ -179,7 +172,7 @@ func newSecretRotateKeyCommand(stdin io.Reader, stdout, stderr io.Writer) *cobra
 			if err != nil {
 				return err
 			}
-			if _, err := fmt.Fprintf(stdout, "rotated secrets master key\nkey: %s\n%s", rel(paths.MasterKeyFile), formatSecretFiles(store)); err != nil {
+			if _, err := fmt.Fprintf(stdout, "rotated secrets master key\nkey: %s\n%s", relToWorkingRoot(paths.MasterKeyFile), formatSecretFiles(store)); err != nil {
 				return fmt.Errorf("write rotate-key output: %w", err)
 			}
 			return nil
@@ -200,7 +193,7 @@ func newWorkingSecretsStore() (secrets.Store, error) {
 }
 
 func writeRotateKeyPlan(stdout io.Writer, store secrets.Store) error {
-	if _, err := fmt.Fprintf(stdout, "secret rotate-key plan\nkey: %s\n%s", rel(store.Paths(secrets.EnvironmentDevelopment).MasterKeyFile), formatSecretFiles(store)); err != nil {
+	if _, err := fmt.Fprintf(stdout, "secret rotate-key plan\nkey: %s\n%s", relToWorkingRoot(store.Paths(secrets.EnvironmentDevelopment).MasterKeyFile), formatSecretFiles(store)); err != nil {
 		return fmt.Errorf("write rotate-key plan: %w", err)
 	}
 	return nil
@@ -311,12 +304,8 @@ func formatSecretFiles(store secrets.Store) string {
 	builder.WriteString("files:\n")
 	for _, env := range secrets.SupportedEnvironments() {
 		builder.WriteString("  ")
-		builder.WriteString(rel(store.Paths(env).SecretFile))
+		builder.WriteString(relToWorkingRoot(store.Paths(env).SecretFile))
 		builder.WriteString("\n")
 	}
 	return builder.String()
-}
-
-func rel(path string) string {
-	return relToWorkingRoot(path)
 }

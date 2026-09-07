@@ -1,4 +1,4 @@
-# AGENT.md
+# AGENTS.md
 
 This file gives coding agents the product and engineering context needed to work on dygo.
 

@@ -3,7 +3,6 @@ package studio
 
 import (
 	"embed"
-	"errors"
 	"fmt"
 	"io/fs"
 	"net/http"
@@ -11,6 +10,8 @@ import (
 	"path"
 	"path/filepath"
 	"strings"
+
+	"github.com/hapyco/dygo/internal/fsutil"
 )
 
 const (
@@ -128,17 +129,11 @@ func defaultEmbeddedSource() (Source, bool, error) {
 
 // HasIndex reports whether fsys contains a built Studio entrypoint.
 func HasIndex(fsys fs.FS) (bool, error) {
-	if fsys == nil {
-		return false, nil
-	}
-	info, err := fs.Stat(fsys, "index.html")
-	if err == nil {
-		return !info.IsDir(), nil
-	}
-	if errors.Is(err, fs.ErrNotExist) || errors.Is(err, os.ErrNotExist) {
-		return false, nil
-	}
-	return false, err
+	return fsutil.HasFile(fsys, "index.html")
+}
+
+func hasManifest(fsys fs.FS) (bool, error) {
+	return fsutil.HasFile(fsys, "app.yml")
 }
 
 // NewStaticHandler serves built Studio assets with SPA route fallback.
@@ -263,76 +258,26 @@ func firstAssetSource(sources []Source) (Source, error) {
 	return Source{}, fmt.Errorf("Studio UI assets are unavailable")
 }
 
-func hasManifest(fsys fs.FS) (bool, error) {
-	if fsys == nil {
-		return false, nil
-	}
-	info, err := fs.Stat(fsys, "app.yml")
-	if err == nil {
-		return !info.IsDir(), nil
-	}
-	if errors.Is(err, fs.ErrNotExist) || errors.Is(err, os.ErrNotExist) {
-		return false, nil
-	}
-	return false, err
-}
-
 func replaceAppDir(appSource fs.FS, assetSource fs.FS, target string) error {
-	parent := filepath.Dir(target)
-	if err := os.MkdirAll(parent, 0o755); err != nil {
-		return fmt.Errorf("create Studio App cache parent: %w", err)
-	}
-	temp, err := os.MkdirTemp(parent, ".studio-app-*")
-	if err != nil {
-		return fmt.Errorf("create temporary Studio App cache: %w", err)
-	}
-	defer func() {
-		if temp != "" {
-			_ = os.RemoveAll(temp)
+	return fsutil.ReplaceDir(target, ".studio-app-*", "Studio App", func(temp string) error {
+		if err := copyAppMetadata(appSource, temp); err != nil {
+			return err
 		}
-	}()
-
-	if err := copyAppMetadata(appSource, temp); err != nil {
-		return err
-	}
-	if err := copyFS(assetSource, filepath.Join(temp, "ui", "dist")); err != nil {
-		return err
-	}
-	if ok, err := hasManifest(os.DirFS(temp)); err != nil {
-		return fmt.Errorf("verify temporary Studio App cache: %w", err)
-	} else if !ok {
-		return fmt.Errorf("temporary Studio App cache is missing app.yml")
-	}
-	if ok, err := HasIndex(os.DirFS(filepath.Join(temp, "ui", "dist"))); err != nil {
-		return fmt.Errorf("verify temporary Studio UI cache: %w", err)
-	} else if !ok {
-		return fmt.Errorf("temporary Studio UI cache is missing index.html")
-	}
-
-	// TODO(packaging): share this guarded directory swap with frameworkapp once
-	// framework App installation has one package-level primitive.
-	backup := target + ".previous"
-	_ = os.RemoveAll(backup)
-	hadExisting := false
-	if _, err := os.Stat(target); err == nil {
-		hadExisting = true
-		if err := os.Rename(target, backup); err != nil {
-			return fmt.Errorf("move existing Studio App cache aside: %w", err)
+		if err := fsutil.CopyFS(assetSource, filepath.Join(temp, "ui", "dist"), "Studio asset"); err != nil {
+			return err
 		}
-	} else if !errors.Is(err, os.ErrNotExist) {
-		return fmt.Errorf("check existing Studio App cache: %w", err)
-	}
-	if err := os.Rename(temp, target); err != nil {
-		if hadExisting {
-			_ = os.Rename(backup, target)
+		if ok, err := hasManifest(os.DirFS(temp)); err != nil {
+			return fmt.Errorf("verify temporary Studio App cache: %w", err)
+		} else if !ok {
+			return fmt.Errorf("temporary Studio App cache is missing app.yml")
 		}
-		return fmt.Errorf("replace Studio App cache: %w", err)
-	}
-	temp = ""
-	if hadExisting {
-		_ = os.RemoveAll(backup)
-	}
-	return nil
+		if ok, err := HasIndex(os.DirFS(filepath.Join(temp, "ui", "dist"))); err != nil {
+			return fmt.Errorf("verify temporary Studio UI cache: %w", err)
+		} else if !ok {
+			return fmt.Errorf("temporary Studio UI cache is missing index.html")
+		}
+		return nil
+	})
 }
 
 func copyAppMetadata(source fs.FS, target string) error {
@@ -391,78 +336,14 @@ func assetExists(fsys fs.FS, name string) bool {
 }
 
 func replaceDir(source fs.FS, target string) error {
-	parent := filepath.Dir(target)
-	if err := os.MkdirAll(parent, 0o755); err != nil {
-		return fmt.Errorf("create Studio cache parent: %w", err)
-	}
-	temp, err := os.MkdirTemp(parent, ".studio-dist-*")
-	if err != nil {
-		return fmt.Errorf("create temporary Studio cache: %w", err)
-	}
-	defer func() {
-		if temp != "" {
-			_ = os.RemoveAll(temp)
-		}
-	}()
-
-	if err := copyFS(source, temp); err != nil {
-		return err
-	}
-	if ok, err := HasIndex(os.DirFS(temp)); err != nil {
-		return fmt.Errorf("verify temporary Studio cache: %w", err)
-	} else if !ok {
-		return fmt.Errorf("temporary Studio cache is missing index.html")
-	}
-
-	backup := target + ".previous"
-	_ = os.RemoveAll(backup)
-	hadExisting := false
-	if _, err := os.Stat(target); err == nil {
-		hadExisting = true
-		if err := os.Rename(target, backup); err != nil {
-			return fmt.Errorf("move existing Studio cache aside: %w", err)
-		}
-	} else if !errors.Is(err, os.ErrNotExist) {
-		return fmt.Errorf("check existing Studio cache: %w", err)
-	}
-
-	if err := os.Rename(temp, target); err != nil {
-		if hadExisting {
-			_ = os.Rename(backup, target)
-		}
-		return fmt.Errorf("replace Studio cache: %w", err)
-	}
-	temp = ""
-	if hadExisting {
-		_ = os.RemoveAll(backup)
-	}
-	return nil
-}
-
-func copyFS(source fs.FS, target string) error {
-	return fs.WalkDir(source, ".", func(name string, entry fs.DirEntry, err error) error {
-		if err != nil {
+	return fsutil.ReplaceDir(target, ".studio-dist-*", "Studio", func(temp string) error {
+		if err := fsutil.CopyFS(source, temp, "Studio asset"); err != nil {
 			return err
 		}
-		if name == "." {
-			return nil
-		}
-		targetPath := filepath.Join(target, filepath.FromSlash(name))
-		if entry.IsDir() {
-			if err := os.MkdirAll(targetPath, 0o755); err != nil {
-				return fmt.Errorf("create Studio asset directory %s: %w", name, err)
-			}
-			return nil
-		}
-		data, err := fs.ReadFile(source, name)
-		if err != nil {
-			return fmt.Errorf("read Studio asset %s: %w", name, err)
-		}
-		if err := os.MkdirAll(filepath.Dir(targetPath), 0o755); err != nil {
-			return fmt.Errorf("create Studio asset parent %s: %w", name, err)
-		}
-		if err := os.WriteFile(targetPath, data, 0o644); err != nil {
-			return fmt.Errorf("write Studio asset %s: %w", name, err)
+		if ok, err := HasIndex(os.DirFS(temp)); err != nil {
+			return fmt.Errorf("verify temporary Studio cache: %w", err)
+		} else if !ok {
+			return fmt.Errorf("temporary Studio cache is missing index.html")
 		}
 		return nil
 	})

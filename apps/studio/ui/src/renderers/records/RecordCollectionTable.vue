@@ -2,12 +2,13 @@
 import { computed } from 'vue'
 import { ArrowDown, ArrowUp, Plus, Trash2 } from '@lucide/vue'
 
-import { Button, IconButton, Input, Select, Switch, Textarea, type FieldOption, type TextInputType } from '@/design'
+import { Button, IconButton, Input, Select, Switch, Textarea } from '@/design'
 import type { MetadataEntityMeta, MetadataField } from '@/features/metadata/metadata.api'
 import type { RecordData } from '@/features/records/records.api'
 import { isHiddenCollectionField, recordFieldLabel } from '@/features/records/system-fields'
 import SecretEditor from './SecretEditor.vue'
 import LinkPicker from './LinkPicker.vue'
+import { booleanValue, editorForField, inputTypeForField, isTextareaField, isTextField, selectOptions, textValue } from './record-field-utils'
 
 const props = withDefaults(defineProps<{
   id: string
@@ -123,65 +124,6 @@ function fieldId(field: MetadataField, index: number): string {
   return `${props.id}-${index}-${field.name}`.replace(/[^a-zA-Z0-9_-]+/g, '-')
 }
 
-function textValue(row: RecordData, field: MetadataField): string {
-  const value = row[field.name]
-  if (value === null || value === undefined) {
-    return ''
-  }
-  if (typeof value === 'string') {
-    return value
-  }
-  if (typeof value === 'number' || typeof value === 'bigint' || typeof value === 'boolean') {
-    return String(value)
-  }
-  return JSON.stringify(value, null, 2)
-}
-
-function booleanValue(row: RecordData, field: MetadataField): boolean {
-  return row[field.name] === true
-}
-
-function inputTypeForField(field: MetadataField): Exclude<TextInputType, 'password'> {
-  switch (editorForField(field)) {
-    case 'email':
-      return 'email'
-    case 'date':
-      return 'date'
-    case 'number':
-      return 'number'
-    default:
-      return 'text'
-  }
-}
-
-function editorForField(field: MetadataField): string {
-  return field.studio?.editor || field.type
-}
-
-function isTextField(field: MetadataField): boolean {
-  return ['text', 'email', 'number', 'link', 'date', 'datetime', 'time', 'password'].includes(editorForField(field))
-}
-
-function isTextareaField(field: MetadataField): boolean {
-  return editorForField(field) === 'textarea' || editorForField(field) === 'json'
-}
-
-function selectOptions(field: MetadataField): FieldOption[] {
-  const options = field.options
-  if (!options || typeof options !== 'object' || !('values' in options)) {
-    return []
-  }
-
-  const values = (options as { values?: unknown }).values
-  if (!Array.isArray(values)) {
-    return []
-  }
-
-  return values
-    .filter((value): value is string | number => typeof value === 'string' || typeof value === 'number')
-    .map((value) => ({ value: String(value), label: String(value) }))
-}
-
 </script>
 
 <template>
@@ -212,7 +154,7 @@ function selectOptions(field: MetadataField): FieldOption[] {
                 :id="fieldId(column, rowIndex)"
                 :label="recordFieldLabel(column)"
                 :field="column"
-                :model-value="textValue(row, column)"
+                :model-value="textValue(row[column.name])"
                 :current-values="row"
                 :required="column.required"
                 :disabled="disabled"
@@ -224,7 +166,7 @@ function selectOptions(field: MetadataField): FieldOption[] {
               <Select
                 v-else-if="editorForField(column) === 'select'"
                 :id="fieldId(column, rowIndex)"
-                :model-value="textValue(row, column)"
+                :model-value="textValue(row[column.name])"
                 :name="`${field.name}.${rowIndex}.${column.name}`"
                 :options="selectOptions(column)"
                 size="sm"
@@ -236,7 +178,7 @@ function selectOptions(field: MetadataField): FieldOption[] {
               <Switch
                 v-else-if="editorForField(column) === 'switch'"
                 :id="fieldId(column, rowIndex)"
-                :model-value="booleanValue(row, column)"
+                :model-value="booleanValue(row[column.name])"
                 :name="`${field.name}.${rowIndex}.${column.name}`"
                 :disabled="disabled"
                 :invalid="Boolean(error)"
@@ -246,7 +188,7 @@ function selectOptions(field: MetadataField): FieldOption[] {
               <Textarea
                 v-else-if="isTextareaField(column)"
                 :id="fieldId(column, rowIndex)"
-                :model-value="textValue(row, column)"
+                :model-value="textValue(row[column.name])"
                 :name="`${field.name}.${rowIndex}.${column.name}`"
                 size="xs"
                 :rows="2"
@@ -268,7 +210,7 @@ function selectOptions(field: MetadataField): FieldOption[] {
               <Input
                 v-else-if="isTextField(column)"
                 :id="fieldId(column, rowIndex)"
-                :model-value="textValue(row, column)"
+                :model-value="textValue(row[column.name])"
                 :name="`${field.name}.${rowIndex}.${column.name}`"
                 :type="editorForField(column) === 'password' ? 'password' : inputTypeForField(column)"
                 size="sm"
@@ -280,7 +222,7 @@ function selectOptions(field: MetadataField): FieldOption[] {
               <Input
                 v-else
                 :id="fieldId(column, rowIndex)"
-                :model-value="textValue(row, column)"
+                :model-value="textValue(row[column.name])"
                 :name="`${field.name}.${rowIndex}.${column.name}`"
                 size="sm"
                 readonly

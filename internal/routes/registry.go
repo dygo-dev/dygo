@@ -122,15 +122,18 @@ func Validate(entities []catalog.LoadedEntity) (ValidationResult, error) {
 
 // ValidateWithPages checks the static public route registry including Page claims.
 func ValidateWithPages(entities []catalog.LoadedEntity, loadedPages []pages.LoadedPage) (ValidationResult, error) {
-	entityRoutes := EntriesWithPages(entities, loadedPages)
-	result := ValidationResult{
-		ReservedRoutes: len(ReservedSlugs()),
-		EntityRoutes:   len(entityRoutes) - countEntries(entityRoutes, "page"),
-		PageRoutes:     countEntries(entityRoutes, "page"),
-	}
+	result := ValidationResult{}
 	claims := map[string][]RegistryEntry{}
 	for _, route := range RegistryWithPages(entities, loadedPages) {
 		claims[route.Path] = append(claims[route.Path], route)
+		switch route.Kind {
+		case "reserved":
+			result.ReservedRoutes++
+		case "page":
+			result.PageRoutes++
+		default:
+			result.EntityRoutes++
+		}
 	}
 
 	var paths []string
@@ -154,16 +157,6 @@ func ValidateWithPages(entities []catalog.LoadedEntity, loadedPages []pages.Load
 	}
 	result.Conflicts = len(problems)
 	return result, ValidationError{Problems: problems}
-}
-
-func countEntries(entries []Entry, kind string) int {
-	count := 0
-	for _, entry := range entries {
-		if entry.Kind == kind {
-			count++
-		}
-	}
-	return count
 }
 
 // ReservedSlugs returns framework-reserved root route slugs without a leading slash.

@@ -335,15 +335,13 @@ func buildDesiredSchema(entities []catalog.LoadedEntity) (desiredSchema, error) 
 			Constraints:   []desiredConstraint{},
 		}
 		desiredTable.CreateSQL = createTableSQL(table, desiredTable.SystemColumns)
-		if requiresSystemNameUniqueConstraint(loaded) {
-			desiredTable.Constraints = append(desiredTable.Constraints, desiredConstraint{
-				Name:       constraintName(table, "name", "key"),
-				Type:       "unique",
-				Columns:    []string{"name"},
-				Definition: fmt.Sprintf("UNIQUE (%s)", quoteIdentList([]string{"name"})),
-				Source:     entitySource(loaded),
-			})
-		}
+		desiredTable.Constraints = append(desiredTable.Constraints, desiredConstraint{
+			Name:       constraintName(table, "name", "key"),
+			Type:       "unique",
+			Columns:    []string{"name"},
+			Definition: fmt.Sprintf("UNIQUE (%s)", quoteIdentList([]string{"name"})),
+			Source:     entitySource(loaded),
+		})
 		if loaded.Entity.IsSingle {
 			desiredTable.Constraints = append(desiredTable.Constraints, singleEntityNameConstraint(table, loaded))
 		}
@@ -548,10 +546,6 @@ func validateDesiredObjectNames(table desiredTable) error {
 		constraintNames[constraint.Name] = constraint.Source
 	}
 	return nil
-}
-
-func requiresSystemNameUniqueConstraint(entity catalog.LoadedEntity) bool {
-	return true
 }
 
 func singleEntityNameConstraint(table string, entity catalog.LoadedEntity) desiredConstraint {
