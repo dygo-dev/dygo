@@ -116,64 +116,79 @@ function isEntityRoute(entity: string): boolean {
 
 <template>
   <RouterView v-if="!usesShell" :key="publicRouteViewKey" />
-  <Shell v-else :user-name="userName" :nav-items="navItems" :show-sidebar="shellReady">
-    <template #sidebar>
-      <template v-if="shellReady">
-        <div v-if="metadataEntitiesLoading" class="studio-entity-nav-state">
-          Loading entities
-        </div>
-        <div v-else-if="metadataEntitiesError" class="studio-entity-nav-state">
-          {{ metadataEntitiesError.message }}
-        </div>
-        <div v-else-if="metadataEntities.length === 0" class="studio-entity-nav-state">
-          No entities yet
-        </div>
+  <div v-else class="studio-workspace">
+    <Shell :user-name="userName" :nav-items="navItems" :show-sidebar="shellReady">
+      <template #sidebar>
+        <template v-if="shellReady">
+          <div v-if="metadataEntitiesLoading" class="studio-entity-nav-state">
+            Loading entities
+          </div>
+          <div v-else-if="metadataEntitiesError" class="studio-entity-nav-state">
+            {{ metadataEntitiesError.message }}
+          </div>
+          <div v-else-if="metadataEntities.length === 0" class="studio-entity-nav-state">
+            No entities yet
+          </div>
+        </template>
       </template>
-    </template>
 
-    <section v-if="bootStore.status === 'loading' || bootStore.status === 'idle'" class="studio-shell-state" aria-live="polite">
-      <Spinner size="sm" label="Loading Studio" />
-      <p>Loading Studio</p>
-    </section>
+      <section v-if="bootStore.status === 'loading' || bootStore.status === 'idle'" class="studio-shell-state" aria-live="polite">
+        <Spinner size="sm" label="Loading Studio" />
+        <p>Loading Studio</p>
+      </section>
 
-    <section v-else-if="bootStore.status === 'forbidden'" class="studio-shell-state" role="alert" aria-labelledby="studio-access-title">
-      <span class="studio-shell-state__icon" aria-hidden="true">
-        <LockKeyhole :size="22" :stroke-width="1.7" />
-      </span>
-      <p class="studio-shell-state__eyebrow">Access restricted</p>
-      <h1 id="studio-access-title">Studio access is required</h1>
-      <p class="studio-shell-state__message">
-        Your account can sign in, but it cannot open Studio. Ask an administrator to grant Studio access.
-      </p>
-      <Button variant="secondary" @click="retryBoot">
-        <RefreshCw aria-hidden="true" :size="14" :stroke-width="1.8" />
-        Try again
-      </Button>
-    </section>
+      <section v-else-if="bootStore.status === 'forbidden'" class="studio-shell-state" role="alert" aria-labelledby="studio-access-title">
+        <span class="studio-shell-state__icon" aria-hidden="true">
+          <LockKeyhole :size="22" :stroke-width="1.7" />
+        </span>
+        <p class="studio-shell-state__eyebrow">Access restricted</p>
+        <h1 id="studio-access-title">Studio access is required</h1>
+        <p class="studio-shell-state__message">
+          Your account can sign in, but it cannot open Studio. Ask an administrator to grant Studio access.
+        </p>
+        <Button variant="secondary" @click="retryBoot">
+          <RefreshCw aria-hidden="true" :size="14" :stroke-width="1.8" />
+          Try again
+        </Button>
+      </section>
 
-    <section v-else-if="bootStore.status === 'error'" class="studio-shell-state" role="alert" aria-labelledby="studio-error-title">
-      <span class="studio-shell-state__icon" aria-hidden="true">
-        <TriangleAlert :size="22" :stroke-width="1.7" />
-      </span>
-      <p class="studio-shell-state__eyebrow">Studio unavailable</p>
-      <h1 id="studio-error-title">Studio could not start</h1>
-      <p class="studio-shell-state__message">
-        {{ bootStore.error?.message || 'Check the server, then try again.' }}
-      </p>
-      <Button variant="secondary" @click="retryBoot">
-        <RefreshCw aria-hidden="true" :size="14" :stroke-width="1.8" />
-        Try again
-      </Button>
-    </section>
+      <section v-else-if="bootStore.status === 'error'" class="studio-shell-state" role="alert" aria-labelledby="studio-error-title">
+        <span class="studio-shell-state__icon" aria-hidden="true">
+          <TriangleAlert :size="22" :stroke-width="1.7" />
+        </span>
+        <p class="studio-shell-state__eyebrow">Studio unavailable</p>
+        <h1 id="studio-error-title">Studio could not start</h1>
+        <p class="studio-shell-state__message">
+          {{ bootStore.error?.message || 'Check the server, then try again.' }}
+        </p>
+        <Button variant="secondary" @click="retryBoot">
+          <RefreshCw aria-hidden="true" :size="14" :stroke-width="1.8" />
+          Try again
+        </Button>
+      </section>
 
-    <RouterView v-else :key="shellRouteViewKey" />
-  </Shell>
+      <RouterView v-else :key="shellRouteViewKey" />
+    </Shell>
+    <DebugBar v-if="DebugBar" />
+  </div>
   <DialogHost />
   <ToastHost />
-  <DebugBar v-if="DebugBar && usesShell" />
 </template>
 
 <style scoped>
+.studio-workspace {
+  display: flex;
+  flex-direction: column;
+  height: 100dvh;
+  overflow: hidden;
+}
+
+.studio-workspace > :deep(.studio-shell) {
+  flex: 1;
+  min-height: 0;
+  height: auto;
+}
+
 .studio-entity-nav-state {
   margin-top: 8px;
   color: var(--studio-text-subtle);
