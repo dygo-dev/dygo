@@ -64,7 +64,7 @@ const hasHeaderActions = computed(() => props.showActions && (props.actions.leng
 }
 
 .studio-page-sheet__header {
-  padding: 28px 38px 0;
+  margin: 0;
 }
 
 @media (max-width: 720px) {
@@ -72,8 +72,5 @@ const hasHeaderActions = computed(() => props.showActions && (props.actions.leng
     border-radius: var(--studio-radius-sheet) var(--studio-radius-sheet) 0 0;
   }
 
-  .studio-page-sheet__header {
-    padding: 24px 22px 0;
-  }
 }
 </style>

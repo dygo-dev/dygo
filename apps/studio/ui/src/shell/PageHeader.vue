@@ -91,6 +91,7 @@ function runAction(action: PageHeaderAction) {
           :loading="action.loading"
           :aria-keyshortcuts="ariaShortcut(action.shortcut)"
           :title="action.shortcut ? `${action.label} (${shortcutLabel(action.shortcut)})` : undefined"
+          size="sm"
           @click="runAction(action)"
         >
           <component
@@ -112,10 +113,11 @@ function runAction(action: PageHeaderAction) {
 .studio-page-header {
   display: grid;
   min-width: 0;
-  gap: 16px;
+  gap: 8px;
   margin: calc(var(--studio-page-padding) * -1) calc(var(--studio-page-padding) * -1) 0;
   border-bottom: 1px solid var(--studio-border);
-  padding: 10px var(--studio-page-padding);
+  padding: 8px var(--studio-page-padding);
+  min-height: 49px;
 }
 
 .studio-page-header--with-actions {
@@ -142,8 +144,8 @@ function runAction(action: PageHeaderAction) {
 
 .studio-page-header__pin {
   display: inline-flex;
-  width: 28px;
-  height: 28px;
+  width: var(--studio-control-height-sm);
+  height: var(--studio-control-height-sm);
   flex: 0 0 auto;
   align-items: center;
   justify-content: center;
@@ -178,6 +180,7 @@ function runAction(action: PageHeaderAction) {
 
 .studio-page-header__actions {
   display: flex;
+  align-items: center;
   flex-wrap: wrap;
   justify-content: flex-end;
   gap: 8px;

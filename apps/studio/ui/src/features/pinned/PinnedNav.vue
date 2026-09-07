@@ -96,9 +96,9 @@ function followPin(event: MouseEvent, path: string | null) {
       <PopoverContent class="pinned-nav__popover" side="right" align="start" :side-offset="8">
         <p class="pinned-nav__popover-title">Pinned</p>
         <div class="pinned-nav__popover-list">
-          <div v-for="entry in items" :key="entry.item.path" class="pinned-nav__item">
+          <div v-for="entry in items" :key="entry.item.path" class="pinned-nav__item" :class="{ 'pinned-nav__item--current': entry.path === route.path }">
             <button class="pinned-nav__remove" type="button" :aria-label="`Unpin ${entry.item.label}`" @click="navigation.unpin(entry.item)">
-              <Pin :size="15" aria-hidden="true" />
+              <Pin :size="16" :stroke-width="1.8" aria-hidden="true" />
             </button>
             <RouterLink class="pinned-nav__link" :to="entry.path ?? route.fullPath" :aria-disabled="!entry.path" @click="followPin($event, entry.path)">
               <span>{{ entry.item.label }}</span>
@@ -136,7 +136,7 @@ function followPin(event: MouseEvent, path: string | null) {
         @pointercancel="onPointerUp"
       >
         <button class="pinned-nav__remove" type="button" :aria-label="`Unpin ${entry.item.label}`" @click="navigation.unpin(entry.item)">
-          <Pin :size="15" aria-hidden="true" />
+          <Pin :size="16" :stroke-width="1.8" aria-hidden="true" />
         </button>
         <RouterLink
           class="pinned-nav__link"
@@ -159,22 +159,25 @@ function followPin(event: MouseEvent, path: string | null) {
 
 <style scoped>
 .pinned-nav { display: grid; gap: 4px; width: 100%; margin-bottom: 12px; }
-.pinned-nav__heading { display: flex; min-height: 30px; align-items: center; justify-content: space-between; border: 0; background: transparent; color: var(--studio-text-muted); padding: 0 10px; font-size: 12px; font-weight: 650; }
-.pinned-nav__list, .pinned-nav__popover-list { display: grid; gap: 3px; }
+.pinned-nav__heading { display: flex; min-height: 30px; align-items: center; justify-content: space-between; border: 0; background: transparent; color: var(--studio-text-muted); padding: 0 10px; font-size: 12px; font-weight: 500; }
+.pinned-nav__list, .pinned-nav__popover-list { display: grid; gap: 4px; }
 .pinned-nav__list { max-height: min(45vh, 360px); overflow-y: auto; }
-.pinned-nav__item { display: grid; grid-template-columns: 30px minmax(0, 1fr); align-items: center; border-radius: var(--studio-radius-control); touch-action: pan-y; }
+.pinned-nav__item { display: grid; grid-template-columns: 35px minmax(0, 1fr); align-items: center; border-radius: var(--studio-radius-control); touch-action: pan-y; }
 .pinned-nav__item:hover, .pinned-nav__item--current { background: var(--studio-surface-raised); }
 .pinned-nav__item--grabbed { outline: 2px solid var(--studio-focus); }
 .pinned-nav__item:focus-visible { outline: 2px solid var(--studio-focus); outline-offset: 1px; }
-.pinned-nav__link { display: flex; min-width: 0; min-height: 34px; align-items: center; color: var(--studio-text-muted); padding: 0 10px 0 2px; text-decoration: none; font-size: 13px; font-weight: 600; }
+.pinned-nav__link { display: flex; min-width: 0; min-height: 34px; align-items: center; color: var(--studio-text-muted); padding: 0 10px 0 0; text-decoration: none; font-size: 13px; font-weight: 600; line-height: 1; }
+.pinned-nav__item:hover .pinned-nav__link, .pinned-nav__item--current .pinned-nav__link { color: var(--studio-text); }
 .pinned-nav__link span { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .pinned-nav__link--disabled { opacity: .55; }
 .pinned-nav__remove, .pinned-nav__collapsed { display: inline-flex; width: 30px; height: 30px; align-items: center; justify-content: center; border: 0; border-radius: var(--studio-radius-control); background: transparent; color: var(--studio-text-muted); }
 .pinned-nav__remove:hover, .pinned-nav__collapsed:hover { background: var(--studio-surface); color: var(--studio-text); }
+.pinned-nav__remove { width: 35px; height: 34px; padding: 0 9px 0 10px; }
+.pinned-nav :is(button, a):focus-visible, .pinned-nav__popover :is(button, a):focus-visible, .pinned-nav__collapsed:focus-visible { outline: 2px solid var(--studio-focus); outline-offset: -2px; }
 .pinned-nav__more { display: flex; min-height: 32px; align-items: center; gap: 9px; border: 0; border-radius: var(--studio-radius-control); background: transparent; color: var(--studio-text-muted); padding: 0 10px; font-size: 13px; font-weight: 600; }
 .pinned-nav__more:hover { background: var(--studio-surface-raised); color: var(--studio-text); }
 .pinned-nav__collapsed { flex: 0 0 auto; }
 .pinned-nav__popover { z-index: 50; width: 240px; max-height: min(420px, 70vh); overflow: auto; border: 1px solid var(--studio-border); border-radius: var(--studio-radius-control); background: var(--studio-surface); box-shadow: var(--studio-shadow-control); padding: 8px; }
-.pinned-nav__popover-title { margin: 3px 8px 7px; color: var(--studio-text-muted); font-size: 12px; font-weight: 650; }
+.pinned-nav__popover-title { margin: 3px 10px 7px; color: var(--studio-text-muted); font-size: 12px; font-weight: 500; }
 @media (max-width: 720px) { .pinned-nav { min-width: 220px; margin: 0; } }
 </style>

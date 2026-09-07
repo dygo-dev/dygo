@@ -27,7 +27,6 @@ import { secretSubmitValue } from '@/features/records/secret-input'
 import { isHiddenCollectionField, isHiddenRecordSubmitField, recordFieldLabel } from '@/features/records/system-fields'
 import { RecordFormRenderer, RecordTimeline } from '@/renderers/records'
 import { RouteName } from '@/router/routes'
-import FormToolbar from '@/shell/FormToolbar.vue'
 import PageHeader from '@/shell/PageHeader.vue'
 import type { PageHeaderAction } from '@/shell/types'
 import { humanizeEntity } from '@/stores/metadata.identity'
@@ -802,8 +801,6 @@ function draftValuesEqual(left: unknown, right: unknown): boolean {
       :pin-target="pinTarget"
     />
 
-    <FormToolbar />
-
     <div class="record-form-page__body">
       <div v-if="loading" class="studio-page-state">
         <Spinner size="sm" label="Loading" />
@@ -859,7 +856,7 @@ function draftValuesEqual(left: unknown, right: unknown): boolean {
 <style scoped>
 .record-form-page {
   gap: 0;
-  grid-template-rows: auto auto minmax(0, 1fr);
+  grid-template-rows: auto minmax(0, 1fr);
   height: 100%;
   min-height: 0;
 }

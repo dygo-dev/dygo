@@ -36,13 +36,13 @@ function slotHasContent(name: 'left' | 'default' | 'right'): boolean {
 
 <style scoped>
 .studio-toolbar {
-  display: grid;
+  display: flex;
+  flex-wrap: wrap;
   min-width: 0;
-  min-height: 40px;
-  grid-template-columns: minmax(0, 1fr) auto;
-  align-items: start;
-  gap: 8px 10px;
-  padding: 8px 12px;
+  min-height: 48px;
+  align-items: center;
+  gap: 8px;
+  padding: 8px var(--studio-page-padding);
 }
 
 .studio-toolbar__left,
@@ -51,39 +51,48 @@ function slotHasContent(name: 'left' | 'default' | 'right'): boolean {
   display: inline-flex;
   min-width: 0;
   align-items: center;
+  flex-wrap: wrap;
   gap: 8px;
 }
 
 .studio-toolbar__left {
-  width: 100%;
-  flex-wrap: wrap;
-  grid-column: 1;
-  grid-row: 1;
+  flex: 1 1 240px;
 }
 
 .studio-toolbar__center {
-  grid-column: 1 / -1;
-  grid-row: 2;
+  flex-basis: 100%;
+  order: 1;
 }
 
 .studio-toolbar__right {
-  grid-column: 2;
-  grid-row: 1;
-  justify-self: end;
+  margin-left: auto;
+  justify-content: flex-end;
+}
+
+.studio-toolbar :deep(.d-button),
+.studio-toolbar :deep(.d-icon-button),
+.studio-toolbar :deep(select) {
+  min-height: var(--studio-control-height-sm);
+}
+
+.studio-toolbar :deep(.d-icon-button) {
+  width: var(--studio-control-height-sm);
+  height: var(--studio-control-height-sm);
 }
 
 @media (max-width: 720px) {
   .studio-toolbar {
-    grid-template-columns: minmax(0, 1fr);
+    align-items: stretch;
   }
 
   .studio-toolbar__left,
   .studio-toolbar__center,
   .studio-toolbar__right {
     width: 100%;
-    grid-column: 1;
-    grid-row: auto;
-    justify-self: stretch;
+    flex-basis: 100%;
+    justify-content: flex-start;
+    margin-left: 0;
+    order: 0;
   }
 }
 </style>

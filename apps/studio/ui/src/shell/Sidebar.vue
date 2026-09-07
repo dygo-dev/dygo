@@ -68,13 +68,13 @@ const emit = defineEmits<{
   min-width: 0;
   flex-direction: column;
   overflow: hidden;
-  padding: 18px 14px 24px var(--studio-shell-gutter);
+  padding: 12px 14px 16px var(--studio-shell-gutter);
   transition: padding 160ms ease;
 }
 
 .studio-sidebar--collapsed {
   align-items: center;
-  padding: 18px 10px 24px;
+  padding: 12px 10px 16px;
 }
 
 .studio-sidebar__nav {
@@ -127,9 +127,8 @@ const emit = defineEmits<{
 }
 
 .studio-sidebar__item--current {
-  background: var(--studio-surface);
+  background: var(--studio-surface-raised);
   color: var(--studio-text);
-  box-shadow: var(--studio-shadow-control);
 }
 
 .studio-sidebar--collapsed .studio-sidebar__item {
