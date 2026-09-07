@@ -10,6 +10,7 @@ import (
 	"encoding/json"
 	"errors"
 	"io"
+	"sync"
 
 	"filippo.io/age"
 	"github.com/hapyco/dygo/internal/secrets"
@@ -35,6 +36,12 @@ type payload struct {
 	Value   string `json:"value"`
 }
 type contextKey struct{}
+type operationKey struct{}
+type operationCache struct {
+	once sync.Once
+	ring Ring
+	err  error
+}
 type Provider func() (Ring, error)
 
 func WithProvider(ctx context.Context, provider Provider) context.Context {
@@ -43,10 +50,28 @@ func WithProvider(ctx context.Context, provider Provider) context.Context {
 func WithStore(ctx context.Context, store secrets.Store, env secrets.Environment) context.Context {
 	return WithProvider(ctx, func() (Ring, error) { return Load(store, env) })
 }
+
+// WithOperation creates a per-request or per-mutation key cache. The provider
+// still resolves the encrypted credential store at each operation boundary, so
+// a key rotation is observed by the next operation without rereading it for
+// every secret field in one mutation.
+func WithOperation(ctx context.Context) context.Context {
+	if _, ok := ctx.Value(operationKey{}).(*operationCache); ok {
+		return ctx
+	}
+	return context.WithValue(ctx, operationKey{}, &operationCache{})
+}
+
 func FromContext(ctx context.Context) (Ring, error) {
 	p, ok := ctx.Value(contextKey{}).(Provider)
 	if !ok {
 		return Ring{}, ErrUnavailable
+	}
+	if cache, ok := ctx.Value(operationKey{}).(*operationCache); ok {
+		cache.once.Do(func() {
+			cache.ring, cache.err = p()
+		})
+		return cache.ring, cache.err
 	}
 	return p()
 }

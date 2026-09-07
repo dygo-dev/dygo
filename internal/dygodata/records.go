@@ -8,6 +8,7 @@ import (
 
 	"github.com/hapyco/dygo/internal/db"
 	"github.com/hapyco/dygo/internal/permissions"
+	"github.com/hapyco/dygo/internal/recordsecret"
 	"github.com/hapyco/dygo/pkg/dygo"
 	"github.com/jackc/pgx/v5"
 )
@@ -77,7 +78,8 @@ func (d RecordData) context(ctx context.Context) context.Context {
 	} else if d.actor != nil {
 		ctx = db.WithActivityActor(ctx, d.actor.UserID, d.actor.Email, d.actor.Administrator)
 	}
-	return db.WithActivitySystemReason(ctx, d.systemReason)
+	ctx = db.WithActivitySystemReason(ctx, d.systemReason)
+	return recordsecret.WithOperation(ctx)
 }
 
 // List returns a page of Records by app/entity identity.

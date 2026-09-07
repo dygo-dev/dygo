@@ -5,6 +5,8 @@ import (
 	"encoding/json"
 	"errors"
 	"strconv"
+
+	"github.com/hapyco/dygo/internal/recordsecret"
 )
 
 // SystemMutationPolicy declares which public Record behavior an internal writer should use.
@@ -102,6 +104,7 @@ func (w SystemRecordWriter) upsertByIdentity(ctx context.Context, appName string
 	if err != nil {
 		return nil, err
 	}
+	ctx = recordsecret.WithOperation(ctx)
 	record, err := store.withRecordMutation(ctx, func(txStore RecordStore) (Record, error) {
 		existing, err := txStore.FindRecordByIdentity(ctx, appName, entity, match)
 		if err != nil {

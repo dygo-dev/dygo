@@ -29,8 +29,8 @@ func TestSecretDecryptRequiresExplicitSystem(t *testing.T) {
 		if value != "" || !errors.As(err, &denied) || denied.Code != db.RecordErrorPermissionDenied {
 			t.Fatalf("access was not denied: %v", err)
 		}
-		if len(audit.entries) != 1 || audit.entries[0].Metadata["outcome"] != "denied-or-failed" {
-			t.Fatal("denial not audited")
+		if len(audit.entries) != 0 {
+			t.Fatal("public LogWriter replaced the framework audit sink")
 		}
 		raw, _ := json.Marshal(audit.entries)
 		if strings.Contains(string(raw), "ciphertext") {

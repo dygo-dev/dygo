@@ -95,7 +95,13 @@ func TestPostgresSDKSecretAccessAndTransaction(t *testing.T) {
 		t.Fatal("transaction context was not preserved")
 	}
 	broken := &secretAudit{err: errors.New("audit failure")}
-	if value, err = sdk.DecryptSecret(dygo.WithLogWriter(ctx, broken), "core", "user", id, "token"); err == nil || value != "" {
-		t.Fatal("secret returned without audit")
+	if value, err = sdk.DecryptSecret(dygo.WithLogWriter(ctx, broken), "core", "user", id, "token"); err != nil || value != "private-sdk-value" {
+		t.Fatalf("public LogWriter changed framework audit behavior: %v", err)
+	}
+	if len(broken.entries) != 0 {
+		t.Fatal("public LogWriter received the security audit")
+	}
+	if err = pool.QueryRow(ctx, `SELECT count(*) FROM log WHERE title='Record secret decryption'`).Scan(&count); err != nil || count != 2 {
+		t.Fatal("framework audit was not persisted")
 	}
 }

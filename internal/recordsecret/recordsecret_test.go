@@ -97,3 +97,36 @@ func TestMissingAndCorruptKeysFailClosed(t *testing.T) {
 		t.Fatal("corrupt keys overwritten or leaked")
 	}
 }
+
+func TestOperationCachesProviderResolution(t *testing.T) {
+	calls := 0
+	ctx := WithProvider(context.Background(), func() (Ring, error) {
+		calls++
+		return Ring{Active: "cached", Keys: map[string]string{"cached": ""}}, nil
+	})
+	ctx = WithOperation(ctx)
+	if _, err := FromContext(ctx); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := FromContext(ctx); err != nil {
+		t.Fatal(err)
+	}
+	if calls != 1 {
+		t.Fatalf("provider calls = %d, want one per operation", calls)
+	}
+	if _, err := FromContext(WithOperation(ctx)); err != nil {
+		t.Fatal(err)
+	}
+	if calls != 1 {
+		t.Fatalf("nested operation reused provider unexpectedly: %d calls", calls)
+	}
+	if _, err := FromContext(WithOperation(WithProvider(context.Background(), func() (Ring, error) {
+		calls++
+		return Ring{}, nil
+	}))); err != nil {
+		t.Fatal(err)
+	}
+	if calls != 2 {
+		t.Fatalf("new operation calls = %d, want two total", calls)
+	}
+}

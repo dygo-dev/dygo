@@ -190,9 +190,10 @@ same SDK operation. Collection decryption uses the child Entity and saved row ID
 
 Decryption uses the current transaction. It records the target, field, reason,
 actor context, and outcome through the framework Log writer. Audit write failure
-prevents returning plaintext. A contextual Log writer can persist outside the
-Record transaction, as it does in Hooks; without one, audit writes use the SDK's
-current transaction and roll back with it.
+prevents returning plaintext. The public contextual Log writer cannot replace
+this security sink. Audit writes use the SDK's current queryer, so Hook
+decryption uses the active Record transaction and does not require another pool
+checkout.
 
 The returned string is plaintext. Do not log it, add it to Job payloads, return it
 through an Action response, or include it in errors. Use it only for the intended

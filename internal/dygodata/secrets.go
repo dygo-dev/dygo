@@ -26,12 +26,13 @@ func (d RecordData) DecryptSecret(ctx context.Context, appName, entity string, i
 	if a, ok := db.ActivityActorFromContext(ctx); ok {
 		actor = a.Email
 	}
-	writer := dygo.LogWriter(NewLogData(d.queryer))
-	if contextual, ok := dygo.LogWriterFromContext(ctx); ok {
-		writer = contextual
-	}
-	logErr := writer.WriteLog(ctx, dygo.LogEntry{Type: dygo.TypeInfo, Source: dygo.SourceSDK, Title: "Record secret decryption", App: appName, Actor: actor, ReferenceEntity: appName + "." + entity, ReferenceRecordID: id, Metadata: map[string]any{"field": field, "reason": d.systemReason, "outcome": outcome}})
+	// Keep this sink framework-owned. Public LogWriter context values are app
+	// observability hooks and must not be able to suppress the security audit.
+	logErr := NewLogData(d.queryer).WriteLog(ctx, dygo.LogEntry{Type: dygo.TypeInfo, Source: dygo.SourceSDK, Title: "Record secret decryption", App: appName, Actor: actor, ReferenceEntity: appName + "." + entity, ReferenceRecordID: id, Metadata: map[string]any{"field": field, "reason": d.systemReason, "outcome": outcome}})
 	if logErr != nil {
+		if err != nil {
+			return "", err
+		}
 		return "", errors.New("record secret access audit failed")
 	}
 	return value, err
