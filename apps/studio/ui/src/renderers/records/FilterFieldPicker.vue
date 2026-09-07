@@ -9,6 +9,7 @@ const emit = defineEmits<{ select: [field: string] }>()
 const open = ref(false)
 const search = ref('')
 const matches = computed(() => props.fields.filter((field) => `${field.label} ${field.name}`.toLowerCase().includes(search.value.toLowerCase())))
+defineExpose({ open: () => { search.value = ''; open.value = true } })
 </script>
 
 <template>

@@ -6,6 +6,7 @@ export type PageHeaderAction = {
   variant?: 'primary' | 'secondary' | 'ghost'
   disabled?: boolean
   loading?: boolean
+  shortcut?: string
   onSelect?: () => void
 }
 

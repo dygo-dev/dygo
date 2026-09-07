@@ -83,6 +83,8 @@ const hiddenColumnKeys = computed({
   },
 })
 const idSearch = ref('')
+const idSearchControl = ref<HTMLDivElement | null>(null)
+const filterPicker = ref<InstanceType<typeof FilterFieldPicker> | null>(null)
 const filterTokens = ref<ActiveRecordFilter[]>([])
 const listQuery = ref<RecordListRouteState>({ sort: null, filters: [] })
 const storedPageSize = useStorage(PAGE_SIZE_STORAGE_KEY, 0, undefined, {
@@ -107,6 +109,8 @@ const hasFilters = computed(() => !!(idSearch.value || filterTokens.value.length
 const filterContext = computed(() => Object.fromEntries(listQuery.value.filters.filter((filter) => filter.operator === 'eq').map((filter) => [filter.field, filter.value])))
 usePageCommands(computed(() => [
   ...(!props.readOnly ? [{ id: 'records-new', label: `New ${props.entityLabel}`, run: createRecord }] : []),
+  { id: 'records:focus-id', label: 'Focus Record ID search', run: () => { idSearchControl.value?.querySelector('input')?.focus() } },
+  { id: 'records:add-filter', label: 'Add filter', run: () => { filterPicker.value?.open() } },
   ...(hasFilters.value ? [{ id: 'records-clear-filters', label: 'Clear filters', run: clearFilters }] : []),
   ...(savedFilters.data.value ?? []).map((item) => ({ id: `saved-filter-${item.id}`, label: `Apply ${item.label}`, disabled: !!item.validationError, run: () => applySavedFilter(item) })),
 ]))
@@ -845,7 +849,7 @@ async function exportCSV() {
     <PageToolbar v-if="showToolbar">
       <template #left>
         <slot name="view-selector" />
-        <div class="record-list-renderer__name-search">
+        <div ref="idSearchControl" class="record-list-renderer__name-search">
           <Input
             :model-value="idSearch"
             type="search"
@@ -901,7 +905,7 @@ async function exportCSV() {
             </button>
           </div>
 
-          <FilterFieldPicker :fields="filterableFields" @select="selectFilterField" />
+          <FilterFieldPicker ref="filterPicker" :fields="filterableFields" @select="selectFilterField" />
           <Button v-if="hasFilters" variant="ghost" size="sm" @click="clearFilters">Clear all</Button>
           <SavedFiltersMenu :items="savedFilters.data.value ?? []" :busy="savingFilter || savedFilters.isLoading.value" :error="savedFilterError || savedFilters.error.value?.message || ''" @apply="applySavedFilter" @create="changeSavedFilter('POST', undefined, $event)" @rename="(item, label) => changeSavedFilter('PATCH', item, label)" @replace="changeSavedFilter('PATCH', $event)" @delete="changeSavedFilter('DELETE', $event)" @retry="savedFilters.refetch()" />
         </div>

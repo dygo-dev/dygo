@@ -3,7 +3,6 @@ import { computed, nextTick, ref, watch, type Component } from 'vue'
 import { useQuery } from '@tanstack/vue-query'
 import { storeToRefs } from 'pinia'
 import { useRoute, useRouter, type RouteLocationNormalizedLoaded } from 'vue-router'
-import { onKeyStroke } from '@vueuse/core'
 import {
   DialogContent,
   DialogOverlay,
@@ -16,14 +15,14 @@ import {
   Clock,
   Command,
   FilePlus2,
-  Home,
   LogOut,
   RefreshCw,
   Search,
 } from '@lucide/vue'
 
 import { queryClient } from '@/app/query'
-import { pageCommands } from '@/features/commands/context'
+import { pageCommands, studioCommands, globalCommands, runStudioCommand } from '@/features/commands/context'
+import { bindings, commandBinding, executeCommand, unavailable, shortcutLabel, ariaShortcut, type StudioCommand } from '@/features/commands/shortcuts'
 import { listRecords } from '@/features/records/records.api'
 import { reloadStudioApp } from '@/app/reload'
 import { iconForEntity } from '@/features/metadata/entity-icons'
@@ -31,11 +30,10 @@ import type { MetadataEntity } from '@/features/metadata/metadata.api'
 import { useMetadataEntitiesQuery } from '@/features/metadata/metadata.query'
 import { routeParam, RouteName } from '@/router/routes'
 import { useAuthStore } from '@/stores/auth.store'
-import { useBootStore } from '@/stores/boot.store'
 import { findEntityByRouteSlug, humanizeEntity } from '@/stores/metadata.identity'
 import { useNavigationStore, type RecentPage } from '@/stores/navigation.store'
 
-type CommandItem = {
+type CommandItem = StudioCommand & {
   id: string
   label: string
   detail: string
@@ -51,8 +49,8 @@ type CommandGroup = {
   items: CommandItem[]
 }
 
+const paletteShortcut = bindings['app:palette']?.shortcut
 const navigationStore = useNavigationStore()
-const bootStore = useBootStore()
 const authStore = useAuthStore()
 const route = useRoute()
 const router = useRouter()
@@ -61,6 +59,8 @@ const searchInput = ref<HTMLInputElement | null>(null)
 const query = ref('')
 const activeItemId = ref('')
 const runningAppAction = ref(false)
+let returnFocus: HTMLElement | null = null
+let afterClose: (() => void | Promise<void>) | null = null
 const searchingRecords = ref(false)
 const searchEntity = ref('')
 const recordSearch = ref('')
@@ -100,12 +100,13 @@ watch([query, searchEntity, searchingRecords, commandMenuOpen], ([value], _previ
 
 const contextualItems = computed<CommandItem[]>(() => [
   ...pageCommands.value.map((command) => ({ ...command, detail: command.detail ?? '', keywords: command.keywords ?? '', icon: Command })),
-  {
-    id: 'records:search', label: currentEntity.value ? `Search ${entityLabel(currentEntity.value)}` : 'Search records',
-    detail: 'Find by Record ID', keywords: 'find search records', icon: Search,
-    run: () => startRecordSearch(),
-  },
 ])
+
+watch(() => navigationStore.recordSearchRequested, requested => {
+  if (!requested) return
+  navigationStore.recordSearchRequested = false
+  startRecordSearch()
+})
 
 function startRecordSearch() {
   searchingRecords.value = true
@@ -149,14 +150,7 @@ const createCommandItems = computed<CommandItem[]>(() => (
 ))
 
 const appActionItems = computed<CommandItem[]>(() => [
-  {
-    id: 'app:home',
-    label: 'Go home',
-    detail: 'Open default home',
-    keywords: 'go home start default',
-    icon: Home,
-    run: goHome,
-  },
+  ...globalCommands.value.filter(command => command.id !== 'app:palette').map(command => ({ ...commandBinding(command), detail: '', keywords: '', icon: Command })),
   {
     id: 'app:reload',
     label: 'Reload app',
@@ -205,6 +199,7 @@ const commandGroups = computed<CommandGroup[]>(() => {
     return [
       { key: 'context', label: 'This page', items: contextualItems.value },
       { key: 'recent', label: 'Recent', items: recentCommandItems.value },
+      { key: 'app-actions', label: 'Studio', items: appActionItems.value },
     ].filter((group) => group.items.length > 0)
   }
 
@@ -267,28 +262,11 @@ watch(
       return
     }
 
+    returnFocus = document.activeElement instanceof HTMLElement ? document.activeElement : null
     await nextTick()
     searchInput.value?.focus()
   },
 )
-
-onKeyStroke((event) => {
-  if ((event.metaKey || event.ctrlKey) && event.key.toLowerCase() === 'k') {
-    event.preventDefault()
-    if (commandMenuOpen.value) {
-      closeMenu()
-      return
-    }
-
-    void openMenu()
-    return
-  }
-
-}, { passive: false })
-
-function openMenu() {
-  navigationStore.openCommandMenu()
-}
 
 function closeMenu() {
   navigationStore.closeCommandMenu()
@@ -303,6 +281,7 @@ function updateMenuOpen(open: boolean) {
 }
 
 function handleInputKeydown(event: KeyboardEvent) {
+  if (event.isComposing || event.repeat || event.defaultPrevented) return
   if (event.key === 'ArrowDown') {
     event.preventDefault()
     moveActiveItem(1)
@@ -343,20 +322,26 @@ function moveActiveItem(direction: 1 | -1) {
 }
 
 async function runCommand(item: CommandItem) {
-  if (item.disabled) {
-    return
-  }
+  const current = studioCommands.value.find(command => command.id === item.id) ?? item
+  if (unavailable(current)) return
+  if (item.id === 'records:search') { await executeCommand(current); return }
+  afterClose = studioCommands.value.some(command => command.id === item.id)
+    ? () => runStudioCommand(item.id)
+    : () => executeCommand(item)
+  closeMenu()
+}
 
-  if (item.id !== 'records:search') closeMenu()
-  await item.run()
+async function restoreFocus(event: Event) {
+  event.preventDefault()
+  returnFocus?.focus()
+  const action = afterClose
+  afterClose = null
+  await nextTick()
+  await action?.()
 }
 
 async function navigateTo(to: string | { name: string, params?: Record<string, string> }) {
   await router.push(to)
-}
-
-async function goHome() {
-  await router.push(normalizeHome(bootStore.defaults?.home))
 }
 
 async function reloadApp() {
@@ -431,19 +416,6 @@ function recentPageForRoute(currentRoute: RouteLocationNormalizedLoaded): Recent
   return null
 }
 
-function normalizeHome(value: unknown): string {
-  if (typeof value !== 'string') {
-    return '/'
-  }
-
-  const home = value.trim()
-  if (home === '' || !home.startsWith('/') || home.startsWith('//')) {
-    return '/'
-  }
-
-  return home
-}
-
 function entityLabel(entity: MetadataEntity): string {
   return entity.label || humanizeEntity(entity.slug ?? entity.key)
 }
@@ -466,22 +438,25 @@ function itemDomId(item: CommandItem): string {
           type="button"
           aria-haspopup="dialog"
           :aria-expanded="commandMenuOpen"
+          :aria-keyshortcuts="ariaShortcut(paletteShortcut)"
+          :title="`Search (${shortcutLabel(paletteShortcut)})`"
         >
           <Search class="studio-command-menu__search-icon" :size="14" :stroke-width="1.8" aria-hidden="true" />
           <span class="studio-command-menu__placeholder">Search</span>
           <span class="studio-command-menu__shortcut" aria-hidden="true">
-            <Command :size="12" :stroke-width="1.9" />
-            <kbd>K</kbd>
+            <kbd>{{ shortcutLabel(paletteShortcut) }}</kbd>
           </span>
-          <span class="studio-command-menu__shortcut-label">Command K</span>
+          <span class="studio-command-menu__shortcut-label">{{ shortcutLabel(paletteShortcut) }}</span>
         </button>
       </DialogTrigger>
 
       <DialogPortal>
         <DialogOverlay class="studio-command-menu__overlay" />
         <DialogContent
+          data-studio-command-menu
           class="studio-command-menu__dialog"
           aria-describedby="studio-command-menu-description"
+          @close-auto-focus="restoreFocus"
         >
           <DialogTitle class="sr-only">Command menu</DialogTitle>
           <p id="studio-command-menu-description" class="sr-only">Search pages, actions, and Records.</p>
@@ -507,8 +482,7 @@ function itemDomId(item: CommandItem): string {
               @keydown="handleInputKeydown"
             >
             <span class="studio-command-menu__dialog-shortcut" aria-hidden="true">
-              <Command :size="12" :stroke-width="1.9" />
-              <kbd>K</kbd>
+              <kbd>{{ shortcutLabel(paletteShortcut) }}</kbd>
             </span>
           </div>
 
@@ -535,7 +509,7 @@ function itemDomId(item: CommandItem): string {
                   type="button"
                   role="option"
                   :aria-selected="item.id === activeItemId"
-                  :disabled="item.disabled"
+                  :disabled="unavailable(item)"
                   @mouseenter="activeItemId = item.id"
                   @click="runCommand(item)"
                 >
@@ -548,8 +522,9 @@ function itemDomId(item: CommandItem): string {
                   />
                   <span class="studio-command-menu__item-copy">
                     <span class="studio-command-menu__item-label">{{ item.label }}</span>
-                    <span class="studio-command-menu__item-detail">{{ item.detail }}</span>
+                    <span class="studio-command-menu__item-detail">{{ item.disabledReason || item.detail }}</span>
                   </span>
+                  <kbd v-if="commandBinding(item).shortcut">{{ shortcutLabel(commandBinding(item).shortcut) }}</kbd>
                 </button>
               </section>
             </template>
@@ -571,8 +546,7 @@ function itemDomId(item: CommandItem): string {
             </span>
             <span class="studio-command-menu__hint">
               <span class="studio-command-menu__hint-shortcut">
-                <Command :size="12" :stroke-width="1.9" />
-                <kbd>K</kbd>
+                <kbd>{{ shortcutLabel(paletteShortcut) }}</kbd>
               </span>
               <span>close</span>
             </span>
@@ -751,7 +725,7 @@ function itemDomId(item: CommandItem): string {
 .studio-command-menu__item {
   display: grid;
   min-height: 42px;
-  grid-template-columns: 22px minmax(0, 1fr);
+  grid-template-columns: 22px minmax(0, 1fr) auto;
   align-items: center;
   gap: 10px;
   border: 0;

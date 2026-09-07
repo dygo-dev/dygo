@@ -1,4 +1,5 @@
 <script setup lang="ts">
+import { ariaShortcut, bindings, shortcutLabel } from '@/features/commands/shortcuts'
 import { PanelLeftClose, PanelLeftOpen } from '@lucide/vue'
 import { RouterLink } from 'vue-router'
 
@@ -50,7 +51,8 @@ const emit = defineEmits<{
       class="studio-sidebar__collapse"
       type="button"
       :aria-label="collapsed ? 'Expand sidebar' : 'Collapse sidebar'"
-      :title="collapsed ? 'Expand sidebar' : 'Collapse sidebar'"
+      :title="`${collapsed ? 'Expand sidebar' : 'Collapse sidebar'} (${shortcutLabel(bindings['app:sidebar']?.shortcut)})`"
+      :aria-keyshortcuts="ariaShortcut(bindings['app:sidebar']?.shortcut)"
       @click="emit('update:collapsed', !collapsed)"
     >
       <PanelLeftOpen v-if="collapsed" aria-hidden="true" :size="16" :stroke-width="1.8" />

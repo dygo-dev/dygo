@@ -1,5 +1,6 @@
 <script setup lang="ts">
 import { computed, useSlots } from 'vue'
+import { ariaShortcut, shortcutLabel } from '@/features/commands/shortcuts'
 import { Pin, PinOff } from '@lucide/vue'
 
 import Badge from '@/design/atoms/Badge.vue'
@@ -88,6 +89,8 @@ function runAction(action: PageHeaderAction) {
           :variant="action.variant ?? 'secondary'"
           :disabled="action.disabled"
           :loading="action.loading"
+          :aria-keyshortcuts="ariaShortcut(action.shortcut)"
+          :title="action.shortcut ? `${action.label} (${shortcutLabel(action.shortcut)})` : undefined"
           @click="runAction(action)"
         >
           <component

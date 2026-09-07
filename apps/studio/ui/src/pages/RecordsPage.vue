@@ -14,6 +14,8 @@ import { statusForError, storeError, type LoadStatus } from '@/stores/status'
 import type { PinnedItem } from '@/features/pinned/pinned'
 import RecordFormPage from './RecordFormPage.vue'
 import { recordViews } from '@/features/records/views'
+import { runStudioCommand } from '@/features/commands/context'
+import { bindings } from '@/features/commands/shortcuts'
 import { usePreferencesStore } from '@/features/preferences/preferences.store'
 
 const props = defineProps<{
@@ -83,7 +85,8 @@ const actions = computed<PageHeaderAction[]>(() => {
       icon: Plus,
       variant: 'primary',
       disabled: entityMetaStatus.value !== 'ready',
-      onSelect: openNewRecord,
+      shortcut: bindings['records-new']?.shortcut,
+      onSelect: () => { void runStudioCommand('records-new') },
     })
   }
 

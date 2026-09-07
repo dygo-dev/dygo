@@ -16,6 +16,8 @@ export const useNavigationStore = defineStore('navigation', {
     recentUserID: null as number | null,
     recentGeneration: 0,
     commandMenuOpen: false,
+    shortcutsOpen: false,
+    recordSearchRequested: false,
     routeReloadVersion: 0,
   }),
 
@@ -32,6 +34,8 @@ export const useNavigationStore = defineStore('navigation', {
       this.recentGeneration++
       this.recentUserID = userID
       this.commandMenuOpen = false
+      this.shortcutsOpen = false
+      this.recordSearchRequested = false
       const preferences = usePreferencesStore()
       void preferences.startSession(userID)
       if (userID !== null) void preferences.importMissing({ 'studio.recent-pages': readRecentPages(userID) })
