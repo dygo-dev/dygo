@@ -27,6 +27,7 @@ type RecordHookFunc func(context.Context, RecordHookContext) error
 
 // RecordHookContext contains the Record lifecycle state visible to hooks.
 type RecordHookContext struct {
+	layout    *recordLayout
 	Event     RecordHookEvent
 	Operation string
 
@@ -218,6 +219,7 @@ func mustRegisterRecordHook(err error) {
 
 func newRecordHookContext(event RecordHookEvent, layout recordLayout) RecordHookContext {
 	return RecordHookContext{
+		layout:      &layout,
 		Event:       event,
 		EntityID:    layout.EntityID,
 		AppName:     layout.AppName,

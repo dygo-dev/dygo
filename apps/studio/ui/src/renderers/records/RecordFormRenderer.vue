@@ -15,6 +15,8 @@ import { linkOptions, type MetadataEntityMeta, type MetadataField } from '@/feat
 import { useMetadataEntitiesQuery } from '@/features/metadata/metadata.query'
 import { uploadRecordFile, type RecordData } from '@/features/records/records.api'
 import { isHiddenRecordFormField, recordFieldLabel } from '@/features/records/system-fields'
+import SecretEditor from './SecretEditor.vue'
+import type { SecretStatus } from '@/features/records/records.api'
 import RecordCollectionTable from './RecordCollectionTable.vue'
 import LinkPicker from './LinkPicker.vue'
 import AttachmentEditor from './AttachmentEditor.vue'
@@ -28,6 +30,7 @@ const props = withDefaults(defineProps<{
   fields: MetadataField[]
   systemFields?: MetadataField[]
   collections?: Record<string, MetadataEntityMeta>
+  secretStatus?: SecretStatus
   record?: RecordData | null
   mode: 'new' | 'record' | 'single'
   modelValue: RecordData
@@ -167,6 +170,7 @@ function selectOptions(field: MetadataField): FieldOption[] {
         :label="recordFieldLabel(field)"
         :field="field"
         :child-meta="collections?.[field.name]"
+        :secret-status="secretStatus?.collections?.[field.name]"
         :model-value="modelValue[field.name]"
         :required="field.required"
         :disabled="disabled"
@@ -174,6 +178,18 @@ function selectOptions(field: MetadataField): FieldOption[] {
         @update:model-value="updateField(field, $event)"
         @open-related="openRelated($event.field, $event.recordName)"
         @create-related="createRelated($event)"
+      />
+
+      <SecretEditor
+        v-else-if="field.type === 'secret'"
+        :id="fieldId(field)"
+        :label="recordFieldLabel(field)"
+        :model-value="modelValue[field.name]"
+        :present="mode === 'new' ? false : secretStatus?.fields[field.name]"
+        :required="field.required"
+        :disabled="disabled"
+        :error="fieldErrors[field.name]"
+        @update:model-value="updateField(field, $event)"
       />
 
       <PasswordField

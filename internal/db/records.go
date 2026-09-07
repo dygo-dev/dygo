@@ -19,6 +19,7 @@ import (
 	"github.com/hapyco/dygo/internal/entity/schema"
 	"github.com/hapyco/dygo/internal/recordfilter"
 	"github.com/hapyco/dygo/internal/recordquery"
+	"github.com/hapyco/dygo/internal/recordsecret"
 	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgconn"
 	"golang.org/x/crypto/bcrypt"
@@ -338,6 +339,7 @@ func (s RecordStore) UpdateSingleRecord(ctx context.Context, entity string, inpu
 	if err := s.requireQueryer(); err != nil {
 		return nil, err
 	}
+	ctx = recordsecret.WithOperation(ctx)
 	return s.withRecordMutation(ctx, func(store RecordStore) (Record, error) {
 		layout, err := store.recordLayout(ctx, entity)
 		if err != nil {
@@ -413,6 +415,7 @@ func (s RecordStore) CreateRecord(ctx context.Context, entity string, input Reco
 	if err := s.requireQueryer(); err != nil {
 		return nil, err
 	}
+	ctx = recordsecret.WithOperation(ctx)
 	return s.withRecordMutation(ctx, func(store RecordStore) (Record, error) {
 		return store.createRecord(ctx, entity, input)
 	})
@@ -423,6 +426,7 @@ func (s RecordStore) CreateRecordByIdentity(ctx context.Context, appName string,
 	if err := s.requireQueryer(); err != nil {
 		return nil, err
 	}
+	ctx = recordsecret.WithOperation(ctx)
 	return s.withRecordMutation(ctx, func(store RecordStore) (Record, error) {
 		return store.createRecordByIdentity(ctx, appName, entity, input)
 	})
@@ -562,6 +566,7 @@ func (s RecordStore) UpdateRecord(ctx context.Context, entity string, id int64, 
 	if id <= 0 {
 		return nil, invalidRecordIDError(entity)
 	}
+	ctx = recordsecret.WithOperation(ctx)
 	return s.withRecordMutation(ctx, func(store RecordStore) (Record, error) {
 		return store.updateRecord(ctx, entity, id, input)
 	})
@@ -575,6 +580,7 @@ func (s RecordStore) UpdateRecordByIdentity(ctx context.Context, appName string,
 	if id <= 0 {
 		return nil, invalidRecordIDError(recordIdentityName(appName, entity))
 	}
+	ctx = recordsecret.WithOperation(ctx)
 	return s.withRecordMutation(ctx, func(store RecordStore) (Record, error) {
 		return store.updateRecordByIdentity(ctx, appName, entity, id, input)
 	})
@@ -917,7 +923,18 @@ func (s RecordStore) runRecordHooks(ctx context.Context, hookCtx RecordHookConte
 	}
 	hookCtx.Queryer = s.queryer
 	hookCtx.LogQueryer = s.logQueryer
-	return s.hooks.Run(ctx, hookCtx)
+	if hookCtx.layout == nil {
+		return s.hooks.Run(ctx, hookCtx)
+	}
+	clean, restore, err := hiddenHookInput(*hookCtx.layout, hookCtx.Input)
+	if err != nil {
+		return err
+	}
+	hookCtx.Input = clean
+	if err := s.hooks.Run(ctx, hookCtx); err != nil {
+		return err
+	}
+	return restore()
 }
 
 type recordLayout struct {
@@ -1590,6 +1607,9 @@ func (l recordLayout) validateInputFields(input RecordInput, create bool, match 
 				continue
 			}
 			return recordError(RecordErrorValidation, "field is not supported by record runtime", map[string]any{"entity": l.Entity, "field": name}, nil)
+		}
+		if match && field.Type == "secret" {
+			return recordError(RecordErrorValidation, "write-only field cannot be used for matching", map[string]any{"field": name}, nil)
 		}
 		if rawIsNull(raw) && field.Required {
 			return recordError(RecordErrorValidation, "required field cannot be null", map[string]any{"entity": l.Entity, "field": name}, nil)

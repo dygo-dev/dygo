@@ -1,6 +1,9 @@
 package dygo
 
-import "context"
+import (
+	"context"
+	"errors"
+)
 
 // AggregateFunction identifies a supported Record aggregate.
 type AggregateFunction string
@@ -53,3 +56,12 @@ type GroupByResult struct {
 
 // RecordTransactionFunc runs app code inside one Record transaction.
 type RecordTransactionFunc func(context.Context, RecordData) error
+
+// ErrSecretUnset reports a secret field with no saved value.
+var ErrSecretUnset = errors.New("secret is not set")
+
+// SecretStatus contains presence only; collection keys are parent field names and row IDs.
+type SecretStatus struct {
+	Fields      map[string]bool                      `json:"fields"`
+	Collections map[string]map[int64]map[string]bool `json:"collections,omitempty"`
+}

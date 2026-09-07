@@ -24,6 +24,7 @@ func newSecretCommand(ctx context.Context, stdin io.Reader, stdout, stderr io.Wr
 		},
 	}
 
+	cmd.AddCommand(newRecordKeyCommand(ctx, stdout))
 	cmd.AddCommand(newSecretInitCommand(stdout))
 	cmd.AddCommand(newSecretGetCommand(stdout))
 	cmd.AddCommand(newSecretEditCommand(ctx, stdin, stdout, stderr))

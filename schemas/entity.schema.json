@@ -59,6 +59,7 @@
         "email",
         "phone",
         "password",
+        "secret",
         "long-text",
         "int",
         "bigint",

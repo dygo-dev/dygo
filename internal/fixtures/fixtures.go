@@ -449,6 +449,9 @@ func validateFixtureRecords(file LoadedFile, entity catalog.LoadedEntity, index 
 }
 
 func validateFixtureValue(path string, value Value, owner catalog.LoadedEntity, field fixtureField, index catalog.TargetIndex, depth int) error {
+	if field.Type == "secret" {
+		return fmt.Errorf("secret values are not allowed in Fixtures")
+	}
 	if field.Type != "link" {
 		return nil
 	}

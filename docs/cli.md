@@ -221,3 +221,11 @@ dygo upgrade
 - Destructive commands can run in `development`.
 - Protected environments such as `staging` and `production` block destructive commands unless `--force` is passed.
 - Read-only commands such as `--dry-run`, `check`, and validation commands never need `--force`.
+
+## Record encryption keys
+
+- `dygo secret record-key init --env <environment> --yes`: initialize the Record key in encrypted credentials without replacing an existing key.
+- `dygo secret record-key rotate --env <environment> --offline --yes`: re-encrypt Record secrets while servers and workers are stopped.
+- Add `--dry-run` to show the selected target without changes.
+
+See [Record encryption keys](secrets.md#record-encryption-keys) for backup and recovery steps.

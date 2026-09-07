@@ -151,7 +151,7 @@ Collection Entities are non-routeable, hidden from normal Studio navigation, and
 
 Collection row Entities do not define top-level `name:` metadata. dygo assigns framework-owned random row names with length `16`, and inline collection editors do not expose `name` as an editable field.
 
-Current metadata-driven schema sync supports scalar fields, `select`, `link`, `password`, and collection row storage. Parent collection fields are virtual and do not create a parent table column. The child collection table stores `id`, `name`, `created_at`, `updated_at`, `parent_entity_id`, `parent_record_id`, `parent_field_id`, `ordinal`, and the child Entity's own stored field columns. `parent_entity_id` is an FK to Core `entity`, `parent_field_id` is an FK to Core `field`, and `parent_record_id` is a bigint because the parent table depends on `parent_entity_id`. dygo deletes child rows transactionally when deleting the parent Record. `(parent_entity_id, parent_record_id, parent_field_id, ordinal)` is unique with a deferrable initially deferred constraint, and `(parent_entity_id, parent_record_id, parent_field_id)` is indexed for ordered child row reads.
+Current metadata-driven schema sync supports scalar fields, `select`, `link`, `password`, `secret`, and collection row storage. Parent collection fields are virtual and do not create a parent table column. The child collection table stores `id`, `name`, `created_at`, `updated_at`, `parent_entity_id`, `parent_record_id`, `parent_field_id`, `ordinal`, and the child Entity's own stored field columns. `parent_entity_id` is an FK to Core `entity`, `parent_field_id` is an FK to Core `field`, and `parent_record_id` is a bigint because the parent table depends on `parent_entity_id`. dygo deletes child rows transactionally when deleting the parent Record. `(parent_entity_id, parent_record_id, parent_field_id, ordinal)` is unique with a deferrable initially deferred constraint, and `(parent_entity_id, parent_record_id, parent_field_id)` is indexed for ordered child row reads.
 
 Field `name`, `label`, and `type` are required.
 
@@ -283,7 +283,7 @@ Index and constraint names are optional. If omitted, dygo derives deterministic 
 
 Supported field check operators are `eq`, `neq`, `gt`, `gte`, `lt`, `lte`, `in`, and `not-in`. Field checks must use structured metadata, not raw SQL.
 
-Check fields must be DB-backed scalar fields. `password`, `collection`, `json`, `attachment`, and `link` checks are not supported in v1.
+Check fields must be DB-backed scalar fields. `password`, `secret`, `collection`, `json`, `attachment`, and `link` checks are not supported in v1.
 
 During `dygo db migrate`, normal Entity name metadata is upserted into the Core `entity` table. Collection row Entities omit naming metadata because their row names are framework-owned. Field metadata is upserted into the Core `field` table with field-name, label, type, required, unique, index, default, check, fetch, position, and options. Top-level Entity `indexes` and `constraints` are upserted into the Core `index` and `constraint` tables.
 
@@ -336,6 +336,7 @@ text
 email
 phone
 password
+secret
 long-text
 int
 bigint
@@ -355,6 +356,11 @@ json
 Field types are registered in Go. App-defined field types in YAML are out of scope for v1.
 
 `password` fields are write-only Record fields. Metadata uses the clean field name, such as `password`, while storage uses a hash column, such as `password_hash`. Password fields cannot be indexed, unique, defaulted, or used in top-level indexes or constraints.
+
+`secret` fields store decryptable ciphertext, not password hashes. Use them for
+integration credentials. Storage uses `<field>_encrypted`; values are omitted
+from ordinary reads. Required values are enforced by Record validation. See
+[Secret fields](records.md#secret-fields) and [Record encryption keys](secrets.md#record-encryption-keys).
 
 ## App Discovery
 

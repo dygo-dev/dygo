@@ -26,6 +26,7 @@ import (
 	"github.com/hapyco/dygo/internal/notifications"
 	"github.com/hapyco/dygo/internal/permissions"
 	"github.com/hapyco/dygo/internal/recordquery"
+	"github.com/hapyco/dygo/internal/recordsecret"
 	"github.com/hapyco/dygo/internal/reserved"
 	"github.com/hapyco/dygo/pkg/dygo"
 )
@@ -253,7 +254,8 @@ func ServeListener(ctx context.Context, listener net.Listener, options ...Option
 	}
 
 	httpServer := &http.Server{
-		Handler: NewRouter(opts),
+		Handler:     NewRouter(opts),
+		BaseContext: func(net.Listener) context.Context { return ctx },
 	}
 
 	done := make(chan error, 1)
@@ -959,11 +961,17 @@ type recordEntityMetaContextKey struct{}
 func registerRecordRoutes(router chi.Router, store RecordStore, activity ActivityStore, metadata MetadataStore, checker PermissionChecker, actions EntityActionExecutor) {
 	handler := recordHandler{store: store, activity: activity, metadata: metadata, permissions: checker, actions: actions}
 	router.Route("/records/{entity}", func(records chi.Router) {
+		records.Use(func(next http.Handler) http.Handler {
+			return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+				next.ServeHTTP(w, r.WithContext(recordsecret.WithOperation(r.Context())))
+			})
+		})
 		records.Use(handler.resolveEntity)
 		records.Get("/", handler.listRecords)
 		records.Get("/export", handler.exportRecords)
 		records.Post("/", handler.createRecord)
 		records.Post("/actions/{action}", handler.executeAction)
+		records.Get("/{id}/secret-status", handler.secretStatus)
 		records.Get("/{id}/activity", handler.listRecordActivity)
 		records.Post("/{id}/activity", handler.addRecordComment)
 		records.Get("/name/{name}", handler.getRecordByName)

@@ -395,14 +395,14 @@ func buildDesiredSchema(entities []catalog.LoadedEntity) (desiredSchema, error) 
 					definition += " DEFAULT " + value
 				}
 			}
-			if field.Required {
+			if field.Required && field.Type != "secret" {
 				definition += " NOT NULL"
 			}
 			desiredTable.Columns = append(desiredTable.Columns, desiredColumn{
 				Name:           column,
 				Type:           sqlType,
-				Required:       field.Required,
-				HasSafeDefault: !field.Required || hasDefault && hasSafeDefault,
+				Required:       field.Required && field.Type != "secret",
+				HasSafeDefault: field.Type == "secret" || !field.Required || hasDefault && hasSafeDefault,
 				DefaultSQL:     defaultSQL,
 				Definition:     definition,
 				Source:         fieldSource(loaded, field),

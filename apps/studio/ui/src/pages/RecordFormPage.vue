@@ -9,6 +9,7 @@ import { useToast } from '@/features/toasts/use-toast'
 import type { MetadataEntityMeta, MetadataField } from '@/features/metadata/metadata.api'
 import { useMetadataEntityMetaQuery } from '@/features/metadata/metadata.query'
 import {
+  useSecretStatusQuery,
   useCreateRecordMutation,
   useAddRecordCommentMutation,
   useDeleteRecordMutation,
@@ -19,6 +20,7 @@ import {
   useRecordActivityQuery,
 } from '@/features/records/record-form.query'
 import type { RecordData } from '@/features/records/records.api'
+import { secretSubmitValue } from '@/features/records/secret-input'
 import { isHiddenRecordSubmitField, recordFieldLabel } from '@/features/records/system-fields'
 import { RecordFormRenderer, RecordTimeline } from '@/renderers/records'
 import { RouteName } from '@/router/routes'
@@ -113,6 +115,10 @@ const timelineQuery = useRecordActivityQuery(
   timelineRecordID,
   { enabled: computed(() => Number(timelineRecordID.value) > 0) },
 )
+const secretStatusQuery = useSecretStatusQuery(() => props.entity, () => Number(record.value?.id) || 0, computed(() => Boolean(
+  entityMeta.value?.fields.some(field => field.type === 'secret') || Object.values(entityMeta.value?.collections ?? {}).some(child => child.fields.some(field => field.type === 'secret'))
+)))
+const secretStatus = computed(() => secretStatusQuery.data.value)
 const commentDraft = ref('')
 const timelineError = computed(() => timelineQuery.error.value?.message || addCommentMutation.error.value?.message || '')
 const timelineEntries = computed(() => timelineQuery.data.value?.data ?? [])
@@ -444,6 +450,11 @@ function convertSubmitValue(field: MetadataField, value: unknown, errors: Record
   }
 
   switch (field['value-kind']) {
+    case 'secret': {
+      const result = secretSubmitValue(value, field.required, !isNew.value)
+      if (result.error) errors[field.name] = result.error
+      return result
+    }
     case 'password':
       if (typeof value !== 'string' || value.length === 0) {
         return { skip: true }
@@ -535,6 +546,11 @@ function collectionRowSubmitValue(parentField: MetadataField, childMeta: Metadat
 }
 
 function collectionCellSubmitValue(parentField: MetadataField, field: MetadataField, value: unknown, rowIndex: number, existing: boolean, errors: Record<string, string>): ConvertedValue {
+  if (field.type === 'secret') {
+    const result = secretSubmitValue(value, field.required, existing)
+    if (result.error) setCollectionError(errors, parentField, rowIndex, `${recordFieldLabel(field)} is required.`)
+    return result
+  }
   if (isBlankValue(value)) {
     if (field.required) {
       setCollectionError(errors, parentField, rowIndex, `${recordFieldLabel(field)} is required.`)
@@ -804,6 +820,7 @@ function draftValuesEqual(left: unknown, right: unknown): boolean {
           :message="saveError"
         />
 
+        <ErrorState v-if="secretStatusQuery.isError.value" title="Secret status unavailable" message="Reload the page to try again." />
         <RecordFormRenderer
       :entity="props.entity"
       :app-name="entityMeta?.app.name ?? ''"
@@ -813,6 +830,7 @@ function draftValuesEqual(left: unknown, right: unknown): boolean {
           :system-fields="systemFields"
           :collections="entityMeta.collections"
           :record="record"
+          :secret-status="secretStatus"
           :mode="props.mode"
           :model-value="draft"
           :field-errors="fieldErrors"

@@ -172,3 +172,33 @@ dygo.Config        - app/runtime config reads
 dygo.Secrets       - controlled secret reads
 dygo.Metadata      - Entity, Field, and Page metadata reads
 ```
+
+## Read a Record secret
+
+Use `RecordData.DecryptSecret` only in explicit system code:
+
+```go
+value, err := hook.Records.AsSystem("send integration request").DecryptSecret(
+    ctx, "crm", "connection", hook.RecordID, "token",
+)
+```
+
+Ordinary SDK access and `AsActor`, including Administrator access, cannot decrypt
+secrets. `AsSystem` requires a non-empty reason. Core and Business Apps use this
+same SDK operation. Collection decryption uses the child Entity and saved row ID.
+`errors.Is(err, dygo.ErrSecretUnset)` identifies an unset secret.
+
+Decryption uses the current transaction. It records the target, field, reason,
+actor context, and outcome through the framework Log writer. Audit write failure
+prevents returning plaintext. The public contextual Log writer cannot replace
+this security sink. Audit writes use the SDK's current queryer, so Hook
+decryption uses the active Record transaction and does not require another pool
+checkout.
+
+The returned string is plaintext. Do not log it, add it to Job payloads, return it
+through an Action response, or include it in errors. Use it only for the intended
+server-side operation.
+
+`RecordData.SecretStatus(ctx, app, entity, recordID)` returns `dygo.SecretStatus`
+with presence maps, applying the SDK's normal read scope. Generic reads remain
+write-only even in system mode.
