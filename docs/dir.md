@@ -16,6 +16,8 @@ project/                         - Generated dygo project root
         <entity>/                - Normal Entity bundle
           <entity>.entity.yml    - Entity metadata definition
           hooks.go               - Entity hook scaffold
+          actions/
+            actions.go           - Entity action registrar
           fixtures.yml           - Entity fixture records
           views.yml              - Entity view metadata
         _collections/            - Collection row definitions
@@ -104,6 +106,8 @@ dygo/                           - Framework repository root
     health/                     - Health check handlers
     hookevents/                 - Hook event definitions
     hookgen/                    - Hook scaffold generator
+    actiongen/                  - Entity action scaffold generator
+    runnergen/                  - shared generated project runner renderer
     hooks/                      - Hook runtime registry
     naming/                     - Record naming strategies
     patches/                    - Explicit patch runtime
@@ -121,7 +125,7 @@ dygo/                           - Framework repository root
     core/                       - Core platform app
     studio/                     - Studio web app
   pkg/                          - Public Go API surface
-    dygo/                       - App hook, Job, and logging API
+    dygo/                       - App hook, Entity action, Job, and logging API
   config/                       - Framework runtime config files
     secrets/                    - Encrypted dev secrets
     github.yml                  - GitHub repository and project board metadata

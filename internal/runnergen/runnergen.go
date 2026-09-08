@@ -37,10 +37,17 @@ type JobTarget struct {
 	JobName string
 }
 
+// ActionTarget forces one Entity action package into runner output before it exists on disk.
+type ActionTarget struct {
+	AppName    string
+	EntityName string
+}
+
 // RenderOptions controls generated runner output.
 type RenderOptions struct {
-	HookTarget HookTarget
-	JobTarget  JobTarget
+	HookTarget   HookTarget
+	JobTarget    JobTarget
+	ActionTarget ActionTarget
 }
 
 // RunnerUpdate describes a generated project runner update.
@@ -71,6 +78,17 @@ type JobFile struct {
 	RunnerWired bool
 }
 
+// ActionFile describes one discovered Entity action registrar file.
+type ActionFile struct {
+	AppName     string
+	EntityName  string
+	Path        string
+	ImportPath  string
+	Alias       string
+	HasRegister bool
+	RunnerWired bool
+}
+
 // Render renders the project runner for discovered hooks and Jobs.
 func Render(root string, options RenderOptions) (RunnerUpdate, error) {
 	root = filepath.Clean(root)
@@ -98,7 +116,11 @@ func Render(root string, options RenderOptions) (RunnerUpdate, error) {
 	if err != nil {
 		return RunnerUpdate{}, err
 	}
-	runnerSource, err := RenderSource(hookFiles, jobFiles)
+	actionFiles, err := CollectActionFiles(root, modulePath, metadata.Apps, metadata.Entities, options.ActionTarget)
+	if err != nil {
+		return RunnerUpdate{}, err
+	}
+	runnerSource, err := RenderSource(hookFiles, actionFiles, jobFiles)
 	if err != nil {
 		return RunnerUpdate{}, err
 	}
@@ -163,6 +185,28 @@ func DiscoverJobs(root string) ([]JobFile, error) {
 	}
 	MarkJobRunnerWiring(filepath.Join(root, "cmd", "dygo", "main.go"), jobFiles)
 	return jobFiles, nil
+}
+
+// DiscoverActions returns Entity action registrar files found in canonical Entity bundles.
+func DiscoverActions(root string) ([]ActionFile, error) {
+	root = filepath.Clean(root)
+	if err := RequireGeneratedProjectRoot(root); err != nil {
+		return nil, err
+	}
+	modulePath, err := ReadModulePath(root)
+	if err != nil {
+		return nil, err
+	}
+	metadata, err := project.LoadMetadata(root)
+	if err != nil {
+		return nil, err
+	}
+	actionFiles, err := CollectActionFiles(root, modulePath, metadata.Apps, metadata.Entities, ActionTarget{})
+	if err != nil {
+		return nil, err
+	}
+	MarkActionRunnerWiring(filepath.Join(root, "cmd", "dygo", "main.go"), actionFiles)
+	return actionFiles, nil
 }
 
 // RequireGeneratedProjectRoot verifies a generated dygo project marker.
@@ -387,6 +431,58 @@ func CollectJobFiles(root string, modulePath string, apps []manifest.LoadedApp, 
 	return jobFiles, nil
 }
 
+// CollectActionFiles returns action files for existing registrars plus an optional target.
+func CollectActionFiles(root string, modulePath string, apps []manifest.LoadedApp, entities []catalog.LoadedEntity, target ActionTarget) ([]ActionFile, error) {
+	appsByName := map[string]manifest.LoadedApp{}
+	for _, app := range apps {
+		if IsProjectOwnedApp(root, app.Dir) {
+			appsByName[app.Manifest.Name] = app
+		}
+	}
+
+	var actionFiles []ActionFile
+	for _, entity := range entities {
+		if entity.IsCollection() {
+			continue
+		}
+		app, ok := appsByName[entity.AppName]
+		if !ok {
+			continue
+		}
+		actionPath := filepath.Join(filepath.Dir(entity.Path), shape.EntityActionsDir, shape.EntityActionsFile)
+		include := target.AppName == entity.AppName && target.EntityName == entity.Entity.Name
+		exists, hasRegister, err := InspectFunctionFile(actionPath, "Register")
+		if err != nil {
+			return nil, err
+		}
+		if include {
+			hasRegister = true
+		}
+		if !include && !exists {
+			continue
+		}
+		importPath, err := ImportPathForDir(root, modulePath, filepath.Dir(actionPath))
+		if err != nil {
+			return nil, err
+		}
+		actionFiles = append(actionFiles, ActionFile{
+			AppName:     app.Manifest.Name,
+			EntityName:  entity.Entity.Name,
+			Path:        actionPath,
+			ImportPath:  importPath,
+			HasRegister: hasRegister,
+		})
+	}
+	sort.SliceStable(actionFiles, func(i, j int) bool {
+		if actionFiles[i].AppName != actionFiles[j].AppName {
+			return actionFiles[i].AppName < actionFiles[j].AppName
+		}
+		return actionFiles[i].EntityName < actionFiles[j].EntityName
+	})
+	assignActionImportAliases(actionFiles)
+	return actionFiles, nil
+}
+
 func jobFileFor(root string, modulePath string, appName string, jobDir string, jobName string, includeTarget bool) (JobFile, error) {
 	runPath := filepath.Join(jobDir, shape.JobRunFile)
 	_, hasRun, err := InspectFunctionFile(runPath, "Run")
@@ -472,12 +568,30 @@ func MarkJobRunnerWiring(runnerFile string, jobFiles []JobFile) {
 	}
 }
 
+// MarkActionRunnerWiring annotates action files with current runner state.
+func MarkActionRunnerWiring(runnerFile string, actionFiles []ActionFile) {
+	data, err := os.ReadFile(runnerFile)
+	if err != nil {
+		return
+	}
+	source := string(data)
+	for index := range actionFiles {
+		actionFiles[index].RunnerWired = strings.Contains(source, strconv.Quote(actionFiles[index].ImportPath)) && strings.Contains(source, actionFiles[index].Alias+".Register")
+	}
+}
+
 // RenderSource renders the project runner source.
-func RenderSource(hookFiles []HookFile, jobFiles []JobFile) ([]byte, error) {
+func RenderSource(hookFiles []HookFile, actionFiles []ActionFile, jobFiles []JobFile) ([]byte, error) {
 	wiredHooks := make([]HookFile, 0, len(hookFiles))
 	for _, hook := range hookFiles {
 		if hook.HasRegister {
 			wiredHooks = append(wiredHooks, hook)
+		}
+	}
+	wiredActions := make([]ActionFile, 0, len(actionFiles))
+	for _, action := range actionFiles {
+		if action.HasRegister {
+			wiredActions = append(wiredActions, action)
 		}
 	}
 	wiredJobs := make([]JobFile, 0, len(jobFiles))
@@ -499,10 +613,13 @@ func RenderSource(hookFiles []HookFile, jobFiles []JobFile) ([]byte, error) {
 	for _, hook := range wiredHooks {
 		builder.WriteString(fmt.Sprintf("\t%s %q\n", hook.Alias, hook.ImportPath))
 	}
+	for _, action := range wiredActions {
+		builder.WriteString(fmt.Sprintf("\t%s %q\n", action.Alias, action.ImportPath))
+	}
 	for _, job := range wiredJobs {
 		builder.WriteString(fmt.Sprintf("\t%s %q\n", job.Alias, job.ImportPath))
 	}
-	if len(wiredHooks) > 0 || len(wiredJobs) > 0 {
+	if len(wiredHooks) > 0 || len(wiredActions) > 0 || len(wiredJobs) > 0 {
 		builder.WriteString("\t\"github.com/hapyco/dygo/pkg/dygo\"\n")
 	}
 	builder.WriteString("\tdygoruntime \"github.com/hapyco/dygo/pkg/dygo/runtime\"\n")
@@ -511,7 +628,7 @@ func RenderSource(hookFiles []HookFile, jobFiles []JobFile) ([]byte, error) {
 	builder.WriteString("\tctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)\n")
 	builder.WriteString("\tdefer stop()\n\n")
 	builder.WriteString("\terr := dygoruntime.Run(ctx, os.Args[1:], os.Stdin, os.Stdout, os.Stderr")
-	if len(wiredHooks) == 0 && len(wiredJobs) == 0 {
+	if len(wiredHooks) == 0 && len(wiredActions) == 0 && len(wiredJobs) == 0 {
 		builder.WriteString(", dygoruntime.Options{})\n")
 	} else {
 		builder.WriteString(", dygoruntime.Options{\n")
@@ -519,6 +636,13 @@ func RenderSource(hookFiles []HookFile, jobFiles []JobFile) ([]byte, error) {
 			builder.WriteString("\t\tRecordHooks: []dygo.RecordHookRegistrar{\n")
 			for _, hook := range wiredHooks {
 				builder.WriteString(fmt.Sprintf("\t\t\t%s.Register,\n", hook.Alias))
+			}
+			builder.WriteString("\t\t},\n")
+		}
+		if len(wiredActions) > 0 {
+			builder.WriteString("\t\tEntityActions: []dygo.EntityActionRegistrar{\n")
+			for _, action := range wiredActions {
+				builder.WriteString(fmt.Sprintf("\t\t\t%s.Register,\n", action.Alias))
 			}
 			builder.WriteString("\t\t},\n")
 		}
@@ -599,9 +723,24 @@ Jobs: []dygo.JobRegistrar{
 },`, alias, importPath, appName, jobName, alias)
 }
 
+// ActionManualSnippet returns wiring help for a custom project runner.
+func ActionManualSnippet(root string, modulePath string, appName string, entityName string, actionDir string) string {
+	alias := LowerIdentifier(appName+"-"+entityName) + "actions"
+	importPath, err := ImportPathForDir(root, modulePath, actionDir)
+	if err != nil {
+		importPath = strings.TrimRight(modulePath, "/") + "/" + filepath.ToSlash(filepath.Clean(actionDir))
+	}
+	if alias == "actions" {
+		alias = "entityactions"
+	}
+	return fmt.Sprintf(`import %s %q
+
+EntityActions: []dygo.EntityActionRegistrar{%s.Register},`, alias, importPath, alias)
+}
+
 // UpgradeManualSnippet returns generic wiring help for custom runners.
 func UpgradeManualSnippet() string {
-	return `cmd/dygo/main.go is custom. Import app hook and Job packages manually and call pkg/dygo/runtime.Run with runtime.Options{RecordHooks: ..., Jobs: ...}.`
+	return `cmd/dygo/main.go is custom. Import app hook, Entity action, and Job packages manually and call pkg/dygo/runtime.Run with runtime.Options{RecordHooks: ..., EntityActions: ..., Jobs: ...}.`
 }
 
 // ExportedIdentifier returns a Go exported identifier from a kebab key.
@@ -668,5 +807,22 @@ func assignJobImportAliases(jobFiles []JobFile) {
 			continue
 		}
 		jobFiles[index].Alias = fmt.Sprintf("%s%d", base, count+1)
+	}
+}
+
+func assignActionImportAliases(actionFiles []ActionFile) {
+	used := map[string]int{}
+	for index := range actionFiles {
+		base := LowerIdentifier(actionFiles[index].AppName+"-"+actionFiles[index].EntityName) + "actions"
+		if base == "actions" {
+			base = "entityactions"
+		}
+		count := used[base]
+		used[base] = count + 1
+		if count == 0 {
+			actionFiles[index].Alias = base
+			continue
+		}
+		actionFiles[index].Alias = fmt.Sprintf("%s%d", base, count+1)
 	}
 }

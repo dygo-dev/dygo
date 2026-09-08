@@ -200,6 +200,15 @@ func Validate(root string) ([]string, error) {
 			problems = append(problems, fmt.Sprintf("%s: job runner file must expose Run(ctx context.Context, job dygo.JobExecution) error", filepath.ToSlash(job.Path)))
 		}
 	}
+	actionFiles, err := runnergen.DiscoverActions(root)
+	if err != nil {
+		return nil, err
+	}
+	for _, action := range actionFiles {
+		if !action.HasRegister {
+			problems = append(problems, fmt.Sprintf("%s: Entity action file must expose Register(registry dygo.EntityActionRegistry) error", filepath.ToSlash(action.Path)))
+		}
+	}
 	update, err := RenderRunner(root)
 	if err != nil {
 		problems = append(problems, err.Error())

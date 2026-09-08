@@ -45,6 +45,7 @@ func TestCanonicalPaths(t *testing.T) {
 		EntityMetadataPath("lead"):          "entities/lead/lead.entity.yml",
 		EntityFixturesPath("lead"):          "entities/lead/fixtures.yml",
 		EntityHooksPath("lead"):             "entities/lead/hooks.go",
+		EntityActionsPath("lead"):           "entities/lead/actions/actions.go",
 		EntityViewsPath("lead"):             "entities/lead/views.yml",
 		CollectionMetadataPath("row"):       "entities/_collections/row.yml",
 		CollectionBundleMetadataPath("row"): "entities/_collections/row/row.entity.yml",

@@ -23,6 +23,7 @@ The current conventions are:
 - Keep `dygo upgrade` project-only; update binaries out of band through installers.
 - Put scaffolding under `dygo generate` and alias `dygo g`.
 - Keep hook generation under `dygo generate hook`; use `dygo hook` for inspection and wiring maintenance.
+- Keep Entity action generation under `dygo generate action`; `dygo hook sync` also updates action runner wiring.
 - Keep route validation filesystem-backed.
 - Include route, fixture, hook, Job, Schedule, schema snapshot, config, secrets, database, Studio assets, and first-run setup checks in `dygo doctor`.
 

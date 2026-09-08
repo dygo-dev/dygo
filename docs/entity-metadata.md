@@ -153,6 +153,8 @@ entities/
     invoice.entity.yml
     fixtures.yml
     hooks.go
+    actions/
+      actions.go
   _collections/
     invoice-item.yml
     invoice-tax/

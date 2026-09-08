@@ -109,7 +109,8 @@ automatically constrains every operation to that actor's owner Record. Use
 
 Entity actions receive the actor and transaction-scoped Records, Jobs, Files,
 Timeline, and Notifications services. Register one action on one Entity with
-`EntityActionRegistry.RegisterEntity`.
+`EntityActionRegistry.RegisterEntity`. Create the registrar scaffold with
+`dygo generate action <app>/<entity>`. See [Entity Actions](entity-actions.md).
 
 `FileData` uploads, attaches, opens, and removes private files. `TimelineData`
 adds append-only comments and events to Core Activity.

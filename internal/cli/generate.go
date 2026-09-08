@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"io"
 
+	"github.com/hapyco/dygo/internal/actiongen"
 	scaffold "github.com/hapyco/dygo/internal/generate"
 	"github.com/hapyco/dygo/internal/hookgen"
 	"github.com/hapyco/dygo/internal/jobgen"
@@ -19,6 +20,7 @@ func newGenerateCommand(stdout io.Writer) *cobra.Command {
 	cmd.AddCommand(newGenerateEntityCommand(stdout))
 	cmd.AddCommand(newGenerateCollectionCommand(stdout))
 	cmd.AddCommand(newGenerateHookCommand(stdout))
+	cmd.AddCommand(newGenerateActionCommand(stdout))
 	cmd.AddCommand(newGenerateJobCommand(stdout))
 	cmd.AddCommand(newGenerateFixtureCommand(stdout))
 	cmd.AddCommand(newGenerateTestCommand(stdout))
@@ -158,6 +160,43 @@ func newGenerateHookCommand(stdout io.Writer) *cobra.Command {
 	return cmd
 }
 
+func newGenerateActionCommand(stdout io.Writer) *cobra.Command {
+	var dryRun bool
+	var force bool
+
+	cmd := &cobra.Command{
+		Use:   "action <app>/<entity>",
+		Short: "Generate Entity action scaffold and runner wiring",
+		Args:  cobra.ExactArgs(1),
+		RunE: func(_ *cobra.Command, args []string) error {
+			target, err := shape.ParseAppRef(args[0])
+			if err != nil {
+				return err
+			}
+			root, err := workingRootPath()
+			if err != nil {
+				return err
+			}
+			result, err := actiongen.GenerateWithOptions(actiongen.GenerateOptions{
+				Root:       root,
+				AppName:    target.App,
+				EntityName: target.Name,
+				DryRun:     dryRun,
+				Force:      force,
+			})
+			if err != nil {
+				return fmt.Errorf("generate action: %w", err)
+			}
+			if _, err := fmt.Fprintf(stdout, "generated action for %s/%s\n", result.AppName, result.Entity); err != nil {
+				return fmt.Errorf("write generate output: %w", err)
+			}
+			return writeGenerateActionResult(stdout, root, result)
+		},
+	}
+	addScaffoldWriteFlags(cmd, &dryRun, &force)
+	return cmd
+}
+
 func newGenerateJobCommand(stdout io.Writer) *cobra.Command {
 	var dryRun bool
 	var force bool
@@ -282,6 +321,30 @@ func writeGenerateHookResult(stdout io.Writer, root string, result hookgen.Resul
 		return fmt.Errorf("write generate output: %w", err)
 	}
 	return nil
+}
+
+func writeGenerateActionResult(stdout io.Writer, root string, result actiongen.Result) error {
+	if _, err := fmt.Fprintf(stdout, "action: %s (%s)\n", relToHooksRoot(root, result.ActionFile), actionFileResultStatus(result)); err != nil {
+		return fmt.Errorf("write generate output: %w", err)
+	}
+	if _, err := fmt.Fprintf(stdout, "runner: %s (%s)\n", relToHooksRoot(root, result.RunnerFile), actionRunnerResultStatus(result)); err != nil {
+		return fmt.Errorf("write generate output: %w", err)
+	}
+	return nil
+}
+
+func actionFileResultStatus(result actiongen.Result) string {
+	if result.ActionFileStatus != "" {
+		return result.ActionFileStatus
+	}
+	return createdStatus(result.ActionFileCreated)
+}
+
+func actionRunnerResultStatus(result actiongen.Result) string {
+	if result.RunnerFileStatus != "" {
+		return result.RunnerFileStatus
+	}
+	return writtenStatus(result.RunnerFileWritten)
 }
 
 func hookFileResultStatus(result hookgen.Result) string {
