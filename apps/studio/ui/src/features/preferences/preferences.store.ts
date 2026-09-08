@@ -100,7 +100,10 @@ export const usePreferencesStore = defineStore('preferences', () => {
   }
 
   function startSession(userID: number | null): Promise<void> {
-    if (user.value === userID) return hydration
+    if (user.value === userID) {
+      if (userID !== null && error.value && !ready.value) return hydrate()
+      return hydration
+    }
     generation++
     controller.abort()
     controller = new AbortController()

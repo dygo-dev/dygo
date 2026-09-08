@@ -31,6 +31,8 @@ type SavedFilter struct {
 
 type Store struct{ queryer db.RecordQueryer }
 
+const privateStateMaxRecords = 10000
+
 func New(queryer db.RecordQueryer) Store { return Store{queryer: queryer} }
 
 func fmtID(id int64) string { return strconv.FormatInt(id, 10) }
@@ -53,8 +55,34 @@ func input(values map[string]any) dygo.RecordInput {
 	return result
 }
 
-func owner(actor dygo.Actor) dygo.RecordFilter {
-	return dygo.RecordFilter{Field: "user.id", Operator: "eq", Value: fmtID(actor.UserID)}
+func owner(actor dygo.Actor, ownerField string) dygo.RecordFilter {
+	return dygo.RecordFilter{Field: ownerField + ".id", Operator: "eq", Value: fmtID(actor.UserID)}
+}
+
+func (s Store) privateOwnerField(ctx context.Context, entity string) (string, error) {
+	meta, err := db.NewMetadataReader(s.queryer).GetEntityMetaByIdentity(ctx, "studio", entity)
+	if err != nil {
+		return "", err
+	}
+	if !meta.IsPrivate || strings.TrimSpace(meta.PrivateOwnerField) == "" {
+		return "", db.RecordError{Code: db.RecordErrorPermissionDenied, Message: "Entity is not configured for private Studio state"}
+	}
+	return meta.PrivateOwnerField, nil
+}
+
+func (s Store) ensureCapacity(ctx context.Context, actor dygo.Actor, entity string) error {
+	ownerField, err := s.privateOwnerField(ctx, entity)
+	if err != nil {
+		return err
+	}
+	count, err := s.records(actor).Count(ctx, "studio", entity, dygo.RecordListParams{Filters: []dygo.RecordFilter{owner(actor, ownerField)}})
+	if err != nil {
+		return err
+	}
+	if count >= privateStateMaxRecords {
+		return db.RecordError{Code: db.RecordErrorValidation, Message: "private Studio state exceeds the per-user record limit"}
+	}
+	return nil
 }
 
 func (s Store) ownerName(ctx context.Context, actor dygo.Actor) (string, error) {
@@ -88,9 +116,30 @@ func (s Store) list(ctx context.Context, actor dygo.Actor, entity string, filter
 	if err := requireActor(actor); err != nil {
 		return nil, err
 	}
-	params := dygo.RecordListParams{Limit: recordquery.MaxLimit, Filters: append([]dygo.RecordFilter{owner(actor)}, filters...)}
+	ownerField, err := s.privateOwnerField(ctx, entity)
+	if err != nil {
+		return nil, err
+	}
+	params := dygo.RecordListParams{Limit: recordquery.MaxLimit, Filters: append([]dygo.RecordFilter{owner(actor, ownerField)}, filters...)}
 	records := []dygo.Record{}
 	for {
+		if len(records) >= privateStateMaxRecords {
+			probeParams := params
+			probeParams.Limit = 1
+			probeParams.Offset = len(records)
+			probe, err := s.records(actor).List(ctx, "studio", entity, probeParams)
+			if err != nil {
+				return nil, err
+			}
+			if len(probe.Records) > 0 {
+				return nil, db.RecordError{Code: db.RecordErrorValidation, Message: "private Studio state exceeds the per-user record limit"}
+			}
+			return records, nil
+		}
+		remaining := privateStateMaxRecords - len(records)
+		if params.Limit > remaining {
+			params.Limit = remaining
+		}
 		page, err := s.records(actor).List(ctx, "studio", entity, params)
 		if err != nil {
 			return nil, err
@@ -143,6 +192,9 @@ func (s Store) PutPreference(ctx context.Context, actor dygo.Actor, key string, 
 		}
 		create := input(map[string]any{"user": name, "key": key})
 		create["value"] = value
+		if err := s.ensureCapacity(ctx, actor, "preference"); err != nil {
+			return err
+		}
 		_, err = records.Create(ctx, "studio", "preference", create)
 		if err == nil {
 			return nil
@@ -223,6 +275,9 @@ func (s Store) CreateSavedFilter(ctx context.Context, actor dygo.Actor, entity, 
 	if err != nil {
 		return SavedFilter{}, err
 	}
+	if err := s.ensureCapacity(ctx, actor, "saved-filter"); err != nil {
+		return SavedFilter{}, err
+	}
 	record, err := s.records(actor).Create(ctx, "studio", "saved-filter", input(map[string]any{"user": name, "entity": entity, "label": label, "filters": filters}))
 	if err != nil {
 		return SavedFilter{}, err
@@ -234,8 +289,12 @@ func (s Store) mutateSavedFilter(ctx context.Context, actor dygo.Actor, id int64
 	if err := requireActor(actor); err != nil {
 		return err
 	}
+	ownerField, err := s.privateOwnerField(ctx, "saved-filter")
+	if err != nil {
+		return err
+	}
 	return s.records(actor).Transaction(ctx, func(ctx context.Context, records dygo.RecordData) error {
-		locked, err := records.Lock(ctx, "studio", "saved-filter", dygo.RecordListParams{Limit: 1, Filters: []dygo.RecordFilter{owner(actor), {Field: "id", Operator: "eq", Value: fmtID(id)}}})
+		locked, err := records.Lock(ctx, "studio", "saved-filter", dygo.RecordListParams{Limit: 1, Filters: []dygo.RecordFilter{owner(actor, ownerField), {Field: "id", Operator: "eq", Value: fmtID(id)}}})
 		if err != nil {
 			return err
 		}

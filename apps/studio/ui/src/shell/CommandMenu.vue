@@ -82,7 +82,7 @@ const currentEntity = computed(() => findEntityByRouteSlug(metadataEntities.valu
 const recordEntities = computed(() => searchableEntities.value.filter((entity) => !entity['is-single']))
 const selectedSearchEntity = computed(() => recordEntities.value.find((entity) => entity.slug === searchEntity.value))
 const recordResults = useQuery({
-  queryKey: computed(() => ['command-records', authStore.currentUser?.id, searchEntity.value, recordSearch.value]),
+  queryKey: computed(() => ['command-records', authStore.currentUser?.id, authStore.sessionVersion, searchEntity.value, recordSearch.value]),
   enabled: computed(() => commandMenuOpen.value && searchingRecords.value && Boolean(authStore.currentUser && selectedSearchEntity.value && recordSearch.value)),
   queryFn: ({ signal }) => listRecords(searchEntity.value, {
     limit: 20,

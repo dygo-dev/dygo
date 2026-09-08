@@ -1,5 +1,7 @@
 label: Preference
 description: Private user interface state.
+is-private: true
+private-owner-field: user
 route:
   slug: studio-preference
 name:

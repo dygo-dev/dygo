@@ -80,6 +80,8 @@ dygo uses singular Entity keys only. There is no separate required metadata for 
 
 `is-system: true` makes an Entity readable through normal access rules but writable only through a trusted system Record writer. Studio, ordinary CRUD (including Administrator and `AsSystem`), fixtures, and imports cannot mutate its Records. App code uses the App-scoped [`Records.System(reason)` SDK](sdk.md#trusted-system-record-writes), or an App-owned post-sync [system Record patch](patches.md).
 
+`is-private: true` marks an Entity as owner-scoped application state. `private-owner-field` must name a Link field that identifies the owner. Framework services use that metadata to keep private Records out of generic metadata and API surfaces and to apply the owner predicate consistently. Private storage is a reusable Entity contract; it is not tied to a particular App or Entity key.
+
 `is-single: true` marks an Entity as a singleton settings/config surface. Single Entities have exactly one framework-owned Record whose system `name` is the Entity key. dygo seeds that Record during metadata sync, Studio opens the form directly instead of a list, and normal create/delete/list operations are not used.
 
 Single Entities cannot define explicit `name` configuration; dygo owns the singleton Record name. Every required stored field on a Single Entity must define a non-null default so `dygo db migrate` can seed the row deterministically.

@@ -40,19 +40,21 @@ type MetadataAppRef struct {
 
 // MetadataEntity is one Entity metadata summary.
 type MetadataEntity struct {
-	ID           int64           `json:"-"`
-	Name         string          `json:"name"`
-	Key          string          `json:"key"`
-	Slug         *string         `json:"slug"`
-	Label        string          `json:"label"`
-	Description  string          `json:"description"`
-	Icon         string          `json:"icon,omitempty"`
-	IsSingle     bool            `json:"is-single"`
-	IsSystem     bool            `json:"is-system"`
-	IsCollection bool            `json:"is-collection"`
-	Naming       json.RawMessage `json:"naming,omitempty"`
-	Tree         *schema.Tree    `json:"tree,omitempty"`
-	App          MetadataAppRef  `json:"app"`
+	ID                int64           `json:"-"`
+	Name              string          `json:"name"`
+	Key               string          `json:"key"`
+	Slug              *string         `json:"slug"`
+	Label             string          `json:"label"`
+	Description       string          `json:"description"`
+	Icon              string          `json:"icon,omitempty"`
+	IsSingle          bool            `json:"is-single"`
+	IsSystem          bool            `json:"is-system"`
+	IsCollection      bool            `json:"is-collection"`
+	IsPrivate         bool            `json:"is-private"`
+	PrivateOwnerField string          `json:"private-owner-field,omitempty"`
+	Naming            json.RawMessage `json:"naming,omitempty"`
+	Tree              *schema.Tree    `json:"tree,omitempty"`
+	App               MetadataAppRef  `json:"app"`
 }
 
 // RouteSlug returns the public route slug for routeable Entities.
@@ -200,7 +202,7 @@ func (r MetadataReader) ListEntities(ctx context.Context) ([]MetadataEntity, err
 		return nil, err
 	}
 	rows, err := r.queryer.Query(ctx, `
-SELECT e.name, e.key, COALESCE(e.slug, ''), e.label, COALESCE(e.description, ''), COALESCE(e.icon, ''), COALESCE(e.is_single, false), COALESCE(e.is_system, false), COALESCE(e.is_collection, false), e.naming, a.name, a.label, to_jsonb(e)->'tree'
+SELECT e.name, e.key, COALESCE(e.slug, ''), e.label, COALESCE(e.description, ''), COALESCE(e.icon, ''), COALESCE(e.is_single, false), COALESCE(e.is_system, false), COALESCE(e.is_collection, false), COALESCE(e.is_private, false), COALESCE(e.private_owner_field, ''), e.naming, a.name, a.label, to_jsonb(e)->'tree'
 FROM "entity" e
 JOIN "app" a ON a.id = e.app_id
 WHERE NOT e.retired
@@ -215,7 +217,7 @@ ORDER BY a.name, e.key`)
 		var entity MetadataEntity
 		var naming []byte
 		var slug string
-		if err := rows.Scan(&entity.Name, &entity.Key, &slug, &entity.Label, &entity.Description, &entity.Icon, &entity.IsSingle, &entity.IsSystem, &entity.IsCollection, &naming, &entity.App.Name, &entity.App.Label, &entity.Tree); err != nil {
+		if err := rows.Scan(&entity.Name, &entity.Key, &slug, &entity.Label, &entity.Description, &entity.Icon, &entity.IsSingle, &entity.IsSystem, &entity.IsCollection, &entity.IsPrivate, &entity.PrivateOwnerField, &naming, &entity.App.Name, &entity.App.Label, &entity.Tree); err != nil {
 			return nil, fmt.Errorf("scan metadata entity: %w", err)
 		}
 		entity.Slug = stringPointerOrNil(slug)
@@ -231,7 +233,7 @@ ORDER BY a.name, e.key`)
 // GetEntityMeta returns complete persisted metadata for one Entity slug.
 func (r MetadataReader) GetEntityMeta(ctx context.Context, slug string) (MetadataEntityMeta, error) {
 	return r.getEntityMeta(ctx, slug, `
-SELECT e.id, e.name, e.key, COALESCE(e.slug, ''), e.label, COALESCE(e.description, ''), COALESCE(e.icon, ''), COALESCE(e.is_single, false), COALESCE(e.is_system, false), COALESCE(e.is_collection, false), e.naming, a.name, a.label, to_jsonb(e)->'tree'
+SELECT e.id, e.name, e.key, COALESCE(e.slug, ''), e.label, COALESCE(e.description, ''), COALESCE(e.icon, ''), COALESCE(e.is_single, false), COALESCE(e.is_system, false), COALESCE(e.is_collection, false), COALESCE(e.is_private, false), COALESCE(e.private_owner_field, ''), e.naming, a.name, a.label, to_jsonb(e)->'tree'
 FROM "entity" e
 JOIN "app" a ON a.id = e.app_id
 WHERE e.slug = $1 AND NOT e.retired`, slug)
@@ -240,7 +242,7 @@ WHERE e.slug = $1 AND NOT e.retired`, slug)
 // GetEntityMetaByIdentity returns complete persisted metadata for one app-scoped Entity identity.
 func (r MetadataReader) GetEntityMetaByIdentity(ctx context.Context, appName string, entity string) (MetadataEntityMeta, error) {
 	return r.getEntityMeta(ctx, appName+"/"+entity, `
-SELECT e.id, e.name, e.key, COALESCE(e.slug, ''), e.label, COALESCE(e.description, ''), COALESCE(e.icon, ''), COALESCE(e.is_single, false), COALESCE(e.is_system, false), COALESCE(e.is_collection, false), e.naming, a.name, a.label, to_jsonb(e)->'tree'
+SELECT e.id, e.name, e.key, COALESCE(e.slug, ''), e.label, COALESCE(e.description, ''), COALESCE(e.icon, ''), COALESCE(e.is_single, false), COALESCE(e.is_system, false), COALESCE(e.is_collection, false), COALESCE(e.is_private, false), COALESCE(e.private_owner_field, ''), e.naming, a.name, a.label, to_jsonb(e)->'tree'
 FROM "entity" e
 JOIN "app" a ON a.id = e.app_id
 WHERE a.name = $1 AND e.key = $2 AND NOT e.retired`, appName, entity)
@@ -254,7 +256,7 @@ func (r MetadataReader) getEntityMeta(ctx context.Context, name string, sql stri
 	var meta MetadataEntityMeta
 	var naming []byte
 	var slug string
-	err := r.queryer.QueryRow(ctx, sql, args...).Scan(&meta.ID, &meta.Name, &meta.Key, &slug, &meta.Label, &meta.Description, &meta.Icon, &meta.IsSingle, &meta.IsSystem, &meta.IsCollection, &naming, &meta.App.Name, &meta.App.Label, &meta.Tree)
+	err := r.queryer.QueryRow(ctx, sql, args...).Scan(&meta.ID, &meta.Name, &meta.Key, &slug, &meta.Label, &meta.Description, &meta.Icon, &meta.IsSingle, &meta.IsSystem, &meta.IsCollection, &meta.IsPrivate, &meta.PrivateOwnerField, &naming, &meta.App.Name, &meta.App.Label, &meta.Tree)
 	if errors.Is(err, pgx.ErrNoRows) {
 		return MetadataEntityMeta{}, MetadataNotFoundError{Kind: "entity", Name: name}
 	}

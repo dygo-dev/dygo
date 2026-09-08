@@ -99,12 +99,13 @@ const importOpen = ref(false)
 const actionMutation = useExecuteRecordActionMutation()
 const toast = useToast()
 const savedFilters = useQuery({
-  queryKey: computed(() => ['studio', 'saved-filters', auth.currentUser?.id, canonicalEntity.value]),
+  queryKey: computed(() => ['studio', 'saved-filters', auth.currentUser?.id, auth.sessionVersion, canonicalEntity.value]),
   queryFn: ({ signal }) => savedFilterRequest<SavedFilter[]>(`?entity=${encodeURIComponent(canonicalEntity.value)}`, 'GET', undefined, signal),
   enabled: computed(() => !!auth.currentUser),
 })
 const savingFilter = ref(false)
 const savedFilterError = ref('')
+const savedFilterRetry = ref<(() => Promise<void>) | null>(null)
 const hasFilters = computed(() => !!(idSearch.value || filterTokens.value.length || listQuery.value.filters.length))
 const filterContext = computed(() => Object.fromEntries(listQuery.value.filters.filter((filter) => filter.operator === 'eq').map((filter) => [filter.field, filter.value])))
 usePageCommands(computed(() => [
@@ -116,6 +117,7 @@ usePageCommands(computed(() => [
 ]))
 watch([canonicalEntity, () => preferences.userID], () => {
   savedFilterError.value = ''
+  savedFilterRetry.value = null
   void preferences.importMissing({
     'studio.records.page-size': storedPageSize.value || undefined,
     [hiddenColumnsPreference.value]: storedHiddenColumnKeys.value,
@@ -200,7 +202,7 @@ const recordsQuery = useInfiniteQuery({
     pageSize: pageSize.value,
     sort: effectiveListSort.value,
     filters: listQuery.value.filters,
-  }), auth.currentUser?.id]),
+  }), auth.currentUser?.id, auth.sessionVersion]),
   queryFn: ({ pageParam, signal }) => listRecords(props.entity, {
     limit: pageSize.value,
     offset: Number(pageParam),
@@ -510,7 +512,7 @@ function clearFilters() {
   selectedRowKeys.value = []
   listQuery.value = { sort: listQuery.value.sort, filters: [] }
   replaceRecordListRouteNow([], listQuery.value.sort)
-  void queryClient.resetQueries({ queryKey: [...recordListQueryKey(props.entity, { pageSize: pageSize.value, sort: effectiveListSort.value, filters: [] }), auth.currentUser?.id], exact: true })
+  void queryClient.resetQueries({ queryKey: [...recordListQueryKey(props.entity, { pageSize: pageSize.value, sort: effectiveListSort.value, filters: [] }), auth.currentUser?.id, auth.sessionVersion], exact: true })
 }
 
 function applySavedFilter(item: SavedFilter) {
@@ -525,7 +527,7 @@ function applySavedFilter(item: SavedFilter) {
   selectedRowKeys.value = []
   syncFilterControlsFromRoute(item.filters)
   replaceRecordListRouteNow(item.filters, listQuery.value.sort)
-  void queryClient.resetQueries({ queryKey: [...recordListQueryKey(props.entity, { pageSize: pageSize.value, sort: effectiveListSort.value, filters: item.filters }), auth.currentUser?.id], exact: true })
+  void queryClient.resetQueries({ queryKey: [...recordListQueryKey(props.entity, { pageSize: pageSize.value, sort: effectiveListSort.value, filters: item.filters }), auth.currentUser?.id, auth.sessionVersion], exact: true })
 }
 
 async function changeSavedFilter(method: string, item?: SavedFilter, label?: string) {
@@ -537,16 +539,26 @@ async function changeSavedFilter(method: string, item?: SavedFilter, label?: str
   }
   const session = auth.sessionVersion
   const entity = canonicalEntity.value
+  savedFilterRetry.value = () => changeSavedFilter(method, item, label)
   savingFilter.value = true
   savedFilterError.value = ''
   try {
     await savedFilterRequest(item ? `/${item.id}` : '', method, method === 'DELETE' ? undefined : method === 'POST' ? { entity, label, filters } : label === undefined ? { filters } : { label })
     await queryClient.invalidateQueries({ queryKey: ['studio', 'saved-filters'] })
+    savedFilterRetry.value = null
   } catch (cause) {
     if (session === auth.sessionVersion && entity === canonicalEntity.value) savedFilterError.value = cause instanceof Error ? cause.message : 'Could not update saved filters.'
   } finally {
     savingFilter.value = false
   }
+}
+
+async function retrySavedFilter() {
+  if (savedFilterRetry.value) {
+    await savedFilterRetry.value()
+    return
+  }
+  await savedFilters.refetch()
 }
 
 function showAllColumns() {
@@ -907,7 +919,7 @@ async function exportCSV() {
 
           <FilterFieldPicker ref="filterPicker" :fields="filterableFields" @select="selectFilterField" />
           <Button v-if="hasFilters" variant="ghost" size="sm" @click="clearFilters">Clear all</Button>
-          <SavedFiltersMenu :items="savedFilters.data.value ?? []" :busy="savingFilter || savedFilters.isLoading.value" :error="savedFilterError || savedFilters.error.value?.message || ''" @apply="applySavedFilter" @create="changeSavedFilter('POST', undefined, $event)" @rename="(item, label) => changeSavedFilter('PATCH', item, label)" @replace="changeSavedFilter('PATCH', $event)" @delete="changeSavedFilter('DELETE', $event)" @retry="savedFilters.refetch()" />
+          <SavedFiltersMenu :items="savedFilters.data.value ?? []" :busy="savingFilter || savedFilters.isLoading.value" :error="savedFilterError || savedFilters.error.value?.message || ''" @apply="applySavedFilter" @create="changeSavedFilter('POST', undefined, $event)" @rename="(item, label) => changeSavedFilter('PATCH', item, label)" @replace="changeSavedFilter('PATCH', $event)" @delete="changeSavedFilter('DELETE', $event)" @retry="retrySavedFilter" />
         </div>
       </template>
 

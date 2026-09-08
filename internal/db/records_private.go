@@ -5,17 +5,8 @@ import (
 	"strings"
 )
 
-// IsPrivateEntity is the narrow Studio storage exception. These two Entities
-// contain personal UI state and have no generic Record surface, even for an
-// Administrator. Only explicit system SDK callers may open their layouts;
-// the Studio service must enforce ownership before accessing a Record.
-// Do not expand this list for ordinary business authorization: use policies.
-func IsPrivateEntity(app, entity string) bool {
-	return app == "studio" && (entity == "preference" || entity == "saved-filter")
-}
-
 func privateRecordLayout(ctx context.Context, meta MetadataEntityMeta) (recordLayout, error) {
-	if IsPrivateEntity(meta.App.Name, meta.Key) {
+	if meta.IsPrivate {
 		if _, system := ActivitySystemReasonFromContext(ctx); !system {
 			return recordLayout{}, recordError(RecordErrorPermissionDenied, "private Entity requires its owner-scoped service", nil, nil)
 		}

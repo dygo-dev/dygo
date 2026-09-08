@@ -1,5 +1,7 @@
 label: Saved Filter
 description: Private Record list predicates.
+is-private: true
+private-owner-field: user
 route:
   slug: studio-saved-filter
 name:

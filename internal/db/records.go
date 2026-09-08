@@ -950,20 +950,22 @@ func (s RecordStore) runRecordHooks(ctx context.Context, hookCtx RecordHookConte
 }
 
 type recordLayout struct {
-	EntityID     int64
-	AppName      string
-	Entity       string
-	Slug         string
-	Label        string
-	IsSingle     bool
-	IsSystem     bool
-	IsCollection bool
-	Table        string
-	Naming       schema.Naming
-	Tree         *schema.Tree
-	Fields       []recordField
-	FieldByName  map[string]recordField
-	Collections  map[string]recordCollection
+	EntityID          int64
+	AppName           string
+	Entity            string
+	Slug              string
+	Label             string
+	IsSingle          bool
+	IsSystem          bool
+	IsCollection      bool
+	IsPrivate         bool
+	PrivateOwnerField string
+	Table             string
+	Naming            schema.Naming
+	Tree              *schema.Tree
+	Fields            []recordField
+	FieldByName       map[string]recordField
+	Collections       map[string]recordCollection
 }
 
 type recordField struct {
@@ -1031,19 +1033,21 @@ func newRecordLayout(meta MetadataEntityMeta) (recordLayout, error) {
 		return recordLayout{}, recordError(RecordErrorInternal, "entity naming metadata is invalid", map[string]any{"entity": routeSlug}, err)
 	}
 	layout := recordLayout{
-		EntityID:     meta.ID,
-		AppName:      meta.App.Name,
-		Entity:       meta.Key,
-		Slug:         routeSlug,
-		Label:        meta.Label,
-		IsSingle:     meta.IsSingle,
-		IsSystem:     meta.IsSystem,
-		IsCollection: meta.IsCollection,
-		Table:        entityTableName(meta.App.Name, meta.Key),
-		Naming:       naming,
-		Tree:         meta.Tree,
-		FieldByName:  map[string]recordField{},
-		Collections:  map[string]recordCollection{},
+		EntityID:          meta.ID,
+		AppName:           meta.App.Name,
+		Entity:            meta.Key,
+		Slug:              routeSlug,
+		Label:             meta.Label,
+		IsSingle:          meta.IsSingle,
+		IsSystem:          meta.IsSystem,
+		IsCollection:      meta.IsCollection,
+		IsPrivate:         meta.IsPrivate,
+		PrivateOwnerField: meta.PrivateOwnerField,
+		Table:             entityTableName(meta.App.Name, meta.Key),
+		Naming:            naming,
+		Tree:              meta.Tree,
+		FieldByName:       map[string]recordField{},
+		Collections:       map[string]recordCollection{},
 	}
 	if naming.Strategy == schema.NamingStrategyManual {
 		nameField, ok := systemRecordFieldByName(systemFieldName)

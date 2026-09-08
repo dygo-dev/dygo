@@ -53,6 +53,15 @@ func TestUpgradeProjectUpdatesGoModAndGeneratedRunner(t *testing.T) {
 	if !result.CoreUpdated || result.CoreSource != "bundled Core App" {
 		t.Fatalf("UpgradeProject() result = %+v, want bundled Core App update", result)
 	}
+	if !result.MetadataMigrationRequired {
+		t.Fatalf("UpgradeProject() result = %+v, want metadata migration step", result)
+	}
+	gitignore := readUpgradeTestFile(t, filepath.Join(root, ".gitignore"))
+	for _, want := range []string{"!.dygo/apps/studio/**", ".dygo/apps/studio/ui/**"} {
+		if !strings.Contains(gitignore, want) {
+			t.Fatalf(".gitignore = %q, want Studio tracking rule %q", gitignore, want)
+		}
+	}
 	if _, err := os.Stat(filepath.Join(root, ".dygo", "apps", "core", "app.yml")); err != nil {
 		t.Fatalf("Stat(upgraded Core App) error = %v", err)
 	}

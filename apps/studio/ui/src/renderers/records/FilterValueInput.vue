@@ -26,7 +26,7 @@ const canSearch = computed(() => !!target.value && constraints.value.length === 
 const search = ref('')
 const open = ref(false)
 const records = useQuery({
-  queryKey: computed(() => ['records', 'filter-options', auth.currentUser?.id, target.value, constraints.value, search.value]),
+  queryKey: computed(() => ['records', 'filter-options', auth.currentUser?.id, auth.sessionVersion, target.value, constraints.value, search.value]),
   queryFn: ({ signal }) => listRecords(target.value!, { limit: 20, offset: 0, filters: [...constraints.value, ...(search.value ? [{ field: 'name', operator: 'contains', value: search.value }] : [])] }, { signal }),
   enabled: computed(() => !!auth.currentUser && props.field.type === 'link' && open.value && canSearch.value),
 })

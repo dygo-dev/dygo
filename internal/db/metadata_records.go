@@ -49,18 +49,20 @@ type appRecord struct {
 }
 
 type entityRecord struct {
-	AppName      string
-	Name         string
-	Key          string
-	Slug         *string
-	Label        string
-	Description  string
-	Icon         string
-	IsSingle     bool
-	IsSystem     bool
-	IsCollection bool
-	Naming       []byte
-	Tree         []byte
+	AppName           string
+	Name              string
+	Key               string
+	Slug              *string
+	Label             string
+	Description       string
+	Icon              string
+	IsSingle          bool
+	IsSystem          bool
+	IsCollection      bool
+	IsPrivate         bool
+	PrivateOwnerField string
+	Naming            []byte
+	Tree              []byte
 }
 
 type pageRecord struct {
@@ -184,8 +186,8 @@ RETURNING id`, app.Name, app.Label, app.Version, app.Status).Scan(&id); err != n
 		}
 		var id int64
 		if err := tx.QueryRow(ctx, `
-INSERT INTO "entity" (app_id, name, key, slug, label, description, icon, is_single, is_system, is_collection, naming, tree)
-VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12)
+INSERT INTO "entity" (app_id, name, key, slug, label, description, icon, is_single, is_system, is_collection, is_private, private_owner_field, naming, tree)
+VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14)
 ON CONFLICT (name) DO UPDATE
 SET app_id = EXCLUDED.app_id,
 	name = EXCLUDED.name,
@@ -197,11 +199,13 @@ SET app_id = EXCLUDED.app_id,
 	is_single = EXCLUDED.is_single,
 	is_system = EXCLUDED.is_system,
 	is_collection = EXCLUDED.is_collection,
+	is_private = EXCLUDED.is_private,
+	private_owner_field = EXCLUDED.private_owner_field,
 	naming = EXCLUDED.naming,
 	tree = EXCLUDED.tree,
 	retired = false,
 	updated_at = now()
-RETURNING id`, appID, entity.Name, entity.Key, entity.Slug, entity.Label, entity.Description, entity.Icon, entity.IsSingle, entity.IsSystem, entity.IsCollection, entity.Naming, entity.Tree).Scan(&id); err != nil {
+RETURNING id`, appID, entity.Name, entity.Key, entity.Slug, entity.Label, entity.Description, entity.Icon, entity.IsSingle, entity.IsSystem, entity.IsCollection, entity.IsPrivate, nullIfEmpty(entity.PrivateOwnerField), entity.Naming, entity.Tree).Scan(&id); err != nil {
 			return metadataPersistResult{}, fmt.Errorf("persist entity metadata %s/%s: %w", entity.AppName, entity.Key, err)
 		}
 		entityIDs[entityKey(entity.AppName, entity.Key)] = id
@@ -546,18 +550,20 @@ func buildMetadataRecords(metadata metadataCatalog) (metadataRecordSet, error) {
 			}
 		}
 		records.Entities = append(records.Entities, entityRecord{
-			AppName:      loaded.AppName,
-			Name:         entityName,
-			Key:          loaded.Entity.Name,
-			Slug:         slug,
-			Label:        loaded.Entity.Label,
-			Description:  loaded.Entity.Description,
-			Icon:         strings.TrimSpace(loaded.Entity.Icon),
-			IsSingle:     loaded.Entity.IsSingle,
-			IsSystem:     loaded.Entity.IsSystem,
-			IsCollection: loaded.IsCollection() || loaded.Entity.IsCollection,
-			Naming:       namingJSON,
-			Tree:         treeJSON,
+			AppName:           loaded.AppName,
+			Name:              entityName,
+			Key:               loaded.Entity.Name,
+			Slug:              slug,
+			Label:             loaded.Entity.Label,
+			Description:       loaded.Entity.Description,
+			Icon:              strings.TrimSpace(loaded.Entity.Icon),
+			IsSingle:          loaded.Entity.IsSingle,
+			IsSystem:          loaded.Entity.IsSystem,
+			IsCollection:      loaded.IsCollection() || loaded.Entity.IsCollection,
+			IsPrivate:         loaded.Entity.IsPrivate,
+			PrivateOwnerField: strings.TrimSpace(loaded.Entity.PrivateOwnerField),
+			Naming:            namingJSON,
+			Tree:              treeJSON,
 		})
 		for index, field := range loaded.Entity.Fields {
 			defaultJSON, err := fieldDefaultJSON(field.Default)

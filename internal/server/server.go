@@ -829,7 +829,7 @@ func (h metadataHandler) listEntities(w http.ResponseWriter, r *http.Request) {
 	filtered := make([]db.MetadataEntity, 0, len(entities))
 	for _, entity := range entities {
 		routeSlug := entity.RouteSlug()
-		if routeSlug == "" || db.IsPrivateEntity(entity.App.Name, entity.Key) {
+		if routeSlug == "" || entity.IsPrivate {
 			continue
 		}
 		canRead, err := h.canReadEntity(r.Context(), user, routeSlug)
@@ -858,7 +858,7 @@ func (h metadataHandler) getEntityMeta(w http.ResponseWriter, r *http.Request) {
 		writeAPIError(w, err, "entity", name)
 		return
 	}
-	if db.IsPrivateEntity(meta.App.Name, meta.Key) {
+	if meta.IsPrivate {
 		writeErrorEnvelope(w, http.StatusForbidden, "forbidden", "private Entity", nil)
 		return
 	}
@@ -1004,7 +1004,7 @@ func (h recordHandler) resolveEntity(next http.Handler) http.Handler {
 			return
 		}
 		ctx := context.WithValue(r.Context(), recordEntityMetaContextKey{}, meta)
-		if db.IsPrivateEntity(meta.App.Name, meta.Key) {
+		if meta.IsPrivate {
 			writeErrorEnvelope(w, http.StatusForbidden, "forbidden", "private Entity", nil)
 			return
 		}

@@ -239,6 +239,8 @@ CREATE TABLE public.entity (
     is_single boolean DEFAULT false NOT NULL,
     is_system boolean DEFAULT false NOT NULL,
     is_collection boolean DEFAULT false NOT NULL,
+    is_private boolean DEFAULT false NOT NULL,
+    private_owner_field text,
     naming jsonb,
     retired boolean DEFAULT false NOT NULL
 );
@@ -1226,6 +1228,11 @@ CREATE INDEX entity_is_single_idx ON public.entity USING btree (is_single);
 --
 
 CREATE INDEX entity_is_system_idx ON public.entity USING btree (is_system);
+
+-- Name: entity_is_private_idx; Type: INDEX; Schema: public; Owner: -
+--
+
+CREATE INDEX entity_is_private_idx ON public.entity USING btree (is_private);
 
 
 --

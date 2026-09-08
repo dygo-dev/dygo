@@ -63,6 +63,17 @@ fields:
     default: false
     index: true
 
+  - name: is-private
+    label: Is Private
+    type: boolean
+    required: true
+    default: false
+    index: true
+
+  - name: private-owner-field
+    label: Private Owner Field
+    type: text
+
   - name: naming
     label: Naming
     type: json

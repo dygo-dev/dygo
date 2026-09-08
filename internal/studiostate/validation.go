@@ -3,6 +3,7 @@ package studiostate
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"strings"
 
 	"github.com/hapyco/dygo/internal/db"
@@ -29,9 +30,6 @@ func (s Store) validate(ctx context.Context, actor dygo.Actor, identity string, 
 		return invalid("filters must be an array of at most 100 predicates")
 	}
 	app, entity := parts[0], parts[1]
-	if db.IsPrivateEntity(app, entity) {
-		return db.RecordError{Code: db.RecordErrorPermissionDenied, Message: "private Entity cannot be filtered"}
-	}
 	scope, err := permissions.NewChecker(s.queryer).RecordScope(ctx, permissions.Request{Actor: actor, Resource: dygo.Resource{Kind: dygo.ResourceEntity, App: app, Name: entity}, Action: permissions.ActionRead})
 	if err != nil {
 		return err
@@ -42,6 +40,9 @@ func (s Store) validate(ctx context.Context, actor dygo.Actor, identity string, 
 	meta, err := db.NewMetadataReader(s.queryer).GetEntityMetaByIdentity(ctx, app, entity)
 	if err != nil {
 		return err
+	}
+	if meta.IsPrivate {
+		return db.RecordError{Code: db.RecordErrorPermissionDenied, Message: "private Entity cannot be filtered"}
 	}
 	params := db.RecordListParams{Limit: 1}
 	for _, filter := range filters {
@@ -72,7 +73,13 @@ func (s Store) validate(ctx context.Context, actor dygo.Actor, identity string, 
 			// access. A guessed linked name must not validate through system access.
 			_, err := dygodata.NewRecordData(s.queryer, nil).AsActor(actor).Find(ctx, options.App, options.Entity, input(map[string]any{"name": filter.Value}))
 			if err != nil {
-				return db.RecordError{Code: db.RecordErrorValidation, Message: "linked filter value is unavailable", Details: map[string]any{"field": filter.Field}}
+				var recordErr db.RecordError
+				var permissionErr permissions.Error
+				if (errors.As(err, &recordErr) && (recordErr.Code == db.RecordErrorNotFound || recordErr.Code == db.RecordErrorPermissionDenied)) ||
+					(errors.As(err, &permissionErr) && permissionErr.Code == permissions.ErrorDenied) {
+					return db.RecordError{Code: db.RecordErrorValidation, Message: "linked filter value is unavailable", Details: map[string]any{"field": filter.Field}}
+				}
+				return err
 			}
 		}
 	}

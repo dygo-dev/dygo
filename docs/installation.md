@@ -44,7 +44,7 @@ Update the dygo binary out of band with the installer:
 curl -fsSL https://dygo.dev/install | sh
 ```
 
-Inside a generated dygo project, `dygo upgrade` updates the project `go.mod` dygo dependency, dygo-managed generated runner files, and the cached Studio UI assets when the target dygo version differs from the project version. Project upgrades refuse dirty git worktrees.
+Inside a generated dygo project, `dygo upgrade` updates the project `go.mod` dygo dependency, dygo-managed generated runner files, tracked Core and Studio metadata, and the cached Studio UI assets when the target dygo version differs from the project version. Project upgrades refuse dirty git worktrees. After an upgrade that refreshes managed metadata, run `dygo db migrate` before starting the project so additive metadata changes are applied to the database.
 
 Useful upgrade modes:
 

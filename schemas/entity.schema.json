@@ -34,6 +34,15 @@
       "default": false,
       "description": "Marks the Entity as framework-owned so normal Record mutation APIs cannot create, update, or delete records."
     },
+    "is-private": {
+      "type": "boolean",
+      "default": false,
+      "description": "Marks the Entity as owner-scoped private state."
+    },
+    "private-owner-field": {
+      "type": "string",
+      "description": "The link field that identifies the owner of private Records."
+    },
     "route": { "$ref": "#/$defs/route" },
     "name": { "$ref": "#/$defs/name" },
     "fields": {
