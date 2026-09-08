@@ -3,13 +3,17 @@ package patches
 import "sort"
 
 const (
-	OperationRenameField     = "rename-field"
-	OperationRenameEntity    = "rename-entity"
-	OperationCopyField       = "copy-field"
-	OperationBackfillField   = "backfill-field"
-	OperationDropField       = "drop-field"
-	OperationChangeFieldType = "change-field-type"
-	OperationSQL             = "sql"
+	OperationRenameField        = "rename-field"
+	OperationRenameEntity       = "rename-entity"
+	OperationCopyField          = "copy-field"
+	OperationBackfillField      = "backfill-field"
+	OperationDropField          = "drop-field"
+	OperationChangeFieldType    = "change-field-type"
+	OperationSQL                = "sql"
+	OperationSystemRecordCreate = "system-record-create"
+	OperationSystemRecordUpdate = "system-record-update"
+	OperationSystemRecordDelete = "system-record-delete"
+	OperationSystemRecordUpsert = "system-record-upsert"
 )
 
 // OperationSpec describes the authored shape of one patch operation type.
@@ -20,13 +24,17 @@ type OperationSpec struct {
 }
 
 var operationSpecs = map[string]OperationSpec{
-	OperationRenameField:     {Type: OperationRenameField, Required: []string{"type", "entity", "from", "to"}},
-	OperationRenameEntity:    {Type: OperationRenameEntity, Required: []string{"type", "from", "to"}},
-	OperationCopyField:       {Type: OperationCopyField, Required: []string{"type", "entity", "from", "to"}, Optional: []string{"when"}},
-	OperationBackfillField:   {Type: OperationBackfillField, Required: []string{"type", "entity", "field", "value"}, Optional: []string{"when"}},
-	OperationDropField:       {Type: OperationDropField, Required: []string{"type", "entity", "field"}},
-	OperationChangeFieldType: {Type: OperationChangeFieldType, Required: []string{"type", "entity", "field", "to", "using"}},
-	OperationSQL:             {Type: OperationSQL, Required: []string{"type", "name", "reason", "statement"}},
+	OperationSystemRecordUpsert: {Type: OperationSystemRecordUpsert, Required: []string{"type", "entity", "reason", "match", "values"}},
+	OperationSystemRecordDelete: {Type: OperationSystemRecordDelete, Required: []string{"type", "entity", "reason", "id"}},
+	OperationSystemRecordUpdate: {Type: OperationSystemRecordUpdate, Required: []string{"type", "entity", "reason", "id", "values"}},
+	OperationSystemRecordCreate: {Type: OperationSystemRecordCreate, Required: []string{"type", "entity", "reason", "values"}},
+	OperationRenameField:        {Type: OperationRenameField, Required: []string{"type", "entity", "from", "to"}},
+	OperationRenameEntity:       {Type: OperationRenameEntity, Required: []string{"type", "from", "to"}},
+	OperationCopyField:          {Type: OperationCopyField, Required: []string{"type", "entity", "from", "to"}, Optional: []string{"when"}},
+	OperationBackfillField:      {Type: OperationBackfillField, Required: []string{"type", "entity", "field", "value"}, Optional: []string{"when"}},
+	OperationDropField:          {Type: OperationDropField, Required: []string{"type", "entity", "field"}},
+	OperationChangeFieldType:    {Type: OperationChangeFieldType, Required: []string{"type", "entity", "field", "to", "using"}},
+	OperationSQL:                {Type: OperationSQL, Required: []string{"type", "name", "reason", "statement"}},
 }
 
 // OperationSpecFor returns the authored field contract for one operation type.
@@ -64,4 +72,13 @@ func (s OperationSpec) AllowedFields() []string {
 // SupportedPhases returns known patch phases in stable order.
 func SupportedPhases() []string {
 	return []string{PhasePreSync, PhasePostSync}
+}
+
+// IsSystemRecordOperation reports operations requiring the trusted Record writer.
+func IsSystemRecordOperation(kind string) bool {
+	switch kind {
+	case OperationSystemRecordCreate, OperationSystemRecordUpdate, OperationSystemRecordDelete, OperationSystemRecordUpsert:
+		return true
+	}
+	return false
 }

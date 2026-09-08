@@ -386,7 +386,7 @@ func (w Worker) runExecution(ctx context.Context, execution jobstore.Execution, 
 	runCtx, cancel := context.WithTimeout(ctx, execution.Timeout)
 	runCtx = w.withJobLogContext(runCtx, execution)
 	defer cancel()
-	records := dygodata.NewRecordData(w.Queryer, w.RecordHooks).AsSystem(fmt.Sprintf("job:%s/%s:%d", execution.AppName, execution.JobName, execution.ID))
+	records := dygodata.NewRecordData(w.Queryer, w.RecordHooks).WithAppScope(execution.AppName).AsSystem(fmt.Sprintf("job:%s/%s:%d", execution.AppName, execution.JobName, execution.ID))
 	jobs := dygodata.NewJobData(w.Store)
 	err := runJobHandler(fn, runCtx, dygo.JobExecution{
 		ID:            execution.ID,

@@ -23,6 +23,7 @@ type RecordData struct {
 	systemReason  string
 	lockAction    permissions.Action
 	systemMode    bool
+	appScope      string
 }
 
 var _ dygo.RecordData = RecordData{}
@@ -35,6 +36,12 @@ func NewRecordData(queryer db.RecordQueryer, hooks *db.RecordHookRegistry) Recor
 // NewRecordDataWithHookPolicy returns dygo RecordData with an explicit mutation hook policy.
 func NewRecordDataWithHookPolicy(queryer db.RecordQueryer, policy db.RecordMutationHookPolicy) RecordData {
 	return RecordData{queryer: queryer, mutationHooks: policy}
+}
+
+// WithAppScope binds trusted system writes to the registering App.
+func (d RecordData) WithAppScope(appName string) RecordData {
+	d.appScope = strings.TrimSpace(appName)
+	return d
 }
 
 func (d RecordData) store() db.RecordStore {
@@ -277,7 +284,8 @@ func (d RecordData) Transaction(ctx context.Context, fn dygo.RecordTransactionFu
 			_ = tx.Rollback(ctx)
 		}
 	}()
-	transactional := RecordData{queryer: tx, hooks: d.hooks, mutationHooks: d.mutationHooks, actor: d.actor, activityActor: d.activityActor, systemReason: d.systemReason, lockAction: d.lockAction, systemMode: d.systemMode}
+	transactional := d
+	transactional.queryer = tx
 	if err := fn(d.context(ctx), transactional); err != nil {
 		return err
 	}
@@ -291,6 +299,7 @@ func (d RecordData) Transaction(ctx context.Context, fn dygo.RecordTransactionFu
 // AsActor returns a RecordData view that attributes mutations to actor.
 func (d RecordData) AsActor(actor dygo.Actor) dygo.RecordData {
 	d.actor = &actor
+	d.activityActor = &actor
 	d.systemReason = ""
 	d.systemMode = false
 	return d
@@ -298,6 +307,9 @@ func (d RecordData) AsActor(actor dygo.Actor) dygo.RecordData {
 
 // AsSystem returns a RecordData view that attributes mutations to the system reason.
 func (d RecordData) AsSystem(reason string) dygo.RecordData {
+	if d.activityActor == nil {
+		d.activityActor = d.actor
+	}
 	d.actor = nil
 	d.systemReason = strings.TrimSpace(reason)
 	d.systemMode = true

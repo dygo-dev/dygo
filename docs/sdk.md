@@ -217,3 +217,39 @@ server-side operation.
 `RecordData.SecretStatus(ctx, app, entity, recordID)` returns `dygo.SecretStatus`
 with presence maps, applying the SDK's normal read scope. Generic reads remain
 write-only even in system mode.
+
+## Trusted system Record writes
+
+System Entities remain read-only through ordinary CRUD, Studio, fixtures, and
+imports, including Administrator and `AsSystem` access. Trusted App code uses
+`Records.System(reason)` to maintain its own system Entities:
+
+```go
+writer := hook.Records.System("refresh integration state")
+record, err := writer.Upsert(ctx, "integration-state",
+    dygo.RecordInput{"external-id": json.RawMessage(`"customer-42"`)},
+    dygo.RecordInput{"status": json.RawMessage(`"ready"`)},
+)
+```
+
+The writer provides `Create`, `Update`, `Delete`, and `Upsert`. Each accepts an
+Entity key; the App is bound to the Hook, Entity action, or Job registration.
+Pass the writer to App services through their caller. Empty reasons, absent App
+scope, non-system Entities, and foreign App targets are rejected. Business Apps
+cannot write Core system Entities through this API.
+
+`Transaction`, `AsActor`, and `AsSystem` preserve the bound App. `AsSystem` changes
+ordinary permission access and audit attribution; it does not grant system
+Entity writes. The trusted writer uses the caller's transaction, records its
+reason and available actor attribution in Activity, and runs Record validation,
+naming, constraints, and secret handling. Framework hooks run; Business App
+hooks do not re-enter.
+
+Upsert matches must identify a metadata-defined unique key. Match values become
+part of create input; conflicting input values are rejected. Concurrent insert
+conflicts return the normal Record constraint error for the caller to handle.
+
+App scope protects against accidental cross-App writes. Compiled App code remains
+trusted in-process Go code. Bootstrap and silent writer policies stay internal.
+See [structured system Record patches](patches.md) for the same capability in
+App-owned post-sync patches.

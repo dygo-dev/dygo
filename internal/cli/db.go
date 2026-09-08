@@ -611,8 +611,19 @@ func writeDBSchemaPlan(stdout io.Writer, env secrets.Environment, title string, 
 	if _, err := fmt.Fprintf(stdout, "schema unsupported diagnostics: %d\n", unsupportedCount); err != nil {
 		return err
 	}
-	_, err := fmt.Fprintf(stdout, "post-sync patches: %d pending, %d applied\n", len(plan.PostSync.Pending), len(plan.PostSync.Applied))
-	return err
+	if _, err := fmt.Fprintf(stdout, "post-sync patches: %d pending, %d applied\n", len(plan.PostSync.Pending), len(plan.PostSync.Applied)); err != nil {
+		return err
+	}
+	for _, phase := range []db.PatchPlan{plan.PreSync, plan.PostSync} {
+		for _, patch := range phase.Pending {
+			for _, operation := range patch.Operations {
+				if _, err := fmt.Fprintf(stdout, "- %s/%s: %s\n", patch.AppName, patch.PatchID, operation.Description); err != nil {
+					return err
+				}
+			}
+		}
+	}
+	return nil
 }
 
 func writeDBMigrationResult(stdout io.Writer, env secrets.Environment, title string, result dbMigrationResult) error {

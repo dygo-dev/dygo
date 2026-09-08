@@ -174,7 +174,7 @@ func (e Executor) Execute(ctx context.Context, slug string, name string, actor d
 		Actor:     actor,
 		RecordIDs: append([]int64(nil), recordIDs...),
 		Input:     append(json.RawMessage(nil), input...),
-		Records:   dygodata.NewRecordData(tx, e.RecordHooks).WithActionActor(actor),
+		Records:   dygodata.NewRecordData(tx, e.RecordHooks).WithAppScope(meta.App.Name).WithActionActor(actor),
 		Jobs:      jobs,
 		Files:     actionFiles,
 		Timeline:  dygodata.NewTimelineDataAsActor(tx, actor),

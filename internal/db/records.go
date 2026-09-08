@@ -854,7 +854,7 @@ func (s RecordStore) rejectSystemMutation(layout recordLayout, operation string)
 }
 
 func systemRecordOperationError(layout recordLayout, operation string) RecordError {
-	return recordError(RecordErrorInvalidRequest, "system Entity records are framework-owned", map[string]any{"entity": layout.Slug, "operation": operation}, nil)
+	return recordError(RecordErrorInvalidRequest, "system Entity records require a trusted system Record writer", map[string]any{"entity": layout.Slug, "operation": operation}, nil)
 }
 
 func (s RecordStore) queryReturningRecord(ctx context.Context, layout recordLayout, sql string, args []any, notFoundWhenEmpty bool) (Record, error) {

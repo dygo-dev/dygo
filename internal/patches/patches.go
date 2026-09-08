@@ -295,6 +295,11 @@ func validatePatch(patch Patch, seen map[string]bool) error {
 	if !seen["operations"] || len(patch.Operations) == 0 {
 		return fmt.Errorf("patch operations are required")
 	}
+	for _, operation := range patch.Operations {
+		if IsSystemRecordOperation(operation.Type) && patch.Phase != PhasePostSync {
+			return fmt.Errorf("%s requires post-sync phase", operation.Type)
+		}
+	}
 	return nil
 }
 
