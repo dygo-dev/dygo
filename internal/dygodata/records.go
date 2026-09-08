@@ -100,6 +100,9 @@ func (d RecordData) context(ctx context.Context) context.Context {
 		ctx = db.WithActivityActor(ctx, d.actor.UserID, d.actor.Email, d.actor.Administrator)
 	}
 	ctx = db.WithActivitySystemReason(ctx, d.systemReason)
+	if d.privateMode {
+		ctx = db.WithPrivateOwnerAccess(ctx)
+	}
 	return recordsecret.WithOperation(ctx)
 }
 

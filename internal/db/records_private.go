@@ -6,9 +6,28 @@ import (
 	"strings"
 )
 
+type privateOwnerAccessContextKey struct{}
+
+// WithPrivateOwnerAccess marks a RecordData operation that has already bound
+// the authenticated actor to the private Entity owner scope.
+func WithPrivateOwnerAccess(ctx context.Context) context.Context {
+	if ctx == nil {
+		return nil
+	}
+	return context.WithValue(ctx, privateOwnerAccessContextKey{}, true)
+}
+
+func privateOwnerAccessFromContext(ctx context.Context) bool {
+	if ctx == nil {
+		return false
+	}
+	allowed, _ := ctx.Value(privateOwnerAccessContextKey{}).(bool)
+	return allowed
+}
+
 func privateRecordLayout(ctx context.Context, meta MetadataEntityMeta) (recordLayout, error) {
 	if meta.IsPrivate {
-		if _, system := ActivitySystemReasonFromContext(ctx); !system {
+		if !privateOwnerAccessFromContext(ctx) {
 			return recordLayout{}, recordError(RecordErrorPermissionDenied, "private Entity requires its owner-scoped service", nil, nil)
 		}
 	}
