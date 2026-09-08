@@ -35,7 +35,6 @@ These are intentionally not part of the current public CLI contract:
 - report runtime
 - custom page runtime
 - Studio schedule UI
-- Studio retry and cancel controls for Job Executions
 - production secret providers such as KMS or Vault
 
 Naming notes:

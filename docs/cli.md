@@ -137,6 +137,8 @@ Generator boilerplate lives as embedded templates under `internal/generate/templ
 - `dygo job execution cancel <id-or-name>` - Cancels one queued execution; running or finished executions are not cancelled.
 - `dygo job execution retry <id-or-name> --idempotency-key <key>` - Queues a fresh manual retry for one failed execution using the old payload and the new key.
 
+Studio operators can cancel queued Job Executions and retry failed ones from Job Execution Records. `system-manager` needs Core Job access metadata applied.
+
 `job execution run` enqueues durable work; it does not run the handler inline. Start `dygo worker` to process queued executions.
 
 ## Routes

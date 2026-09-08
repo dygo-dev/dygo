@@ -24,6 +24,7 @@ import (
 	"github.com/hapyco/dygo/internal/fixtures"
 	recordhooks "github.com/hapyco/dygo/internal/hooks"
 	importsvc "github.com/hapyco/dygo/internal/imports"
+	"github.com/hapyco/dygo/internal/jobs/executionactions"
 	jobruntime "github.com/hapyco/dygo/internal/jobs/runtime"
 	"github.com/hapyco/dygo/internal/permissions"
 	"github.com/hapyco/dygo/internal/recordsecret"
@@ -125,7 +126,8 @@ func newCommandDependencies(options Options) (commandDependencies, error) {
 	if err != nil {
 		return commandDependencies{}, fmt.Errorf("configure record hooks: %w", err)
 	}
-	actionRegistry, err := entityactions.NewRegistry(options.EntityActions)
+	actionRegistrars := append([]dygo.EntityActionRegistrar{executionactions.Registrar()}, options.EntityActions...)
+	actionRegistry, err := entityactions.NewRegistry(actionRegistrars)
 	if err != nil {
 		return commandDependencies{}, fmt.Errorf("configure Entity actions: %w", err)
 	}

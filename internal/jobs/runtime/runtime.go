@@ -58,6 +58,8 @@ type Store interface {
 	FailFinal(context.Context, jobstore.Execution, string, time.Time) error
 	ExpireClaim(context.Context, jobstore.Execution, time.Time) error
 	Enqueue(context.Context, string, string, json.RawMessage, jobstore.EnqueueOptions) (jobstore.Execution, error)
+	CancelQueued(context.Context, string, time.Time) (jobstore.Execution, error)
+	Retry(context.Context, string, string) (jobstore.Execution, error)
 }
 
 // NotificationListener waits for PostgreSQL queue notifications.

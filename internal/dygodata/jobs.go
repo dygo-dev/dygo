@@ -3,22 +3,27 @@ package dygodata
 import (
 	"context"
 	"encoding/json"
+	"time"
 
 	jobstore "github.com/hapyco/dygo/internal/jobs/store"
 	"github.com/hapyco/dygo/pkg/dygo"
 )
 
-type jobEnqueuer interface {
+type jobOperator interface {
 	Enqueue(context.Context, string, string, json.RawMessage, jobstore.EnqueueOptions) (jobstore.Execution, error)
+	CancelQueued(context.Context, string, time.Time) (jobstore.Execution, error)
+	Retry(context.Context, string, string) (jobstore.Execution, error)
 }
 
-// JobData exposes durable Job enqueueing through the public SDK.
+// JobData exposes durable Job operations through the public SDK.
 type JobData struct {
-	store jobEnqueuer
+	store jobOperator
 }
+
+var _ dygo.JobData = JobData{}
 
 // NewJobData returns dygo JobData backed by a durable Job store.
-func NewJobData(store jobEnqueuer) JobData {
+func NewJobData(store jobOperator) JobData {
 	return JobData{store: store}
 }
 
@@ -41,6 +46,28 @@ func (d JobData) Enqueue(ctx context.Context, appName string, jobName string, pa
 	if err != nil {
 		return dygo.JobExecution{}, err
 	}
+	return d.executionFromStore(execution), nil
+}
+
+// CancelQueued marks a queued Job Execution cancelled by id or name.
+func (d JobData) CancelQueued(ctx context.Context, reference string) (dygo.JobExecution, error) {
+	execution, err := d.store.CancelQueued(ctx, reference, time.Now().UTC())
+	if err != nil {
+		return dygo.JobExecution{}, err
+	}
+	return d.executionFromStore(execution), nil
+}
+
+// Retry queues a new Job Execution from a failed execution's payload.
+func (d JobData) Retry(ctx context.Context, reference string, idempotencyKey string) (dygo.JobExecution, error) {
+	execution, err := d.store.Retry(ctx, reference, idempotencyKey)
+	if err != nil {
+		return dygo.JobExecution{}, err
+	}
+	return d.executionFromStore(execution), nil
+}
+
+func (d JobData) executionFromStore(execution jobstore.Execution) dygo.JobExecution {
 	return dygo.JobExecution{
 		ID:      execution.ID,
 		AppName: execution.AppName,
@@ -49,5 +76,5 @@ func (d JobData) Enqueue(ctx context.Context, appName string, jobName string, pa
 		Attempt: execution.Attempts,
 		Payload: execution.Payload,
 		Jobs:    d,
-	}, nil
+	}
 }

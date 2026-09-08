@@ -88,6 +88,8 @@ export type EntityActionDefinition = {
   name: string
   label: string
   selection: 'record' | 'selection' | 'collection'
+  confirm?: string
+  danger?: boolean
 }
 
 type MetadataRequestOptions = {

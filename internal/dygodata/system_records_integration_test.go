@@ -208,7 +208,6 @@ type allowSystemTestAction struct{}
 func (allowSystemTestAction) Authorize(context.Context, dygo.PermissionRequest) error { return nil }
 
 type systemTestJobStore struct {
-	jobruntime.Store
 	failure string
 }
 
@@ -225,6 +224,27 @@ func (*systemTestJobStore) Complete(context.Context, jobstore.Execution, json.Ra
 func (s *systemTestJobStore) Fail(_ context.Context, _ jobstore.Execution, message string, _ time.Time) error {
 	s.failure = message
 	return nil
+}
+func (*systemTestJobStore) NextRunAfter(context.Context, []string, time.Time) (*time.Time, error) {
+	return nil, nil
+}
+func (*systemTestJobStore) NextScheduleRunAt(context.Context, []string, time.Time) (*time.Time, error) {
+	return nil, nil
+}
+func (*systemTestJobStore) FailFinal(context.Context, jobstore.Execution, string, time.Time) error {
+	return nil
+}
+func (*systemTestJobStore) ExpireClaim(context.Context, jobstore.Execution, time.Time) error {
+	return nil
+}
+func (*systemTestJobStore) Enqueue(context.Context, string, string, json.RawMessage, jobstore.EnqueueOptions) (jobstore.Execution, error) {
+	return jobstore.Execution{}, nil
+}
+func (*systemTestJobStore) CancelQueued(context.Context, string, time.Time) (jobstore.Execution, error) {
+	return jobstore.Execution{}, nil
+}
+func (*systemTestJobStore) Retry(context.Context, string, string) (jobstore.Execution, error) {
+	return jobstore.Execution{}, nil
 }
 
 func testSystemUpsertConcurrentConflict(t *testing.T, ctx context.Context, pool *pgxpool.Pool) {

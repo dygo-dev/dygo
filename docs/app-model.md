@@ -44,7 +44,7 @@ It owns:
 - field renderers
 - collection renderer
 - saved views UI
-- jobs UI
+- Job Execution cancel and retry on Record list and form actions
 - audit log UI
 - settings UI
 - metadata API client
