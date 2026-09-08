@@ -26,7 +26,7 @@ The current SDK exposes:
 - Record lifecycle hook types and registration
 - transactional Record reads and writes inside hooks
 - durable Job handler types and registration
-- Job enqueueing from hooks and Jobs
+- Job enqueueing, queued cancel, and failed retry from hooks, Jobs, and Entity actions
 - best-effort and strict persisted Log helpers
 - durable in-app notifications with optional email delivery
 - project runner integration types
@@ -109,7 +109,9 @@ automatically constrains every operation to that actor's owner Record. Use
 
 Entity actions receive the actor and transaction-scoped Records, Jobs, Files,
 Timeline, and Notifications services. Register one action on one Entity with
-`EntityActionRegistry.RegisterEntity`.
+`EntityActionRegistry.RegisterEntity`. Optional `confirm` text asks Studio to
+confirm before running the action. Set `danger` when the confirm dialog is
+destructive.
 
 `FileData` uploads, attaches, opens, and removes private files. `TimelineData`
 adds append-only comments and events to Core Activity.
@@ -135,6 +137,15 @@ execution, err := job.Jobs.Enqueue(ctx, "crm", "send-welcome-email", payload, dy
 ```
 
 Inside a Record hook, use `hook.Jobs.Enqueue` with the same arguments.
+
+`JobData` can also cancel a queued Job Execution or retry a failed one by numeric id or execution name:
+
+```go
+cancelled, err := call.Jobs.CancelQueued(ctx, "42")
+retried, err := call.Jobs.Retry(ctx, "42", "manual-retry:welcome:42")
+```
+
+Cancel only works while the execution is `queued`. Retry copies the failed payload into a new queued execution. Retry requires an idempotency key.
 
 Job access uses app-scoped Job identity:
 

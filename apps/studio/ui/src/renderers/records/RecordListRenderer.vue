@@ -17,8 +17,10 @@ import type { DataTableRowKey, DataTableSort, DataTableState } from '@/design/ty
 import type { EntityActionDefinition, MetadataField, MetadataFilterOperator } from '@/features/metadata/metadata.api'
 import type { RecordListPolicy } from '@/features/platform/platform.api'
 import { usePlatformConfigQuery } from '@/features/platform/platform.query'
+import { useDialog } from '@/features/dialogs/use-dialog'
 import { useToast } from '@/features/toasts/use-toast'
 import { queryClient } from '@/app/query'
+import { entityActionConfirm, entityActionDisabledReason } from '@/features/records/entity-actions'
 import { recordListQueryKey } from '@/features/records/record-list.query'
 import { exportRecordsCSV, listRecords, type RecordData } from '@/features/records/records.api'
 import { useExecuteRecordActionMutation } from '@/features/records/record-actions.query'
@@ -97,6 +99,7 @@ const selectedAction = ref('')
 const exporting = ref(false)
 const importOpen = ref(false)
 const actionMutation = useExecuteRecordActionMutation()
+const dialog = useDialog()
 const toast = useToast()
 const savedFilters = useQuery({
   queryKey: computed(() => ['studio', 'saved-filters', auth.currentUser?.id, auth.sessionVersion, canonicalEntity.value]),
@@ -161,10 +164,6 @@ const selectedRecordIDs = computed(() => selectedRowKeys.value.flatMap((key) => 
   return Number.isInteger(id) && id > 0 ? [id] : []
 }))
 const selectedActionDefinition = computed(() => availableActions.value.find((action) => action.name === selectedAction.value) ?? null)
-const canRunSelectedAction = computed(() => {
-  if (!selectedActionDefinition.value || selectedRecordIDs.value.length === 0 || actionMutation.isPending.value) return false
-  return selectedActionDefinition.value.selection === 'selection' || selectedRecordIDs.value.length === 1
-})
 const recordListPolicy = computed(() => platformConfigQuery.data.value?.['record-list'] ?? null)
 const pageSizeOptions = computed(() => recordListPolicy.value?.['page-sizes'] ?? [])
 const filterableFields = computed(() => (
@@ -219,6 +218,22 @@ const recordsQuery = useInfiniteQuery({
 })
 const recordPages = computed(() => recordsQuery.data.value?.pages ?? [])
 const rows = computed<RecordData[]>(() => recordPages.value.flatMap((page) => page.data))
+const selectedRecords = computed(() => {
+  const ids = new Set(selectedRecordIDs.value)
+  return rows.value.filter((row) => {
+    if (!row) {
+      return false
+    }
+    const id = Number(row.id)
+    return Number.isInteger(id) && id > 0 && ids.has(id)
+  })
+})
+const canRunSelectedAction = computed(() => {
+  const action = selectedActionDefinition.value
+  if (!action || selectedRecordIDs.value.length === 0 || actionMutation.isPending.value) return false
+  if (!(action.selection === 'selection' || selectedRecordIDs.value.length === 1)) return false
+  return selectedRecords.value.every((record) => !entityActionDisabledReason(props.entityKey, action.name, record))
+})
 const totalRows = computed(() => recordPages.value.at(-1)?.meta.total ?? rows.value.length)
 const platformConfigError = computed(() => (
   platformConfigQuery.error.value
@@ -824,6 +839,20 @@ async function runSelectedAction() {
   const action = selectedActionDefinition.value
   const records = selectedRecordIDs.value
   if (!action || !canRunSelectedAction.value) return
+
+  const confirm = entityActionConfirm(action)
+  if (confirm) {
+    const decision = await dialog.confirm({
+      title: confirm.title,
+      content: confirm.content,
+      type: confirm.type,
+      actions: [
+        { key: 'cancel', label: 'Back', variant: 'secondary' },
+        { key: 'confirm', label: action.label, variant: confirm.type === 'danger' ? 'danger' : 'primary' },
+      ],
+    })
+    if (decision !== 'confirm') return
+  }
 
   try {
     await actionMutation.mutateAsync({ entity: props.entity, action: action.name, records })

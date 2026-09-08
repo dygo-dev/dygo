@@ -676,6 +676,14 @@ func (s *fakeStore) Enqueue(context.Context, string, string, json.RawMessage, jo
 	return jobstore.Execution{}, nil
 }
 
+func (s *fakeStore) CancelQueued(context.Context, string, time.Time) (jobstore.Execution, error) {
+	return jobstore.Execution{}, nil
+}
+
+func (s *fakeStore) Retry(context.Context, string, string) (jobstore.Execution, error) {
+	return jobstore.Execution{}, nil
+}
+
 func ptrTime(value time.Time) *time.Time {
 	return &value
 }

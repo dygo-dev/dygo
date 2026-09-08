@@ -103,3 +103,11 @@ func (f *fakeNotificationJobs) Enqueue(_ context.Context, app string, job string
 	f.enqueues++
 	return dygo.JobExecution{ID: 1}, nil
 }
+
+func (f *fakeNotificationJobs) CancelQueued(context.Context, string) (dygo.JobExecution, error) {
+	return dygo.JobExecution{}, nil
+}
+
+func (f *fakeNotificationJobs) Retry(context.Context, string, string) (dygo.JobExecution, error) {
+	return dygo.JobExecution{}, nil
+}

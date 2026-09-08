@@ -44,4 +44,6 @@ type EnqueueOptions struct {
 // JobData gives app code access to durable Jobs.
 type JobData interface {
 	Enqueue(ctx context.Context, appName string, jobName string, payload json.RawMessage, options EnqueueOptions) (JobExecution, error)
+	CancelQueued(ctx context.Context, reference string) (JobExecution, error)
+	Retry(ctx context.Context, reference string, idempotencyKey string) (JobExecution, error)
 }

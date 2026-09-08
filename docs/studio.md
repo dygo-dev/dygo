@@ -4,7 +4,7 @@ Studio is dygo's main operational and builder UI.
 
 It is where operators run the business, builders configure the system, and agents help implement the system.
 
-Studio is a first-party dygo app, not a temporary admin panel. It should feel like one coherent product across records, lists, forms, saved views, audit logs, settings, and spaces. Specialized Job and Schedule operation screens are coming soon; current Job and Schedule state is stored in Core records.
+Studio is a first-party dygo app, not a temporary admin panel. It should feel like one coherent product across records, lists, forms, saved views, audit logs, settings, and spaces. Job Execution cancel and retry use the shared Record list and form Entity action controls. Specialized Job and Schedule operation screens are still coming soon.
 
 The framework repo includes the Studio app manifest at `apps/studio/app.yml` and the Vue/Vite frontend under `apps/studio/ui`.
 
@@ -35,7 +35,7 @@ Studio owns:
 - field renderers
 - collection renderer
 - saved views UI
-- jobs UI (coming soon)
+- Job Execution cancel and retry on Record list and form actions
 - audit log UI
 - settings UI
 - metadata API client

@@ -3,6 +3,7 @@ package dygodata
 import (
 	"context"
 	"encoding/json"
+	"fmt"
 	"testing"
 	"time"
 
@@ -12,7 +13,7 @@ import (
 
 func TestJobDataEnqueueMapsSDKOptions(t *testing.T) {
 	runAfter := time.Date(2026, 5, 30, 12, 0, 0, 0, time.UTC)
-	store := &fakeJobEnqueuer{
+	store := &fakeJobOperator{
 		execution: jobstore.Execution{
 			ID:       42,
 			AppName:  "crm",
@@ -42,18 +43,78 @@ func TestJobDataEnqueueMapsSDKOptions(t *testing.T) {
 	}
 }
 
-type fakeJobEnqueuer struct {
-	appName   string
-	jobName   string
-	payload   json.RawMessage
-	options   jobstore.EnqueueOptions
-	execution jobstore.Execution
+func TestJobDataCancelQueuedUsesStore(t *testing.T) {
+	store := &fakeJobOperator{
+		execution: jobstore.Execution{ID: 7, AppName: "core", JobName: "send-notification-email", Queue: "default"},
+	}
+	execution, err := NewJobData(store).CancelQueued(context.Background(), "7")
+	if err != nil {
+		t.Fatalf("CancelQueued() error = %v, want nil", err)
+	}
+	if store.cancelReference != "7" || store.cancelAt.IsZero() {
+		t.Fatalf("CancelQueued store call = %q %v, want id 7 and a timestamp", store.cancelReference, store.cancelAt)
+	}
+	if execution.ID != 7 || execution.AppName != "core" || execution.JobName != "send-notification-email" || execution.Jobs == nil {
+		t.Fatalf("SDK execution = %+v, want cancelled execution with Jobs service", execution)
+	}
 }
 
-func (s *fakeJobEnqueuer) Enqueue(_ context.Context, appName string, jobName string, payload json.RawMessage, options jobstore.EnqueueOptions) (jobstore.Execution, error) {
+func TestJobDataRetryUsesStore(t *testing.T) {
+	store := &fakeJobOperator{
+		execution: jobstore.Execution{ID: 9, AppName: "crm", JobName: "send-email", Queue: "default"},
+	}
+	execution, err := NewJobData(store).Retry(context.Background(), "8", "manual-retry:8")
+	if err != nil {
+		t.Fatalf("Retry() error = %v, want nil", err)
+	}
+	if store.retryReference != "8" || store.retryKey != "manual-retry:8" {
+		t.Fatalf("Retry store call = %q %q, want failed id and key", store.retryReference, store.retryKey)
+	}
+	if execution.ID != 9 || execution.JobName != "send-email" || execution.Jobs == nil {
+		t.Fatalf("SDK execution = %+v, want queued retry with Jobs service", execution)
+	}
+}
+
+func TestJobDataRetryReturnsStoreError(t *testing.T) {
+	store := &fakeJobOperator{err: fmt.Errorf("job execution %q is queued; only failed executions can be retried", "8")}
+	_, err := NewJobData(store).Retry(context.Background(), "8", "retry-key")
+	if err == nil {
+		t.Fatal("Retry() error = nil, want store error")
+	}
+	if err.Error() != store.err.Error() {
+		t.Fatalf("Retry() error = %v, want store error", err)
+	}
+}
+
+type fakeJobOperator struct {
+	appName         string
+	jobName         string
+	payload         json.RawMessage
+	options         jobstore.EnqueueOptions
+	cancelReference string
+	cancelAt        time.Time
+	retryReference  string
+	retryKey        string
+	execution       jobstore.Execution
+	err             error
+}
+
+func (s *fakeJobOperator) Enqueue(_ context.Context, appName string, jobName string, payload json.RawMessage, options jobstore.EnqueueOptions) (jobstore.Execution, error) {
 	s.appName = appName
 	s.jobName = jobName
 	s.payload = payload
 	s.options = options
-	return s.execution, nil
+	return s.execution, s.err
+}
+
+func (s *fakeJobOperator) CancelQueued(_ context.Context, reference string, now time.Time) (jobstore.Execution, error) {
+	s.cancelReference = reference
+	s.cancelAt = now
+	return s.execution, s.err
+}
+
+func (s *fakeJobOperator) Retry(_ context.Context, reference string, idempotencyKey string) (jobstore.Execution, error) {
+	s.retryReference = reference
+	s.retryKey = idempotencyKey
+	return s.execution, s.err
 }

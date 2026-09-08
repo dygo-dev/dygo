@@ -4,14 +4,23 @@ import { useRouter } from 'vue-router'
 import { usePageCommands, runStudioCommand } from '@/features/commands/context'
 import { bindings } from '@/features/commands/shortcuts'
 import { useDraftGuard } from '@/features/records/use-draft-guard'
-import { Plus, RotateCcw, Save, Trash2 } from '@lucide/vue'
+import { Ban, Play, Plus, RotateCcw, Save, Trash2 } from '@lucide/vue'
 
+import { queryClient } from '@/app/query'
 import { ErrorState, Spinner } from '@/design'
 import { useDialog } from '@/features/dialogs/use-dialog'
 import { useToast } from '@/features/toasts/use-toast'
-import type { MetadataEntityMeta, MetadataField } from '@/features/metadata/metadata.api'
+import type { EntityActionDefinition, MetadataEntityMeta, MetadataField } from '@/features/metadata/metadata.api'
 import { useMetadataEntityMetaQuery } from '@/features/metadata/metadata.query'
 import {
+  entityActionConfirm,
+  entityActionDisabledReason,
+  recordEntityActions,
+} from '@/features/records/entity-actions'
+import { useExecuteRecordActionMutation } from '@/features/records/record-actions.query'
+import {
+  recordActivityQueryKey,
+  recordByNameQueryKey,
   useSecretStatusQuery,
   useCreateRecordMutation,
   useAddRecordCommentMutation,
@@ -22,6 +31,7 @@ import {
   useUpdateSingleRecordMutation,
   useRecordActivityQuery,
 } from '@/features/records/record-form.query'
+import { recordListBaseQueryKey } from '@/features/records/record-list.query'
 import type { RecordData } from '@/features/records/records.api'
 import { secretSubmitValue } from '@/features/records/secret-input'
 import { isHiddenCollectionField, isHiddenRecordSubmitField, recordFieldLabel } from '@/features/records/system-fields'
@@ -98,6 +108,7 @@ const updateRecordMutation = useUpdateRecordMutation()
 const updateSingleRecordMutation = useUpdateSingleRecordMutation()
 const deleteRecordMutation = useDeleteRecordMutation()
 const addCommentMutation = useAddRecordCommentMutation()
+const entityActionMutation = useExecuteRecordActionMutation()
 const record = computed(() => {
   if (isSingle.value) {
     return singleRecordQuery.data.value ?? null
@@ -169,6 +180,10 @@ const recordActionError = computed(() => {
     return storeError(deleteRecordMutation.error.value, 'Studio could not delete this record.')
   }
 
+  if (entityActionMutation.error.value) {
+    return storeError(entityActionMutation.error.value, 'Studio could not run this action.')
+  }
+
   return null
 })
 const systemFields = computed(() => entityMeta.value?.['system-fields'] ?? [])
@@ -218,42 +233,58 @@ const canSave = computed(() => showForm.value && dirty.value && !loading.value &
 const confirmDiscard = useDraftGuard(() => dirty.value, () => saving.value)
 const saveDisabledReason = computed(() => isSystem.value ? 'Read-only Record' : loading.value ? 'Loading Record' : saving.value ? 'Saving Record' : !showForm.value ? 'Record unavailable' : !dirty.value ? 'No changes' : undefined)
 usePageCommands(computed(() => [
-  { id: 'record:save', label: isNew.value ? 'Create Record' : 'Save Record', disabledReason: saveDisabledReason.value, run: saveRecord },
-  { id: 'record:reset', label: 'Reset changes', disabledReason: !dirty.value ? 'No changes' : loading.value || saving.value ? 'Record is busy' : isSystem.value ? 'Read-only Record' : undefined, run: resetDraft },
+  { id: 'record:save', label: isNew.value ? 'Create Record' : 'Save Record', disabledReason: entityActionMutation.isPending.value ? 'Action is running' : saveDisabledReason.value, run: saveRecord },
+  { id: 'record:reset', label: 'Reset changes', disabledReason: !dirty.value ? 'No changes' : loading.value || saving.value || entityActionMutation.isPending.value ? 'Record is busy' : isSystem.value ? 'Read-only Record' : undefined, run: resetDraft },
   ...(!isSingle.value ? [{ id: 'record:list', label: 'Go to Entity list', run: async () => { await router.push({ name: RouteName.EntityRecords, params: { entity: props.entity } }) } }] : []),
 ]))
+const entityActions = computed(() => recordEntityActions(entityMeta.value?.actions))
 const actions = computed<PageHeaderAction[]>(() => {
-  if (isSystem.value) {
-    return []
+  const next: PageHeaderAction[] = []
+  if (!isSystem.value) {
+    next.push(
+      {
+        label: 'Reset',
+        icon: RotateCcw,
+        variant: 'secondary',
+        disabled: !dirty.value || loading.value || saving.value || entityActionMutation.isPending.value,
+        onSelect: () => { void runStudioCommand('record:reset') },
+      },
+      {
+        label: isNew.value ? 'Create record' : 'Save',
+        icon: isNew.value ? Plus : Save,
+        variant: 'primary',
+        disabled: !canSave.value || entityActionMutation.isPending.value,
+        loading: saving.value,
+        shortcut: bindings['record:save']?.shortcut,
+        onSelect: () => { void runStudioCommand('record:save') },
+      },
+    )
+    if (isRecord.value) {
+      next.push({
+        label: 'Delete',
+        icon: Trash2,
+        variant: 'secondary',
+        disabled: loading.value || saving.value || entityActionMutation.isPending.value || !record.value,
+        loading: saving.value,
+        onSelect: deleteRecord,
+      })
+    }
   }
 
-  const next: PageHeaderAction[] = [
-    {
-      label: 'Reset',
-      icon: RotateCcw,
-      variant: 'secondary',
-      disabled: !dirty.value || loading.value || saving.value,
-      onSelect: () => { void runStudioCommand('record:reset') },
-    },
-    {
-      label: isNew.value ? 'Create record' : 'Save',
-      icon: isNew.value ? Plus : Save,
-      variant: 'primary',
-      disabled: !canSave.value,
-      loading: saving.value,
-      shortcut: bindings['record:save']?.shortcut,
-      onSelect: () => { void runStudioCommand('record:save') },
-    },
-  ]
-
   if (isRecord.value) {
-    next.push({
-      label: 'Delete',
-      icon: Trash2,
-      variant: 'secondary',
-      disabled: loading.value || saving.value || !record.value,
-      loading: saving.value,
-      onSelect: deleteRecord,
+    entityActions.value.forEach((action) => {
+      if (!action) {
+        return
+      }
+      const disabledReason = entityActionDisabledReason(entityMeta.value?.key ?? '', action.name, record.value)
+      next.push({
+        label: action.label,
+        icon: entityActionIcon(action.name),
+        variant: action.danger ? 'danger' : 'secondary',
+        disabled: loading.value || saving.value || entityActionMutation.isPending.value || !record.value || Boolean(disabledReason),
+        loading: entityActionMutation.isPending.value,
+        onSelect: () => { void runEntityAction(action) },
+      })
     })
   }
 
@@ -335,6 +366,60 @@ function resetRecordActionErrors() {
   updateSingleRecordMutation.reset()
   deleteRecordMutation.reset()
   addCommentMutation.reset()
+  entityActionMutation.reset()
+}
+
+function entityActionIcon(name: string) {
+  if (name === 'cancel') {
+    return Ban
+  }
+  if (name === 'retry') {
+    return RotateCcw
+  }
+  return Play
+}
+
+async function runEntityAction(action: EntityActionDefinition) {
+  if (!isRecord.value || loading.value || saving.value || entityActionMutation.isPending.value || !record.value) {
+    return
+  }
+  if (entityActionDisabledReason(entityMeta.value?.key ?? '', action.name, record.value)) {
+    return
+  }
+
+  const confirm = entityActionConfirm(action)
+  if (confirm) {
+    const decision = await dialog.confirm({
+      title: confirm.title,
+      content: confirm.content,
+      type: confirm.type,
+      actions: [
+        { key: 'cancel', label: 'Back', variant: 'secondary' },
+        { key: 'confirm', label: action.label, variant: confirm.type === 'danger' ? 'danger' : 'primary' },
+      ],
+    })
+    if (decision !== 'confirm') {
+      return
+    }
+  }
+
+  localError.value = ''
+  resetRecordActionErrors()
+
+  const recordID = Number(currentRecordID())
+  try {
+    await entityActionMutation.mutateAsync({
+      entity: props.entity,
+      action: action.name,
+      records: [recordID],
+    })
+    await queryClient.invalidateQueries({ queryKey: recordByNameQueryKey(props.entity, props.recordName ?? '') })
+    await queryClient.invalidateQueries({ queryKey: recordActivityQueryKey(props.entity, recordID) })
+    await queryClient.invalidateQueries({ queryKey: recordListBaseQueryKey(props.entity) })
+    toast.success(`${action.label} complete`)
+  } catch {
+    // TanStack owns the mutation error for display.
+  }
 }
 
 async function addComment() {

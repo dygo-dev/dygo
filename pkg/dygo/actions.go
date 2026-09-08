@@ -19,6 +19,8 @@ type EntityActionDefinition struct {
 	Name      string          `json:"name"`
 	Label     string          `json:"label"`
 	Selection ActionSelection `json:"selection"`
+	Confirm   string          `json:"confirm,omitempty"`
+	Danger    bool            `json:"danger,omitempty"`
 }
 
 // EntityActionCall contains one authorized, transactional action invocation.

@@ -156,6 +156,8 @@ dygo job execution retry <id-or-name> --idempotency-key <key>
 
 `list`, `show`, `cancel`, and `retry` read the selected environment database. `cancel` only works for queued executions. `retry` only works for failed executions, copies the failed execution payload, and requires a new caller-provided idempotency key.
 
+Studio exposes the same cancel and retry operations as Job Execution Entity actions. See [Studio](#studio).
+
 All Job commands default to `--env development`.
 
 ## Job Execution Data
@@ -255,10 +257,26 @@ type EnqueueOptions struct {
 
 type JobData interface {
 	Enqueue(ctx context.Context, appName string, jobName string, payload json.RawMessage, options EnqueueOptions) (JobExecution, error)
+	CancelQueued(ctx context.Context, reference string) (JobExecution, error)
+	Retry(ctx context.Context, reference string, idempotencyKey string) (JobExecution, error)
 }
 ```
 
-App identity for SDK calls is `<app>, <job>`, not route, label, or display name. Enqueue options are intentionally small: idempotency key, priority, and `run-after`. Queue, timeout, and retry settings come from `job.yml`.
+App identity for SDK calls is `<app>, <job>`, not route, label, or display name. Enqueue options are intentionally small: idempotency key, priority, and `run-after`. Queue, timeout, and retry settings come from `job.yml`. `CancelQueued` accepts a Job Execution id or name and only succeeds for `queued` executions. `Retry` copies a `failed` execution payload into a new queued execution. Retry requires an idempotency key.
+
+## Studio
+
+Studio operators cancel queued Job Executions and retry failed ones from the Job Execution Record list and detail pages. These are Core Entity actions on `job-execution`, not a separate Jobs Space.
+
+Cancel is available while status is `queued`. Retry is available while status is `failed`. Retry queues a new Job Execution with the same payload. The retry action generates an idempotency key when the request does not include one.
+
+`system-manager` can read Job and Job Execution Records and run `cancel` and `retry`. Apply Core access metadata after upgrade:
+
+```sh
+dygo access apply --yes
+```
+
+Administrator bypasses permission checks and can also run the actions.
 
 ## Framework Notification Email
 
@@ -268,6 +286,7 @@ Core defines `core/send-notification-email`. `NotificationData.Send` queues this
 
 ```txt
 internal/jobs                - job.yml reader, validator, and shared Job metadata types
+internal/jobs/executionactions - Core Job Execution cancel and retry Entity actions
 internal/jobgen              - Job scaffold and runner wiring generator
 internal/runnergen           - shared generated project runner renderer
 internal/cli                 - Job commands
@@ -277,7 +296,7 @@ pkg/dygo/runtime              - project runner options for compiled Jobs
 
 ## Coming Soon
 
-- Studio-native Job detail, retry, and cancel screens.
+- Dedicated Studio Job and Schedule operation screens.
 - Job-backed importer foundation.
 - Retention policy for old succeeded and failed executions.
 - Optional stale-work metadata if handler-level freshness checks become repetitive.
