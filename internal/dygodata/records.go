@@ -23,6 +23,8 @@ type RecordData struct {
 	systemReason  string
 	lockAction    permissions.Action
 	systemMode    bool
+	privateMode   bool
+	appScope      string
 }
 
 var _ dygo.RecordData = RecordData{}
@@ -37,6 +39,12 @@ func NewRecordDataWithHookPolicy(queryer db.RecordQueryer, policy db.RecordMutat
 	return RecordData{queryer: queryer, mutationHooks: policy}
 }
 
+// WithAppScope binds trusted system writes to the registering App.
+func (d RecordData) WithAppScope(appName string) RecordData {
+	d.appScope = strings.TrimSpace(appName)
+	return d
+}
+
 func (d RecordData) store() db.RecordStore {
 	if d.hooks != nil {
 		return db.NewRecordStoreWithHooks(d.queryer, d.hooks)
@@ -49,6 +57,12 @@ func (d RecordData) scopedStore(ctx context.Context, appName string, entity stri
 		return db.RecordStore{}, fmt.Errorf("system Record access reason is required")
 	}
 	store := d.store()
+	if d.privateMode {
+		if d.actor == nil || d.actor.UserID <= 0 {
+			return db.RecordStore{}, db.RecordError{Code: db.RecordErrorPermissionDenied, Message: "private Record access requires an authenticated owner"}
+		}
+		return store.WithPrivateOwnerScope(ctx, appName, entity, d.actor.UserID)
+	}
 	if d.actor == nil || d.actor.Administrator {
 		return store, nil
 	}
@@ -56,7 +70,14 @@ func (d RecordData) scopedStore(ctx context.Context, appName string, entity stri
 	if err != nil {
 		return db.RecordStore{}, err
 	}
-	return store.WithScope(db.RecordScope{Where: scope.Where, Args: scope.Args, FieldRead: scope.FieldRead, FieldWrite: scope.FieldWrite}), nil
+	store = store.WithScope(db.RecordScope{Where: scope.Where, Args: scope.Args, FieldRead: scope.FieldRead, FieldWrite: scope.FieldWrite})
+	if action != permissions.ActionRead {
+		store = store.WithTreeReadScopeResolver(func(ctx context.Context, queryer db.RecordQueryer) (db.RecordScope, error) {
+			read, err := permissions.NewChecker(queryer).RecordScope(ctx, permissions.Request{Actor: *d.actor, Resource: dygo.Resource{Kind: dygo.ResourceEntity, App: appName, Name: entity}, Action: permissions.ActionRead})
+			return db.RecordScope{Where: read.Where, Args: read.Args, FieldRead: read.FieldRead}, err
+		})
+	}
+	return store, nil
 }
 
 // WithLockAction returns an internal Record view whose Lock uses a custom Entity action scope.
@@ -79,6 +100,9 @@ func (d RecordData) context(ctx context.Context) context.Context {
 		ctx = db.WithActivityActor(ctx, d.actor.UserID, d.actor.Email, d.actor.Administrator)
 	}
 	ctx = db.WithActivitySystemReason(ctx, d.systemReason)
+	if d.privateMode {
+		ctx = db.WithPrivateOwnerAccess(ctx)
+	}
 	return recordsecret.WithOperation(ctx)
 }
 
@@ -270,7 +294,8 @@ func (d RecordData) Transaction(ctx context.Context, fn dygo.RecordTransactionFu
 			_ = tx.Rollback(ctx)
 		}
 	}()
-	transactional := RecordData{queryer: tx, hooks: d.hooks, mutationHooks: d.mutationHooks, actor: d.actor, activityActor: d.activityActor, systemReason: d.systemReason, lockAction: d.lockAction, systemMode: d.systemMode}
+	transactional := d
+	transactional.queryer = tx
 	if err := fn(d.context(ctx), transactional); err != nil {
 		return err
 	}
@@ -284,16 +309,32 @@ func (d RecordData) Transaction(ctx context.Context, fn dygo.RecordTransactionFu
 // AsActor returns a RecordData view that attributes mutations to actor.
 func (d RecordData) AsActor(actor dygo.Actor) dygo.RecordData {
 	d.actor = &actor
+	d.activityActor = &actor
 	d.systemReason = ""
 	d.systemMode = false
+	d.privateMode = false
+	return d
+}
+
+// AsPrivate returns owner-scoped access to a metadata-declared private Entity.
+func (d RecordData) AsPrivate(actor dygo.Actor, reason string) dygo.RecordData {
+	d.actor = &actor
+	d.activityActor = &actor
+	d.systemReason = strings.TrimSpace(reason)
+	d.systemMode = true
+	d.privateMode = true
 	return d
 }
 
 // AsSystem returns a RecordData view that attributes mutations to the system reason.
 func (d RecordData) AsSystem(reason string) dygo.RecordData {
+	if d.activityActor == nil {
+		d.activityActor = d.actor
+	}
 	d.actor = nil
 	d.systemReason = strings.TrimSpace(reason)
 	d.systemMode = true
+	d.privateMode = false
 	return d
 }
 

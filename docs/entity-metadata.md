@@ -78,6 +78,10 @@ dygo uses singular Entity keys only. There is no separate required metadata for 
 
 `icon` is optional and should use a Lucide icon name, such as `box`, `user`, or `shield-check`. Studio resolves lower-kebab Lucide names and Vue component keys. Unknown icon names are non-fatal; Studio falls back to the Lucide `box` icon.
 
+`is-system: true` makes an Entity readable through normal access rules but writable only through a trusted system Record writer. Studio, ordinary CRUD (including Administrator and `AsSystem`), fixtures, and imports cannot mutate its Records. App code uses the App-scoped [`Records.System(reason)` SDK](sdk.md#trusted-system-record-writes), or an App-owned post-sync [system Record patch](patches.md).
+
+`is-private: true` marks an Entity as owner-scoped application state. `private-owner-field` must name a Link field that identifies the owner. Framework services use that metadata to keep private Records out of generic metadata and API surfaces and to apply the owner predicate consistently. Business App services can use the public SDK `RecordData.AsPrivate(actor, reason)` contract. Private storage is a reusable Entity contract; it is not tied to a particular App or Entity key.
+
 `is-single: true` marks an Entity as a singleton settings/config surface. Single Entities have exactly one framework-owned Record whose system `name` is the Entity key. dygo seeds that Record during metadata sync, Studio opens the form directly instead of a list, and normal create/delete/list operations are not used.
 
 Single Entities cannot define explicit `name` configuration; dygo owns the singleton Record name. Every required stored field on a Single Entity must define a non-null default so `dygo db migrate` can seed the row deterministically.
@@ -107,6 +111,37 @@ route:
 Studio record pages use `/{slug}` at the root. The route does not prepend the app name unless the app author intentionally chooses that slug.
 
 When dygo needs a SQL table name from Entity metadata, Core tables keep their historical singular names, such as `user` and `entity`. Non-Core app tables are app-scoped by default, so `crm/lead` maps to `crm_lead` and `support/contact` maps to `support_contact`.
+
+## Tree Entities
+
+Declare one parent Link to model a hierarchy:
+
+```yaml
+label: Department
+tree:
+  parent-field: parent
+  label-field: title
+fields:
+  - name: title
+    label: Title
+    type: text
+  - name: parent
+    label: Parent
+    type: link
+    index: true
+    options:
+      entity: department
+```
+
+The parent must be an optional, indexed Link to the same App and Entity. Its foreign key must remain enabled. Do not give it a default, fetch rule, or uniqueness rule. Single and Collection Entities cannot be trees.
+
+A null parent defines a root. Multiple roots are allowed. Every Record can have children. `label-field` is optional and must name a stored text field. Studio falls back to the Record name when the label is empty or unreadable.
+
+Tree mutations use the normal Record pipeline. Self-parenting and cycles are rejected, including concurrent moves. A Record with children cannot be deleted. Move or delete its children explicitly first. A move requires update access to the Record and parent field, plus read access to the destination. Tree relationships do not grant permissions.
+
+Schema preparation validates existing data before activating Tree metadata. Invalid hierarchies require an explicit data repair. No nested-set bounds, stored paths, or auxiliary tree tables are maintained.
+
+Apply fixtures and import rows in parent-before-child order. Use parent Record names as Link values. Missing parents and cycles follow the existing fixture/import error and transaction rules; dygo does not reorder rows automatically.
 
 ## Collection Entities
 

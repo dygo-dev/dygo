@@ -87,4 +87,54 @@ Open the user menu in the header and choose Theme.
 
 Light and Dark stay fixed. System follows the operating system color scheme.
 
-Studio stores the preference in the browser. The choice applies across Records, lists, forms, login, and the rest of the Studio shell.
+Studio saves signed-in preferences in the Studio Preference Entity. Theme, sounds, sidebar state, recent pages, page size, and hidden columns follow the user across sessions. The browser retains the theme for the login screen. Existing browser settings are imported only when the server has no value for that key.
+
+Pin an Entity, Page, or saved Record from its header to add it to the personal Pinned section above the main navigation. Pinned items follow the signed-in user. The section shows five items until See more is selected, and supports drag or keyboard reordering.
+
+## Record List Filters
+
+Use Add filter to search available Field labels and names. Value controls follow Field metadata: options, booleans, dates, datetimes, numbers, and Links. Link choices respect Record permissions and dependent filters. Clear all removes filters and ID search while keeping sort and display choices.
+
+Saved filters are private and belong to one Entity. Save the applied filters, rename them, replace them with the current filters, or delete them. Applying a saved filter replaces the current filters. Sort and display choices are not part of a saved filter. If metadata makes a saved filter invalid, replace or delete it; Studio does not silently remove its conditions.
+
+Filter and sort state stays in the URL. A fresh Entity visit starts unfiltered. Preference keys use App namespaces and canonical App/Entity identity for per-Entity display choices.
+
+## Record Views
+
+The Record view selector shows List for normal Entities and List/Tree for Tree Entities. List is the default. Studio saves the selected view per user and Entity. Switching views keeps URL filters and sort, but resets selection and pagination. Grid, calendar, and Gantt views are not implemented.
+
+Tree view loads roots first and children when expanded. Use the chevron or Left/Right arrow keys to collapse or expand. Use Up/Down to move focus. Click a Record label or press Enter to open the existing Record page. Create and move Records through the normal form and parent Link field. Siblings default to Record-name order; an explicit sort applies within each sibling group.
+
+Filtered trees show matching Records with readable ancestors marked as context. Context nodes do not have to match the filter. An inaccessible path is marked unavailable; hidden ancestor details are not exposed. Each sibling group and matching result set has its own Load more control.
+
+## Command Menu
+
+Use Command K on macOS or Control K elsewhere. The menu shows current-page actions and recent pages before typing. It also searches navigation and app actions.
+
+Choose Search records, select an Entity, and type part of a Record ID. On an Entity page, that Entity is selected first. Results respect Record permissions and are limited to 20. Use the arrow keys and Enter to open a result. Current list actions include New Record, Clear filters, and Apply saved filter.
+
+## Keyboard Shortcuts
+
+`Mod` means Command on macOS and Control on Windows or Linux.
+
+| Action | Shortcut | Scope |
+| --- | --- | --- |
+| Open or close command palette | Mod+K | Signed-in Studio; close from the palette |
+| Keyboard shortcuts | Mod+/ | Signed-in Studio |
+| Save or create Record | Mod+S | Current Record form, including input fields |
+| New Record | Mod+Enter | Entity list, outside input fields |
+| Toggle sidebar | Mod+\\ | When sidebar collapse is available |
+
+Open Keyboard shortcuts from the user menu or command palette to search current commands and disabled reasons. Record search, ID-search focus, Add filter, Reset changes, Home, and Entity-list navigation are available from the palette without extra key bindings.
+
+Studio matches exact modifiers and character keys. It ignores repeat, composition, AltGraph, and handled events. Dialogs, menus, and popovers keep keyboard control. Save is reserved on Record forms even when disabled, so it does not open the browser Save Page dialog. Browser Back, Forward, Find, Reload, Location, and New Window shortcuts are unchanged.
+
+Reset requires confirmation. Route navigation also requires confirmation when a Record form has unsaved changes. Failed saves and background refreshes preserve the draft. Navigation does not save automatically.
+
+### Internal registration
+
+Use `features/commands/context.ts` to register reactive current-page commands with `usePageCommands`. Supply a stable ID, label, optional group, disabled reason, and handler. The most recently mounted page owns the active commands; updates from background pages cannot replace it. Disposal removes that page's commands.
+
+Keep default keys and input policy in `features/commands/shortcuts.ts`. All bindings require Mod. The shell installs one listener. `runStudioCommand` and `executeCommand` share eligibility and in-flight checks for buttons, palette selection, and shortcuts. Focus actions execute after the palette closes and restores focus. Help and key badges use the same bindings.
+
+Duplicate active bindings fail in development. Production reports the conflict and does not execute an ambiguous binding. This registry is internal Studio code, not a Business App or Go SDK contract.

@@ -28,7 +28,8 @@ type PatchOperationPlan struct {
 	Operations []PatchOperation
 }
 
-// PatchOperation is one planned patch operation with exact SQL for review.
+// PatchOperation retains either SQL or private structured Record input for execution.
+// Description is safe for previews; structured Record values are never serialized.
 type PatchOperation struct {
 	AppName         string
 	PatchID         string
@@ -44,6 +45,7 @@ type PatchOperation struct {
 	Description     string
 	Source          string
 	SQL             string
+	record          *patchSystemRecordOperation
 }
 
 // BuildPatchOperationPlan validates and plans loaded patch operations without executing them.
@@ -90,6 +92,9 @@ func newPatchOperationPlanner(entities []catalog.LoadedEntity, live LiveSchema) 
 }
 
 func (p *patchOperationPlanner) plan(reader patchOperationReader) (PatchOperation, error) {
+	if patches.IsSystemRecordOperation(reader.operation.Type) {
+		return p.planSystemRecord(reader)
+	}
 	switch reader.operation.Type {
 	case PatchOperationRenameField:
 		return p.planRenameField(reader)

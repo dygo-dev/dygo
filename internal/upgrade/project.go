@@ -56,10 +56,11 @@ func PlanProject(root string, targetVersion string) (ProjectResult, error) {
 		return ProjectResult{}, fmt.Errorf("render project runner: %w", err)
 	}
 	return ProjectResult{
-		Root:           root,
-		CurrentVersion: current,
-		TargetVersion:  targetVersion,
-		WouldUpdate:    wouldUpdate,
+		Root:                      root,
+		CurrentVersion:            current,
+		TargetVersion:             targetVersion,
+		WouldUpdate:               wouldUpdate,
+		MetadataMigrationRequired: wouldUpdate,
 	}, nil
 }
 
@@ -71,10 +72,11 @@ func CheckProject(root string, targetVersion string) (ProjectResult, error) {
 		return ProjectResult{}, err
 	}
 	return ProjectResult{
-		Root:           root,
-		CurrentVersion: current,
-		TargetVersion:  targetVersion,
-		WouldUpdate:    current != targetVersion,
+		Root:                      root,
+		CurrentVersion:            current,
+		TargetVersion:             targetVersion,
+		WouldUpdate:               current != targetVersion,
+		MetadataMigrationRequired: current != targetVersion,
 	}, nil
 }
 
@@ -159,6 +161,24 @@ func UpgradeProject(ctx context.Context, options ProjectOptions) (ProjectResult,
 		}
 		return nil
 	}
+	gitignorePath := filepath.Join(root, ".gitignore")
+	gitignore, gitignoreErr := os.ReadFile(gitignorePath)
+	gitignoreExists := gitignoreErr == nil
+	if gitignoreErr != nil && !os.IsNotExist(gitignoreErr) {
+		return ProjectResult{}, fmt.Errorf("read .gitignore: %w", gitignoreErr)
+	}
+	restoreGitignore := func() error {
+		if gitignoreExists {
+			if err := os.WriteFile(gitignorePath, gitignore, 0o644); err != nil {
+				return fmt.Errorf("restore .gitignore after failed upgrade: %w", err)
+			}
+			return nil
+		}
+		if err := os.Remove(gitignorePath); err != nil && !os.IsNotExist(err) {
+			return fmt.Errorf("remove .gitignore after failed upgrade: %w", err)
+		}
+		return nil
+	}
 	studioStage, err := stageUpgradePath(filepath.Join(root, ".dygo", "apps", "studio"), ".dygo-upgrade-studio")
 	if err != nil {
 		return ProjectResult{}, err
@@ -169,7 +189,7 @@ func UpgradeProject(ctx context.Context, options ProjectOptions) (ProjectResult,
 		return ProjectResult{}, err
 	}
 	failed := func(cause error) (ProjectResult, error) {
-		restoreErr := errors.Join(restoreModuleFiles(), restoreRunner(), coreStage.restore(), studioStage.restore())
+		restoreErr := errors.Join(restoreModuleFiles(), restoreRunner(), restoreGitignore(), coreStage.restore(), studioStage.restore())
 		if restoreErr != nil {
 			return ProjectResult{}, fmt.Errorf("%w; restore failed: %v", cause, restoreErr)
 		}
@@ -190,6 +210,9 @@ func UpgradeProject(ctx context.Context, options ProjectOptions) (ProjectResult,
 	if err != nil {
 		return failed(err)
 	}
+	if err := ensureStudioMetadataTracked(root); err != nil {
+		return failed(err)
+	}
 	_, written, err := updateProjectRunner(root)
 	if err != nil {
 		return failed(fmt.Errorf("update project runner: %w", err))
@@ -207,7 +230,48 @@ func UpgradeProject(ctx context.Context, options ProjectOptions) (ProjectResult,
 	result.CoreSource = coreSource
 	result.StudioUpdated = studioUpdated
 	result.StudioSource = studioSource
+	result.MetadataMigrationRequired = true
 	return result, nil
+}
+
+func ensureStudioMetadataTracked(root string) error {
+	path := filepath.Join(root, ".gitignore")
+	data, err := os.ReadFile(path)
+	if err != nil && !os.IsNotExist(err) {
+		return fmt.Errorf("read .gitignore: %w", err)
+	}
+	content := string(data)
+	required := []string{
+		"!.dygo/apps/studio/",
+		"!.dygo/apps/studio/**",
+		".dygo/apps/studio/ui/",
+		".dygo/apps/studio/ui/**",
+	}
+	missing := make([]string, 0, len(required))
+	for _, line := range required {
+		found := false
+		for _, existing := range strings.Split(content, "\n") {
+			if strings.TrimSpace(existing) == line {
+				found = true
+				break
+			}
+		}
+		if !found {
+			missing = append(missing, line)
+		}
+	}
+	if len(missing) == 0 {
+		return nil
+	}
+	content = strings.TrimRight(content, "\n")
+	if content != "" {
+		content += "\n\n"
+	}
+	content += "# dygo Studio metadata (keep metadata, ignore built UI)\n" + strings.Join(missing, "\n") + "\n"
+	if err := os.WriteFile(path, []byte(content), 0o644); err != nil {
+		return fmt.Errorf("update .gitignore for Studio metadata: %w", err)
+	}
+	return nil
 }
 
 type stagedUpgradePath struct {

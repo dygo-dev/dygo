@@ -63,14 +63,15 @@ type ProjectResult struct {
 	CurrentVersion string
 	TargetVersion  string
 
-	WouldUpdate   bool
-	Updated       bool
-	RunnerUpdated bool
-	CoreUpdated   bool
-	CoreSource    string
-	StudioUpdated bool
-	StudioSource  string
-	NoGit         bool
+	WouldUpdate               bool
+	Updated                   bool
+	RunnerUpdated             bool
+	CoreUpdated               bool
+	CoreSource                string
+	StudioUpdated             bool
+	StudioSource              string
+	MetadataMigrationRequired bool
+	NoGit                     bool
 }
 
 // Run resolves and executes an upgrade.
@@ -226,6 +227,9 @@ func resultLines(result Result, options Options) []string {
 		}
 		if result.Project.StudioUpdated {
 			lines = append(lines, fmt.Sprintf("project Studio cache: updated from %s", result.Project.StudioSource))
+		}
+		if result.Project.MetadataMigrationRequired {
+			lines = append(lines, "project metadata: run `dygo db migrate` before starting the upgraded project")
 		}
 	}
 	return lines

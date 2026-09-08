@@ -6,6 +6,9 @@ name:
   strategy: format
   format: "{app}.{key}"
 fields:
+  - name: tree
+    label: Tree
+    type: json
   - name: app
     label: App
     type: link
@@ -59,6 +62,17 @@ fields:
     required: true
     default: false
     index: true
+
+  - name: is-private
+    label: Is Private
+    type: boolean
+    required: true
+    default: false
+    index: true
+
+  - name: private-owner-field
+    label: Private Owner Field
+    type: text
 
   - name: naming
     label: Naming

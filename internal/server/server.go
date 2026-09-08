@@ -28,6 +28,7 @@ import (
 	"github.com/hapyco/dygo/internal/recordquery"
 	"github.com/hapyco/dygo/internal/recordsecret"
 	"github.com/hapyco/dygo/internal/reserved"
+	"github.com/hapyco/dygo/internal/studiostate"
 	"github.com/hapyco/dygo/pkg/dygo"
 )
 
@@ -45,6 +46,7 @@ type Options struct {
 	Records         RecordStore
 	Activity        ActivityStore
 	Notifications   NotificationStore
+	StudioState     StudioStateStore
 	Permissions     PermissionChecker
 	RecordHooks     *db.RecordHookRegistry
 	ActionRegistry  *entityactions.Registry
@@ -134,6 +136,7 @@ func NewRouter(options ...Options) http.Handler {
 			registerMetadataRoutes(protected, opts.Metadata, opts.Permissions, opts.ActionRegistry)
 			registerPageRoutes(protected, opts.Pages, opts.Permissions)
 			registerNotificationRoutes(protected, opts.Notifications)
+			registerStudioStateRoutes(protected, opts.StudioState)
 			registerRecordRoutes(protected, opts.Records, opts.Activity, opts.Metadata, opts.Permissions, opts.EntityActions)
 			registerFileRoutes(protected, opts.Files)
 			registerImportRoutes(protected, opts.Imports)
@@ -200,6 +203,7 @@ func Serve(ctx context.Context, options Options) error {
 		}
 		options.Activity = db.NewActivityReader(pool)
 		options.Notifications = notifications.NewStore(pool)
+		options.StudioState = studiostate.New(pool)
 		checker := permissions.NewChecker(pool)
 		options.Permissions = checker
 		jobs, jobErr := jobstore.New(pool)
@@ -825,7 +829,7 @@ func (h metadataHandler) listEntities(w http.ResponseWriter, r *http.Request) {
 	filtered := make([]db.MetadataEntity, 0, len(entities))
 	for _, entity := range entities {
 		routeSlug := entity.RouteSlug()
-		if routeSlug == "" {
+		if routeSlug == "" || entity.IsPrivate {
 			continue
 		}
 		canRead, err := h.canReadEntity(r.Context(), user, routeSlug)
@@ -852,6 +856,10 @@ func (h metadataHandler) getEntityMeta(w http.ResponseWriter, r *http.Request) {
 	meta, err := h.store.GetEntityMeta(r.Context(), name)
 	if err != nil {
 		writeAPIError(w, err, "entity", name)
+		return
+	}
+	if meta.IsPrivate {
+		writeErrorEnvelope(w, http.StatusForbidden, "forbidden", "private Entity", nil)
 		return
 	}
 	canRead, err := h.canReadEntity(r.Context(), user, meta.RouteSlug())
@@ -969,6 +977,7 @@ func registerRecordRoutes(router chi.Router, store RecordStore, activity Activit
 		records.Use(handler.resolveEntity)
 		records.Get("/", handler.listRecords)
 		records.Get("/export", handler.exportRecords)
+		records.Get("/tree/{operation}", handler.treeRecords)
 		records.Post("/", handler.createRecord)
 		records.Post("/actions/{action}", handler.executeAction)
 		records.Get("/{id}/secret-status", handler.secretStatus)
@@ -995,6 +1004,10 @@ func (h recordHandler) resolveEntity(next http.Handler) http.Handler {
 			return
 		}
 		ctx := context.WithValue(r.Context(), recordEntityMetaContextKey{}, meta)
+		if meta.IsPrivate {
+			writeErrorEnvelope(w, http.StatusForbidden, "forbidden", "private Entity", nil)
+			return
+		}
 		next.ServeHTTP(w, r.WithContext(ctx))
 	})
 }
@@ -1505,7 +1518,15 @@ func (h recordHandler) storeFor(r *http.Request, entity string, action permissio
 	if err != nil {
 		return nil, err
 	}
-	return store.WithScope(db.RecordScope{Where: scope.Where, Args: scope.Args, FieldRead: scope.FieldRead, FieldWrite: scope.FieldWrite}), nil
+	store = store.WithScope(db.RecordScope{Where: scope.Where, Args: scope.Args, FieldRead: scope.FieldRead, FieldWrite: scope.FieldWrite})
+	if action != permissions.ActionRead && meta.Tree != nil {
+		read, err := scoper.RecordScope(r.Context(), permissions.Request{Actor: permissions.Actor{UserID: user.ID, Email: user.Email}, Resource: permissions.Resource{Kind: permissions.ResourceEntity, App: meta.App.Name, Name: meta.Key}, Action: permissions.ActionRead})
+		if err != nil {
+			return nil, err
+		}
+		store = store.WithTreeReadScope(db.RecordScope{Where: read.Where, Args: read.Args, FieldRead: read.FieldRead})
+	}
+	return store, nil
 }
 
 func activityRequestContext(r *http.Request) context.Context {

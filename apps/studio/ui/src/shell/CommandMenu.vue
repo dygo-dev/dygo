@@ -1,8 +1,8 @@
 <script setup lang="ts">
 import { computed, nextTick, ref, watch, type Component } from 'vue'
+import { useQuery } from '@tanstack/vue-query'
 import { storeToRefs } from 'pinia'
 import { useRoute, useRouter, type RouteLocationNormalizedLoaded } from 'vue-router'
-import { onKeyStroke } from '@vueuse/core'
 import {
   DialogContent,
   DialogOverlay,
@@ -15,24 +15,25 @@ import {
   Clock,
   Command,
   FilePlus2,
-  Home,
   LogOut,
   RefreshCw,
   Search,
 } from '@lucide/vue'
 
 import { queryClient } from '@/app/query'
+import { pageCommands, studioCommands, globalCommands, runStudioCommand } from '@/features/commands/context'
+import { bindings, commandBinding, executeCommand, unavailable, shortcutLabel, ariaShortcut, type StudioCommand } from '@/features/commands/shortcuts'
+import { listRecords } from '@/features/records/records.api'
 import { reloadStudioApp } from '@/app/reload'
 import { iconForEntity } from '@/features/metadata/entity-icons'
 import type { MetadataEntity } from '@/features/metadata/metadata.api'
 import { useMetadataEntitiesQuery } from '@/features/metadata/metadata.query'
 import { routeParam, RouteName } from '@/router/routes'
 import { useAuthStore } from '@/stores/auth.store'
-import { useBootStore } from '@/stores/boot.store'
 import { findEntityByRouteSlug, humanizeEntity } from '@/stores/metadata.identity'
 import { useNavigationStore, type RecentPage } from '@/stores/navigation.store'
 
-type CommandItem = {
+type CommandItem = StudioCommand & {
   id: string
   label: string
   detail: string
@@ -48,8 +49,8 @@ type CommandGroup = {
   items: CommandItem[]
 }
 
+const paletteShortcut = bindings['app:palette']?.shortcut
 const navigationStore = useNavigationStore()
-const bootStore = useBootStore()
 const authStore = useAuthStore()
 const route = useRoute()
 const router = useRouter()
@@ -58,6 +59,11 @@ const searchInput = ref<HTMLInputElement | null>(null)
 const query = ref('')
 const activeItemId = ref('')
 const runningAppAction = ref(false)
+let returnFocus: HTMLElement | null = null
+let afterClose: (() => void | Promise<void>) | null = null
+const searchingRecords = ref(false)
+const searchEntity = ref('')
+const recordSearch = ref('')
 const metadataEntitiesQuery = useMetadataEntitiesQuery({
   enabled: computed(() => Boolean(authStore.currentUser)),
 })
@@ -72,6 +78,42 @@ const searchableEntities = computed(() => (
 
 const normalizedQuery = computed(() => normalizeSearch(query.value))
 const hasQuery = computed(() => normalizedQuery.value.length > 0)
+const currentEntity = computed(() => findEntityByRouteSlug(metadataEntities.value, String(route.params.entity ?? '')))
+const recordEntities = computed(() => searchableEntities.value.filter((entity) => !entity['is-single']))
+const selectedSearchEntity = computed(() => recordEntities.value.find((entity) => entity.slug === searchEntity.value))
+const recordResults = useQuery({
+  queryKey: computed(() => ['command-records', authStore.currentUser?.id, authStore.sessionVersion, searchEntity.value, recordSearch.value]),
+  enabled: computed(() => commandMenuOpen.value && searchingRecords.value && Boolean(authStore.currentUser && selectedSearchEntity.value && recordSearch.value)),
+  queryFn: ({ signal }) => listRecords(searchEntity.value, {
+    limit: 20,
+    offset: 0,
+    filters: [{ field: 'name', operator: 'contains', value: recordSearch.value }],
+  }, { signal }),
+})
+
+watch([query, searchEntity, searchingRecords, commandMenuOpen], ([value], _previous, cleanup) => {
+  recordSearch.value = ''
+  if (!commandMenuOpen.value || !searchingRecords.value) return
+  const timer = setTimeout(() => { recordSearch.value = value.trim() }, 250)
+  cleanup(() => clearTimeout(timer))
+})
+
+const contextualItems = computed<CommandItem[]>(() => [
+  ...pageCommands.value.map((command) => ({ ...command, detail: command.detail ?? '', keywords: command.keywords ?? '', icon: Command })),
+])
+
+watch(() => navigationStore.recordSearchRequested, requested => {
+  if (!requested) return
+  navigationStore.recordSearchRequested = false
+  startRecordSearch()
+})
+
+function startRecordSearch() {
+  searchingRecords.value = true
+  searchEntity.value = currentEntity.value && !currentEntity.value['is-single'] ? currentEntity.value.slug ?? '' : ''
+  query.value = ''
+  searchInput.value?.focus()
+}
 
 const pageCommandItems = computed<CommandItem[]>(() => (
   searchableEntities.value.map((entity) => {
@@ -108,14 +150,7 @@ const createCommandItems = computed<CommandItem[]>(() => (
 ))
 
 const appActionItems = computed<CommandItem[]>(() => [
-  {
-    id: 'app:home',
-    label: 'Go home',
-    detail: 'Open default home',
-    keywords: 'go home start default',
-    icon: Home,
-    run: goHome,
-  },
+  ...globalCommands.value.filter(command => command.id !== 'app:palette').map(command => ({ ...commandBinding(command), detail: '', keywords: '', icon: Command })),
   {
     id: 'app:reload',
     label: 'Reload app',
@@ -148,13 +183,28 @@ const recentCommandItems = computed<CommandItem[]>(() => (
 ))
 
 const commandGroups = computed<CommandGroup[]>(() => {
+  if (searchingRecords.value) {
+    const entity = selectedSearchEntity.value
+    if (!entity || query.value.trim() !== recordSearch.value) return []
+    return [{ key: 'records', label: entityLabel(entity), items: (recordResults.data.value?.data ?? []).flatMap((record): CommandItem[] => (
+      typeof record.name === 'string' ? [{
+        id: `record:${entity.slug}:${record.name}`, label: record.name,
+        detail: [record['full-name'], record.title, record.label].find((value): value is string => typeof value === 'string' && value.length > 0) ?? entityLabel(entity),
+        keywords: record.name, icon: iconForEntity(entity.icon),
+        run: () => router.push({ name: RouteName.RecordDetail, params: { entity: entity.slug!, recordName: record.name as string } }).then(() => {}),
+      }] : []
+    )) }].filter((group) => group.items.length > 0)
+  }
   if (!hasQuery.value) {
-    return recentCommandItems.value.length > 0
-      ? [{ key: 'recent', label: 'Recent', items: recentCommandItems.value }]
-      : []
+    return [
+      { key: 'context', label: 'This page', items: contextualItems.value },
+      { key: 'recent', label: 'Recent', items: recentCommandItems.value },
+      { key: 'app-actions', label: 'Studio', items: appActionItems.value },
+    ].filter((group) => group.items.length > 0)
   }
 
   return [
+    { key: 'context', label: 'This page', items: filterItems(contextualItems.value, normalizedQuery.value) },
     { key: 'pages', label: 'Pages', items: filterItems(pageCommandItems.value, normalizedQuery.value) },
     { key: 'create', label: 'Create', items: filterItems(createCommandItems.value, normalizedQuery.value) },
     { key: 'app-actions', label: 'App actions', items: filterItems(appActionItems.value, normalizedQuery.value) },
@@ -162,13 +212,25 @@ const commandGroups = computed<CommandGroup[]>(() => {
 })
 
 const visibleItems = computed(() => commandGroups.value.flatMap((group) => group.items))
-const emptyMessage = computed(() => (hasQuery.value ? 'No matching commands' : 'No recent pages yet'))
+const emptyMessage = computed(() => {
+  if (!searchingRecords.value) return hasQuery.value ? 'No matching commands' : 'No recent pages yet'
+  if (!selectedSearchEntity.value) return 'Select an Entity'
+  if (!query.value.trim()) return 'Type a Record ID'
+  if (recordSearch.value !== query.value.trim() || recordResults.isFetching.value) return 'Searching…'
+  if (recordResults.error.value) return 'Could not search Records. Try again.'
+  return 'No matching Records'
+})
 const activeDescendantId = computed(() => {
   const activeItem = visibleItems.value.find((item) => item.id === activeItemId.value)
   return activeItem ? itemDomId(activeItem) : undefined
 })
 
 const currentRecentPage = computed(() => recentPageForRoute(route))
+
+watch(activeDescendantId, async (id) => {
+  await nextTick()
+  if (id) document.getElementById(id)?.scrollIntoView({ block: 'nearest' })
+})
 
 watch(
   currentRecentPage,
@@ -195,31 +257,16 @@ watch(
   async (open) => {
     if (!open) {
       query.value = ''
+      searchingRecords.value = false
+      recordSearch.value = ''
       return
     }
 
+    returnFocus = document.activeElement instanceof HTMLElement ? document.activeElement : null
     await nextTick()
     searchInput.value?.focus()
   },
 )
-
-onKeyStroke((event) => {
-  if ((event.metaKey || event.ctrlKey) && event.key.toLowerCase() === 'k') {
-    event.preventDefault()
-    if (commandMenuOpen.value) {
-      closeMenu()
-      return
-    }
-
-    void openMenu()
-    return
-  }
-
-}, { passive: false })
-
-function openMenu() {
-  navigationStore.openCommandMenu()
-}
 
 function closeMenu() {
   navigationStore.closeCommandMenu()
@@ -234,6 +281,7 @@ function updateMenuOpen(open: boolean) {
 }
 
 function handleInputKeydown(event: KeyboardEvent) {
+  if (event.isComposing || event.repeat || event.defaultPrevented) return
   if (event.key === 'ArrowDown') {
     event.preventDefault()
     moveActiveItem(1)
@@ -274,20 +322,26 @@ function moveActiveItem(direction: 1 | -1) {
 }
 
 async function runCommand(item: CommandItem) {
-  if (item.disabled) {
-    return
-  }
-
+  const current = studioCommands.value.find(command => command.id === item.id) ?? item
+  if (unavailable(current)) return
+  if (item.id === 'records:search') { await executeCommand(current); return }
+  afterClose = studioCommands.value.some(command => command.id === item.id)
+    ? () => runStudioCommand(item.id)
+    : () => executeCommand(item)
   closeMenu()
-  await item.run()
+}
+
+async function restoreFocus(event: Event) {
+  event.preventDefault()
+  returnFocus?.focus()
+  const action = afterClose
+  afterClose = null
+  await nextTick()
+  await action?.()
 }
 
 async function navigateTo(to: string | { name: string, params?: Record<string, string> }) {
   await router.push(to)
-}
-
-async function goHome() {
-  await router.push(normalizeHome(bootStore.defaults?.home))
 }
 
 async function reloadApp() {
@@ -362,19 +416,6 @@ function recentPageForRoute(currentRoute: RouteLocationNormalizedLoaded): Recent
   return null
 }
 
-function normalizeHome(value: unknown): string {
-  if (typeof value !== 'string') {
-    return '/'
-  }
-
-  const home = value.trim()
-  if (home === '' || !home.startsWith('/') || home.startsWith('//')) {
-    return '/'
-  }
-
-  return home
-}
-
 function entityLabel(entity: MetadataEntity): string {
   return entity.label || humanizeEntity(entity.slug ?? entity.key)
 }
@@ -397,25 +438,35 @@ function itemDomId(item: CommandItem): string {
           type="button"
           aria-haspopup="dialog"
           :aria-expanded="commandMenuOpen"
+          :aria-keyshortcuts="ariaShortcut(paletteShortcut)"
+          :title="`Search (${shortcutLabel(paletteShortcut)})`"
         >
           <Search class="studio-command-menu__search-icon" :size="14" :stroke-width="1.8" aria-hidden="true" />
           <span class="studio-command-menu__placeholder">Search</span>
           <span class="studio-command-menu__shortcut" aria-hidden="true">
-            <Command :size="12" :stroke-width="1.9" />
-            <kbd>K</kbd>
+            <kbd>{{ shortcutLabel(paletteShortcut) }}</kbd>
           </span>
-          <span class="studio-command-menu__shortcut-label">Command K</span>
+          <span class="studio-command-menu__shortcut-label">{{ shortcutLabel(paletteShortcut) }}</span>
         </button>
       </DialogTrigger>
 
       <DialogPortal>
         <DialogOverlay class="studio-command-menu__overlay" />
         <DialogContent
+          data-studio-command-menu
           class="studio-command-menu__dialog"
           aria-describedby="studio-command-menu-description"
+          @close-auto-focus="restoreFocus"
         >
           <DialogTitle class="sr-only">Command menu</DialogTitle>
-          <p id="studio-command-menu-description" class="sr-only">Search pages and actions.</p>
+          <p id="studio-command-menu-description" class="sr-only">Search pages, actions, and Records.</p>
+          <div v-if="searchingRecords" class="studio-command-menu__input-wrap">
+            <button type="button" @click="searchingRecords = false; query = ''">Back</button>
+            <select v-model="searchEntity" aria-label="Search Entity" class="studio-command-menu__input">
+              <option value="">Select an Entity</option>
+              <option v-for="entity in recordEntities" :key="entity.name" :value="entity.slug">{{ entityLabel(entity) }}</option>
+            </select>
+          </div>
           <div class="studio-command-menu__input-wrap">
             <Search class="studio-command-menu__dialog-icon" :size="16" :stroke-width="1.8" aria-hidden="true" />
             <input
@@ -423,7 +474,7 @@ function itemDomId(item: CommandItem): string {
               v-model="query"
               class="studio-command-menu__input"
               type="search"
-              placeholder="Search or type a command"
+              :placeholder="searchingRecords ? 'Search Record IDs' : 'Search or type a command'"
               role="combobox"
               aria-controls="studio-command-menu-list"
               :aria-expanded="commandMenuOpen"
@@ -431,8 +482,7 @@ function itemDomId(item: CommandItem): string {
               @keydown="handleInputKeydown"
             >
             <span class="studio-command-menu__dialog-shortcut" aria-hidden="true">
-              <Command :size="12" :stroke-width="1.9" />
-              <kbd>K</kbd>
+              <kbd>{{ shortcutLabel(paletteShortcut) }}</kbd>
             </span>
           </div>
 
@@ -459,7 +509,7 @@ function itemDomId(item: CommandItem): string {
                   type="button"
                   role="option"
                   :aria-selected="item.id === activeItemId"
-                  :disabled="item.disabled"
+                  :disabled="unavailable(item)"
                   @mouseenter="activeItemId = item.id"
                   @click="runCommand(item)"
                 >
@@ -472,13 +522,14 @@ function itemDomId(item: CommandItem): string {
                   />
                   <span class="studio-command-menu__item-copy">
                     <span class="studio-command-menu__item-label">{{ item.label }}</span>
-                    <span class="studio-command-menu__item-detail">{{ item.detail }}</span>
+                    <span class="studio-command-menu__item-detail">{{ item.disabledReason || item.detail }}</span>
                   </span>
+                  <kbd v-if="commandBinding(item).shortcut">{{ shortcutLabel(commandBinding(item).shortcut) }}</kbd>
                 </button>
               </section>
             </template>
 
-            <div v-else class="studio-command-menu__empty">
+            <div v-else class="studio-command-menu__empty" role="status">
               {{ emptyMessage }}
             </div>
           </div>
@@ -495,8 +546,7 @@ function itemDomId(item: CommandItem): string {
             </span>
             <span class="studio-command-menu__hint">
               <span class="studio-command-menu__hint-shortcut">
-                <Command :size="12" :stroke-width="1.9" />
-                <kbd>K</kbd>
+                <kbd>{{ shortcutLabel(paletteShortcut) }}</kbd>
               </span>
               <span>close</span>
             </span>
@@ -675,7 +725,7 @@ function itemDomId(item: CommandItem): string {
 .studio-command-menu__item {
   display: grid;
   min-height: 42px;
-  grid-template-columns: 22px minmax(0, 1fr);
+  grid-template-columns: 22px minmax(0, 1fr) auto;
   align-items: center;
   gap: 10px;
   border: 0;

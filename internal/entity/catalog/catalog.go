@@ -348,6 +348,9 @@ func validateFieldTargets(entities []LoadedEntity, targets TargetIndex, fieldTyp
 }
 
 func validateLinkOptions(owner LoadedEntity, field schema.Field, target LoadedEntity, fieldTypes fieldtype.Registry, problems *[]string) {
+	if owner.Entity.Tree != nil && owner.Entity.Tree.ParentField == field.Name && owner.Key() != target.Key() {
+		*problems = append(*problems, fieldDiagnostic(owner, field, "tree parent must link to the same Entity"))
+	}
 	if displayField := strings.TrimSpace(field.Options.DisplayField); displayField != "" {
 		if err := validateLinkTargetField(target, displayField, fieldTypes, false); err != nil {
 			*problems = append(*problems, fieldDiagnostic(owner, field, fmt.Sprintf("display-field: %v", err)))

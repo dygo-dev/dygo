@@ -53,7 +53,7 @@ func (r recordHookRegistry) RegisterEntity(appName string, entity string, event 
 		if current, ok := db.ActivityActorFromContext(ctx); ok {
 			actor = dygo.Actor{UserID: current.UserID, Email: current.Email, Administrator: current.Administrator}
 		}
-		records := dygo.RecordData(dygodata.NewRecordDataWithHookPolicy(hookCtx.Queryer, db.RecordMutationHooksFrameworkOnly))
+		records := dygo.RecordData(dygodata.NewRecordDataWithHookPolicy(hookCtx.Queryer, db.RecordMutationHooksFrameworkOnly).WithAppScope(appName))
 		if actor.UserID > 0 {
 			records = records.AsActor(actor)
 		} else if reason, ok := db.ActivitySystemReasonFromContext(ctx); ok {

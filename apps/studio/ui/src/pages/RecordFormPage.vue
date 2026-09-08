@@ -1,6 +1,9 @@
 <script setup lang="ts">
 import { computed, ref, watch } from 'vue'
 import { useRouter } from 'vue-router'
+import { usePageCommands, runStudioCommand } from '@/features/commands/context'
+import { bindings } from '@/features/commands/shortcuts'
+import { useDraftGuard } from '@/features/records/use-draft-guard'
 import { Plus, RotateCcw, Save, Trash2 } from '@lucide/vue'
 
 import { ErrorState, Spinner } from '@/design'
@@ -24,11 +27,11 @@ import { secretSubmitValue } from '@/features/records/secret-input'
 import { isHiddenCollectionField, isHiddenRecordSubmitField, recordFieldLabel } from '@/features/records/system-fields'
 import { RecordFormRenderer, RecordTimeline } from '@/renderers/records'
 import { RouteName } from '@/router/routes'
-import FormToolbar from '@/shell/FormToolbar.vue'
 import PageHeader from '@/shell/PageHeader.vue'
 import type { PageHeaderAction } from '@/shell/types'
 import { humanizeEntity } from '@/stores/metadata.identity'
 import { statusForError, storeError, type LoadStatus } from '@/stores/status'
+import type { PinnedItem } from '@/features/pinned/pinned'
 
 const props = defineProps<{
   entity: string
@@ -183,6 +186,18 @@ const fields = computed(() => {
   return nameField ? [nameField, ...meta.fields] : meta.fields
 })
 const entityLabel = computed(() => entityMeta.value?.label || humanizeEntity(props.entity))
+const pinTarget = computed<PinnedItem | null>(() => {
+  if (!entityMeta.value || isNew.value) return null
+  if (isSingle.value) return {
+    type: 'entity', app: entityMeta.value.app.name, entity: entityMeta.value.key,
+    label: entityLabel.value, path: `/${props.entity}`,
+  }
+  if (!props.recordName || !record.value) return null
+  return {
+    type: 'record', app: entityMeta.value.app.name, entity: entityMeta.value.key, record: props.recordName,
+    label: `${entityLabel.value} / ${props.recordName}`, path: `/${props.entity}/${encodeURIComponent(props.recordName)}`,
+  }
+})
 const isSystem = computed(() => entityMeta.value?.['is-system'] === true)
 const loading = computed(() => (
   entityMetaStatus.value === 'idle'
@@ -200,6 +215,13 @@ const saveError = computed(() => localError.value || recordActionError.value?.me
 const showForm = computed(() => Boolean(entityMeta.value) && (isNew.value || Boolean(record.value)))
 const dirty = computed(() => fields.value.some((field) => !draftValuesEqual(draft.value[field.name], baseline.value[field.name])))
 const canSave = computed(() => showForm.value && dirty.value && !loading.value && !saving.value && !isSystem.value)
+const confirmDiscard = useDraftGuard(() => dirty.value, () => saving.value)
+const saveDisabledReason = computed(() => isSystem.value ? 'Read-only Record' : loading.value ? 'Loading Record' : saving.value ? 'Saving Record' : !showForm.value ? 'Record unavailable' : !dirty.value ? 'No changes' : undefined)
+usePageCommands(computed(() => [
+  { id: 'record:save', label: isNew.value ? 'Create Record' : 'Save Record', disabledReason: saveDisabledReason.value, run: saveRecord },
+  { id: 'record:reset', label: 'Reset changes', disabledReason: !dirty.value ? 'No changes' : loading.value || saving.value ? 'Record is busy' : isSystem.value ? 'Read-only Record' : undefined, run: resetDraft },
+  ...(!isSingle.value ? [{ id: 'record:list', label: 'Go to Entity list', run: async () => { await router.push({ name: RouteName.EntityRecords, params: { entity: props.entity } }) } }] : []),
+]))
 const actions = computed<PageHeaderAction[]>(() => {
   if (isSystem.value) {
     return []
@@ -211,7 +233,7 @@ const actions = computed<PageHeaderAction[]>(() => {
       icon: RotateCcw,
       variant: 'secondary',
       disabled: !dirty.value || loading.value || saving.value,
-      onSelect: resetDraft,
+      onSelect: () => { void runStudioCommand('record:reset') },
     },
     {
       label: isNew.value ? 'Create record' : 'Save',
@@ -219,7 +241,8 @@ const actions = computed<PageHeaderAction[]>(() => {
       variant: 'primary',
       disabled: !canSave.value,
       loading: saving.value,
-      onSelect: saveRecord,
+      shortcut: bindings['record:save']?.shortcut,
+      onSelect: () => { void runStudioCommand('record:save') },
     },
   ]
 
@@ -267,8 +290,9 @@ watch(
   { immediate: true },
 )
 
+let draftIdentity = ''
 watch(
-  () => [entityMeta.value, record.value, props.mode, props.entity] as const,
+  () => [entityMeta.value, record.value, props.mode, props.entity, props.recordName] as const,
   ([meta, nextRecord, mode, entity]) => {
     if (!meta || meta.slug !== entity) {
       return
@@ -277,6 +301,10 @@ watch(
     if (mode !== 'new' && !nextRecord) {
       return
     }
+
+    const identity = `${entity}:${mode}:${props.recordName ?? ''}`
+    if (identity === draftIdentity && dirty.value) return
+    draftIdentity = identity
 
     const nextDraft = mode === 'new'
       ? draftFromRecord(fields.value, null)
@@ -290,7 +318,8 @@ watch(
   { immediate: true },
 )
 
-function resetDraft() {
+async function resetDraft() {
+  if (!dirty.value || loading.value || saving.value || isSystem.value || !await confirmDiscard()) return
   draft.value = { ...baseline.value }
   fieldErrors.value = {}
   localError.value = ''
@@ -769,9 +798,8 @@ function draftValuesEqual(left: unknown, right: unknown): boolean {
       :show-title="false"
       :system="isSystem"
       :actions="actions"
+      :pin-target="pinTarget"
     />
-
-    <FormToolbar />
 
     <div class="record-form-page__body">
       <div v-if="loading" class="studio-page-state">
@@ -802,6 +830,7 @@ function draftValuesEqual(left: unknown, right: unknown): boolean {
           :system-fields="systemFields"
           :collections="entityMeta.collections"
           :record="record"
+          :tree="entityMeta?.tree"
           :secret-status="secretStatus"
           :mode="props.mode"
           :model-value="draft"
@@ -827,7 +856,7 @@ function draftValuesEqual(left: unknown, right: unknown): boolean {
 <style scoped>
 .record-form-page {
   gap: 0;
-  grid-template-rows: auto auto minmax(0, 1fr);
+  grid-template-rows: auto minmax(0, 1fr);
   height: 100%;
   min-height: 0;
 }

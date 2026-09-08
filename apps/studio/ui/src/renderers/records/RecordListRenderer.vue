@@ -1,9 +1,9 @@
 <script setup lang="ts">
 import { computed, onBeforeUnmount, ref, watch } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
-import { useInfiniteQuery } from '@tanstack/vue-query'
-import { useDebounceFn, useStorage } from '@vueuse/core'
-import { ArrowDown, ArrowUp, Check, Download, FunnelPlus, Play, Settings2, X } from '@lucide/vue'
+import { useInfiniteQuery, useQuery } from '@tanstack/vue-query'
+import { useStorage } from '@vueuse/core'
+import { ArrowDown, ArrowUp, Check, Download, Play, Settings2, X } from '@lucide/vue'
 import {
   PopoverContent,
   PopoverPortal,
@@ -13,8 +13,7 @@ import {
 
 import { Button, Checkbox, IconButton, Input } from '@/design'
 import DataTable from '@/design/organisms/DataTable.vue'
-import DropdownMenu from '@/design/primitives/DropdownMenu.vue'
-import type { DataTableRowKey, DataTableSort, DataTableState, DropdownMenuItem } from '@/design/types'
+import type { DataTableRowKey, DataTableSort, DataTableState } from '@/design/types'
 import type { EntityActionDefinition, MetadataField, MetadataFilterOperator } from '@/features/metadata/metadata.api'
 import type { RecordListPolicy } from '@/features/platform/platform.api'
 import { usePlatformConfigQuery } from '@/features/platform/platform.query'
@@ -26,6 +25,7 @@ import { useExecuteRecordActionMutation } from '@/features/records/record-action
 import {
   buildRecordListRouteQuery,
   canonicalizeRecordListRouteQuery,
+  createRecordListRouteWriter,
   isAllowedRecordPageSize,
   type RecordListFilter,
   type RecordListRouteFilterField,
@@ -36,6 +36,14 @@ import PageToolbar from '@/shell/PageToolbar.vue'
 import { statusForError, storeError } from '@/stores/status'
 import { buildRecordListColumns } from './columns'
 import CSVImportPanel from './CSVImportPanel.vue'
+import FilterFieldPicker from './FilterFieldPicker.vue'
+import FilterValueInput from './FilterValueInput.vue'
+import SavedFiltersMenu from '@/features/saved-filters/SavedFiltersMenu.vue'
+import { savedFilterRequest, type SavedFilter } from '@/features/saved-filters/saved-filters.api'
+import { validateFilters } from '@/features/records/filter-values'
+import { usePageCommands } from '@/features/commands/context'
+import { usePreferencesStore } from '@/features/preferences/preferences.store'
+import { useAuthStore } from '@/stores/auth.store'
 
 const props = defineProps<{
   entity: string
@@ -46,6 +54,7 @@ const props = defineProps<{
   actions?: EntityActionDefinition[]
   appName: string
   entityKey: string
+  viewKey?: string
 }>()
 
 const emit = defineEmits<{
@@ -56,6 +65,10 @@ const emit = defineEmits<{
 const route = useRoute()
 const router = useRouter()
 const platformConfigQuery = usePlatformConfigQuery()
+const preferences = usePreferencesStore()
+const auth = useAuthStore()
+const canonicalEntity = computed(() => `${props.appName}/${props.entityKey}`)
+const hiddenColumnsPreference = computed(() => `studio.records.${props.appName}.${props.entityKey}.hidden-columns`)
 const ID_SEARCH_DEBOUNCE_MS = 500
 const FILTER_ROUTE_REPLACE_DEBOUNCE_MS = 250
 const PAGE_SIZE_STORAGE_KEY = 'dygo.studio.records.pageSize'
@@ -64,12 +77,14 @@ const storedHiddenColumnKeys = useStorage<string[]>(computed(() => hiddenColumnS
   onError: () => {},
 })
 const hiddenColumnKeys = computed({
-  get: () => normalizeHiddenColumnKeys(storedHiddenColumnKeys.value),
+  get: () => normalizeHiddenColumnKeys(preferences.get(hiddenColumnsPreference.value, [])),
   set: (keys: string[]) => {
-    storedHiddenColumnKeys.value = normalizeHiddenColumnKeys(keys)
+    preferences.set(hiddenColumnsPreference.value, normalizeHiddenColumnKeys(keys))
   },
 })
 const idSearch = ref('')
+const idSearchControl = ref<HTMLDivElement | null>(null)
+const filterPicker = ref<InstanceType<typeof FilterFieldPicker> | null>(null)
 const filterTokens = ref<ActiveRecordFilter[]>([])
 const listQuery = ref<RecordListRouteState>({ sort: null, filters: [] })
 const storedPageSize = useStorage(PAGE_SIZE_STORAGE_KEY, 0, undefined, {
@@ -77,17 +92,52 @@ const storedPageSize = useStorage(PAGE_SIZE_STORAGE_KEY, 0, undefined, {
 })
 const pageSize = ref(0)
 const selectedRowKeys = ref<DataTableRowKey[]>([])
+const viewRevision = ref(0)
 const selectedAction = ref('')
 const exporting = ref(false)
 const importOpen = ref(false)
 const actionMutation = useExecuteRecordActionMutation()
 const toast = useToast()
+const savedFilters = useQuery({
+  queryKey: computed(() => ['studio', 'saved-filters', auth.currentUser?.id, auth.sessionVersion, canonicalEntity.value]),
+  queryFn: ({ signal }) => savedFilterRequest<SavedFilter[]>(`?entity=${encodeURIComponent(canonicalEntity.value)}`, 'GET', undefined, signal),
+  enabled: computed(() => !!auth.currentUser),
+})
+const savingFilter = ref(false)
+const savedFilterError = ref('')
+const savedFilterRetry = ref<(() => Promise<void>) | null>(null)
+const hasFilters = computed(() => !!(idSearch.value || filterTokens.value.length || listQuery.value.filters.length))
+const filterContext = computed(() => Object.fromEntries(listQuery.value.filters.filter((filter) => filter.operator === 'eq').map((filter) => [filter.field, filter.value])))
+usePageCommands(computed(() => [
+  ...(!props.readOnly ? [{ id: 'records-new', label: `New ${props.entityLabel}`, run: createRecord }] : []),
+  { id: 'records:focus-id', label: 'Focus Record ID search', run: () => { idSearchControl.value?.querySelector('input')?.focus() } },
+  { id: 'records:add-filter', label: 'Add filter', run: () => { filterPicker.value?.open() } },
+  ...(hasFilters.value ? [{ id: 'records-clear-filters', label: 'Clear filters', run: clearFilters }] : []),
+  ...(savedFilters.data.value ?? []).map((item) => ({ id: `saved-filter-${item.id}`, label: `Apply ${item.label}`, disabled: !!item.validationError, run: () => applySavedFilter(item) })),
+]))
+watch([canonicalEntity, () => preferences.userID], () => {
+  savedFilterError.value = ''
+  savedFilterRetry.value = null
+  void preferences.importMissing({
+    'studio.records.page-size': storedPageSize.value || undefined,
+    [hiddenColumnsPreference.value]: storedHiddenColumnKeys.value,
+  })
+}, { immediate: true })
+watch(() => auth.sessionVersion, () => {
+  clearScheduledRecordListRouteReplace()
+  selectedRowKeys.value = []
+  filterTokens.value = []
+  syncFilterControlsFromRoute(listQuery.value.filters)
+})
 const viewOptionsOpen = ref(false)
 let nextFilterTokenId = 1
 let currentEntity = ''
 let currentListQuerySignature = ''
-let unmounted = false
-let recordListRouteReplaceScheduleVersion = 0
+const {
+  schedule: scheduleRecordListRouteReplace,
+  apply: replaceRecordListRouteNow,
+  cancel: clearScheduledRecordListRouteReplace,
+} = createRecordListRouteWriter(replaceRecordListRoute, FILTER_ROUTE_REPLACE_DEBOUNCE_MS)
 let keepViewOptionsOpenTimer: ReturnType<typeof setTimeout> | undefined
 let suppressViewOptionsClose = false
 
@@ -121,26 +171,12 @@ const filterableFields = computed(() => (
   [...props.fields, ...(props.systemFields ?? [])].filter(isFilterableField)
 ))
 const filterableFieldByName = computed(() => new Map(filterableFields.value.map((field) => [field.name, field])))
-const filterFieldMenuItems = computed<DropdownMenuItem[]>(() => {
-  if (filterableFields.value.length === 0) {
-    return [{ type: 'item', key: 'empty', label: 'No filterable fields', disabled: true }]
-  }
-
-  return [
-    { type: 'label', key: 'filter-fields-label', label: 'Fields' },
-    ...filterableFields.value.map((field) => ({
-      type: 'item' as const,
-      key: field.name,
-      label: filterFieldLabel(field),
-    })),
-  ]
-})
 const hiddenColumnKeySet = computed(() => new Set(hiddenColumnKeys.value.filter((key) => key !== 'name')))
 const visibleColumns = computed(() => columns.value.filter((column) => (
   column.key === 'name' || !hiddenColumnKeySet.value.has(column.key)
 )))
 const sortableColumns = computed(() => columns.value.filter((column) => column.sortable))
-const effectiveListSort = computed(() => listQuery.value.sort ?? DEFAULT_RECORD_LIST_SORT)
+const effectiveListSort = computed<DataTableSort>(() => listQuery.value.sort ?? (props.viewKey === 'tree' ? { key: 'name', direction: 'asc' } : DEFAULT_RECORD_LIST_SORT))
 const orderingField = computed(() => effectiveListSort.value.key)
 const orderingDirection = computed(() => effectiveListSort.value.direction)
 const orderingOptions = computed<OrderingOption[]>(() => {
@@ -162,11 +198,11 @@ const recordListReady = computed(() => {
   return Boolean(policy && isAllowedRecordPageSize(pageSize.value, policy['page-sizes']))
 })
 const recordsQuery = useInfiniteQuery({
-  queryKey: computed(() => recordListQueryKey(props.entity, {
+  queryKey: computed(() => [...recordListQueryKey(props.entity, {
     pageSize: pageSize.value,
     sort: effectiveListSort.value,
     filters: listQuery.value.filters,
-  })),
+  }), auth.currentUser?.id, auth.sessionVersion]),
   queryFn: ({ pageParam, signal }) => listRecords(props.entity, {
     limit: pageSize.value,
     offset: Number(pageParam),
@@ -179,7 +215,7 @@ const recordsQuery = useInfiniteQuery({
     const totalRows = lastPage.meta.total ?? loadedRows
     return loadedRows < totalRows ? loadedRows : undefined
   },
-  enabled: recordListReady,
+  enabled: computed(() => recordListReady.value && !!auth.currentUser && (!props.viewKey || props.viewKey === 'list')),
 })
 const recordPages = computed(() => recordsQuery.data.value?.pages ?? [])
 const rows = computed<RecordData[]>(() => recordPages.value.flatMap((page) => page.data))
@@ -253,13 +289,17 @@ const hasMore = computed(() => (
   recordListReady.value && recordsQuery.hasNextPage.value && !platformConfigError.value
 ))
 const showToolbar = computed(() => (
-  rows.value.length > 0 || listQuery.value.filters.length > 0 || idSearch.value !== '' || filterTokens.value.length > 0 || !props.readOnly
+  !!props.viewKey || rows.value.length > 0 || listQuery.value.filters.length > 0 || idSearch.value !== '' || filterTokens.value.length > 0 || !props.readOnly
 ))
-const debouncedFilterRecordListRouteReplace = useDebounceFn(applyScheduledRecordListRouteReplace, FILTER_ROUTE_REPLACE_DEBOUNCE_MS)
-const debouncedIDSearchRecordListRouteReplace = useDebounceFn(applyScheduledRecordListRouteReplace, ID_SEARCH_DEBOUNCE_MS)
+watch(() => props.viewKey, () => {
+  clearScheduledRecordListRouteReplace()
+  syncFilterControlsFromRoute(listQuery.value.filters)
+  selectedRowKeys.value = []
+  viewRevision.value++
+})
 watch(
-  recordListPolicy,
-  (policy) => {
+  [recordListPolicy, () => preferences.get('studio.records.page-size', 0)],
+  ([policy]) => {
     if (!policy) {
       pageSize.value = 0
       return
@@ -284,6 +324,7 @@ watch(
     if (currentEntity !== props.entity) {
       clearScheduledRecordListRouteReplace()
       selectedRowKeys.value = []
+      filterTokens.value = []
       currentEntity = props.entity
     }
 
@@ -305,7 +346,6 @@ watch(
 )
 
 onBeforeUnmount(() => {
-  unmounted = true
   clearScheduledRecordListRouteReplace()
   clearKeepViewOptionsOpenTimer()
 })
@@ -317,7 +357,7 @@ function updatePageSize(value: number) {
   }
 
   pageSize.value = value
-  storedPageSize.value = value
+  preferences.set('studio.records.page-size', value)
   selectedRowKeys.value = []
 }
 
@@ -435,6 +475,11 @@ function applyFilter(id: number, options: { debounce?: boolean } = {}) {
   if (!filter) {
     return
   }
+  const problem = validateFilters([{ field: filter.field, operator: filter.operator, value: filter.value }], filterableFields.value)
+  if (problem) {
+    toast.error('Filter needs attention', problem)
+    return
+  }
 
   if (filterHasValue(filter) && normalizeFilterValue(filter.value) === '') {
     filterTokens.value = filterTokens.value.filter((candidate) => candidate.id !== id)
@@ -457,6 +502,63 @@ function applyFilter(id: number, options: { debounce?: boolean } = {}) {
 function removeFilter(id: number) {
   filterTokens.value = filterTokens.value.filter((filter) => filter.id !== id)
   replaceRecordListRouteNow(appliedRecordFilters(), listQuery.value.sort)
+}
+
+function clearFilters() {
+  viewRevision.value++
+  clearScheduledRecordListRouteReplace()
+  idSearch.value = ''
+  filterTokens.value = []
+  selectedRowKeys.value = []
+  listQuery.value = { sort: listQuery.value.sort, filters: [] }
+  replaceRecordListRouteNow([], listQuery.value.sort)
+  void queryClient.resetQueries({ queryKey: [...recordListQueryKey(props.entity, { pageSize: pageSize.value, sort: effectiveListSort.value, filters: [] }), auth.currentUser?.id, auth.sessionVersion], exact: true })
+}
+
+function applySavedFilter(item: SavedFilter) {
+  const problem = item.validationError || (item.entity !== canonicalEntity.value ? 'This filter belongs to another Entity.' : validateFilters(item.filters, filterableFields.value))
+  if (problem) {
+    toast.error('Saved filter needs attention', problem)
+    return
+  }
+  clearScheduledRecordListRouteReplace()
+  viewRevision.value++
+  filterTokens.value = []
+  selectedRowKeys.value = []
+  syncFilterControlsFromRoute(item.filters)
+  replaceRecordListRouteNow(item.filters, listQuery.value.sort)
+  void queryClient.resetQueries({ queryKey: [...recordListQueryKey(props.entity, { pageSize: pageSize.value, sort: effectiveListSort.value, filters: item.filters }), auth.currentUser?.id, auth.sessionVersion], exact: true })
+}
+
+async function changeSavedFilter(method: string, item?: SavedFilter, label?: string) {
+  if (savingFilter.value) return
+  const filters = listQuery.value.filters.map((filter) => ({ ...filter }))
+  if (method === 'POST' || (method === 'PATCH' && label === undefined)) {
+    const problem = validateFilters(filters, filterableFields.value)
+    if (problem) { toast.error('Filter needs attention', problem); return }
+  }
+  const session = auth.sessionVersion
+  const entity = canonicalEntity.value
+  savedFilterRetry.value = () => changeSavedFilter(method, item, label)
+  savingFilter.value = true
+  savedFilterError.value = ''
+  try {
+    await savedFilterRequest(item ? `/${item.id}` : '', method, method === 'DELETE' ? undefined : method === 'POST' ? { entity, label, filters } : label === undefined ? { filters } : { label })
+    await queryClient.invalidateQueries({ queryKey: ['studio', 'saved-filters'] })
+    savedFilterRetry.value = null
+  } catch (cause) {
+    if (session === auth.sessionVersion && entity === canonicalEntity.value) savedFilterError.value = cause instanceof Error ? cause.message : 'Could not update saved filters.'
+  } finally {
+    savingFilter.value = false
+  }
+}
+
+async function retrySavedFilter() {
+  if (savedFilterRetry.value) {
+    await savedFilterRetry.value()
+    return
+  }
+  await savedFilters.refetch()
 }
 
 function showAllColumns() {
@@ -501,7 +603,7 @@ function defaultPageSize(policy: RecordListPolicy): number {
 }
 
 function readStoredPageSize(policy: RecordListPolicy): number {
-  const value = Number(storedPageSize.value)
+  const value = Number(preferences.get('studio.records.page-size', 0))
   if (!isAllowedRecordPageSize(value, policy['page-sizes'])) {
     return defaultPageSize(policy)
   }
@@ -561,25 +663,6 @@ function filterTokenDirty(filter: ActiveRecordFilter): boolean {
   return filterHasValue(filter) && normalizeFilterValue(filter.value) !== filter.appliedValue
 }
 
-function filterInputType(filter: ActiveRecordFilter): string {
-  const field = filterFieldForToken(filter)
-  switch (field?.type) {
-    case 'int':
-    case 'bigint':
-    case 'decimal':
-    case 'currency':
-      return 'number'
-    case 'date':
-      return 'date'
-    default:
-      return 'text'
-  }
-}
-
-function filterInputPlaceholder(filter: ActiveRecordFilter): string {
-  return filterOperatorArity(filter) === 'range' ? 'start..end' : 'value'
-}
-
 function defaultFilterValue(field: MetadataField | undefined, operator: string): string {
   if (filterOperatorArityForField(field, operator) === 'none') {
     return ''
@@ -621,39 +704,6 @@ function clearKeepViewOptionsOpenTimer() {
   clearTimeout(keepViewOptionsOpenTimer)
   keepViewOptionsOpenTimer = undefined
   suppressViewOptionsClose = false
-}
-
-function scheduleRecordListRouteReplace(filters: RecordListFilter[], sort: DataTableSort | null, delay = FILTER_ROUTE_REPLACE_DEBOUNCE_MS) {
-  const version = nextRecordListRouteReplaceScheduleVersion()
-  const nextFilters = cloneRecordListFilters(filters)
-  const nextSort = cloneRecordListSort(sort)
-  const debouncedReplace = delay === ID_SEARCH_DEBOUNCE_MS
-    ? debouncedIDSearchRecordListRouteReplace
-    : debouncedFilterRecordListRouteReplace
-
-  void debouncedReplace(version, nextFilters, nextSort)
-}
-
-function replaceRecordListRouteNow(filters: RecordListFilter[], sort: DataTableSort | null) {
-  clearScheduledRecordListRouteReplace()
-  replaceRecordListRoute(filters, sort)
-}
-
-function clearScheduledRecordListRouteReplace() {
-  recordListRouteReplaceScheduleVersion += 1
-}
-
-function nextRecordListRouteReplaceScheduleVersion(): number {
-  recordListRouteReplaceScheduleVersion += 1
-  return recordListRouteReplaceScheduleVersion
-}
-
-function applyScheduledRecordListRouteReplace(version: number, filters: RecordListFilter[], sort: DataTableSort | null) {
-  if (unmounted || version !== recordListRouteReplaceScheduleVersion) {
-    return
-  }
-
-  replaceRecordListRoute(filters, sort)
 }
 
 function replaceRecordListRoute(filters: RecordListFilter[], sort: DataTableSort | null) {
@@ -722,14 +772,6 @@ function recordListRouteSchema() {
 
 function defaultRecordListSortEquals(sort: DataTableSort | null): boolean {
   return sort?.key === DEFAULT_RECORD_LIST_SORT.key && sort.direction === DEFAULT_RECORD_LIST_SORT.direction
-}
-
-function cloneRecordListFilters(filters: RecordListFilter[]): RecordListFilter[] {
-  return filters.map((filter) => ({ ...filter }))
-}
-
-function cloneRecordListSort(sort: DataTableSort | null): DataTableSort | null {
-  return sort ? { ...sort } : null
 }
 
 function syncFilterControlsFromRoute(filters: RecordListFilter[]) {
@@ -818,7 +860,8 @@ async function exportCSV() {
   <section class="record-list-renderer" aria-label="Record list view">
     <PageToolbar v-if="showToolbar">
       <template #left>
-        <div class="record-list-renderer__name-search">
+        <slot name="view-selector" />
+        <div ref="idSearchControl" class="record-list-renderer__name-search">
           <Input
             :model-value="idSearch"
             type="search"
@@ -854,26 +897,7 @@ async function exportCSV() {
                 {{ operator.label }}
               </option>
             </select>
-            <select
-              v-if="filterHasValue(filter) && filterFieldForToken(filter)?.type === 'boolean'"
-              class="record-list-renderer__filter-segment record-list-renderer__filter-segment--value"
-              :value="filter.value"
-              :aria-label="`${filterLabel(filter)} value`"
-              @change="updateFilterValue(filter.id, ($event.target as HTMLSelectElement).value, true)"
-            >
-              <option value="true">true</option>
-              <option value="false">false</option>
-            </select>
-            <input
-              v-else-if="filterHasValue(filter)"
-              class="record-list-renderer__filter-segment record-list-renderer__filter-segment--value"
-              :value="filter.value"
-              :type="filterInputType(filter)"
-              :placeholder="filterInputPlaceholder(filter)"
-              :aria-label="`${filterLabel(filter)} value`"
-              @input="updateFilterValue(filter.id, ($event.target as HTMLInputElement).value)"
-              @keydown.enter.prevent="applyFilter(filter.id)"
-            />
+            <FilterValueInput v-if="filterFieldForToken(filter)" :field="filterFieldForToken(filter)!" :operator="filter.operator" :model-value="filter.value" :current-values="filterContext" :app-name="appName" @update:model-value="updateFilterValue(filter.id, $event)" @apply="applyFilter(filter.id)" />
             <button
               v-if="filterTokenDirty(filter)"
               class="record-list-renderer__filter-apply"
@@ -893,22 +917,15 @@ async function exportCSV() {
             </button>
           </div>
 
-          <DropdownMenu
-            label="Add filter"
-            trigger-type="icon"
-            :items="filterFieldMenuItems"
-            @select="selectFilterField"
-          >
-            <template #trigger>
-              <FunnelPlus :size="14" :stroke-width="1.8" aria-hidden="true" />
-            </template>
-          </DropdownMenu>
+          <FilterFieldPicker ref="filterPicker" :fields="filterableFields" @select="selectFilterField" />
+          <Button v-if="hasFilters" variant="ghost" size="sm" @click="clearFilters">Clear all</Button>
+          <SavedFiltersMenu :items="savedFilters.data.value ?? []" :busy="savingFilter || savedFilters.isLoading.value" :error="savedFilterError || savedFilters.error.value?.message || ''" @apply="applySavedFilter" @create="changeSavedFilter('POST', undefined, $event)" @rename="(item, label) => changeSavedFilter('PATCH', item, label)" @replace="changeSavedFilter('PATCH', $event)" @delete="changeSavedFilter('DELETE', $event)" @retry="retrySavedFilter" />
         </div>
       </template>
 
       <template #right>
         <select
-          v-if="availableActions.length > 0"
+          v-if="availableActions.length > 0 && (!viewKey || viewKey === 'list')"
           v-model="selectedAction"
           class="record-list-renderer__action-select"
           aria-label="Entity action"
@@ -919,7 +936,7 @@ async function exportCSV() {
           </option>
         </select>
         <Button
-          v-if="availableActions.length > 0"
+          v-if="availableActions.length > 0 && (!viewKey || viewKey === 'list')"
           variant="secondary"
           size="sm"
           :disabled="!canRunSelectedAction"
@@ -929,7 +946,7 @@ async function exportCSV() {
           <Play :size="13" :stroke-width="1.9" aria-hidden="true" />
           Run
         </Button>
-        <Button variant="ghost" size="sm" :disabled="exporting || loading" :loading="exporting" @click="exportCSV">
+        <Button variant="ghost" size="sm" :disabled="exporting || !recordListReady" :loading="exporting" @click="exportCSV">
           <Download :size="13" :stroke-width="1.9" aria-hidden="true" />
           Export CSV
         </Button>
@@ -994,7 +1011,7 @@ async function exportCSV() {
                 </div>
               </section>
 
-              <section class="record-list-renderer__view-options-section">
+              <section v-if="!viewKey || viewKey === 'list'" class="record-list-renderer__view-options-section">
                 <div class="record-list-renderer__view-options-heading">Display properties</div>
                 <div class="record-list-renderer__property-list">
                   <label
@@ -1034,9 +1051,10 @@ async function exportCSV() {
       :entity-key="entityKey"
       :fields="fields"
       @close="importOpen = false"
-      @imported="() => recordsQuery.refetch()"
+      @imported="() => { recordsQuery.refetch(); viewRevision++ }"
     />
 
+    <slot name="records" :query="listQuery" :page-size="pageSize" :revision="viewRevision">
     <DataTable
       :columns="visibleColumns"
       :rows="rows"
@@ -1063,6 +1081,7 @@ async function exportCSV() {
       @load-more="recordsQuery.fetchNextPage()"
       @empty-action="createRecord"
     />
+    </slot>
   </section>
 </template>
 
@@ -1107,7 +1126,7 @@ async function exportCSV() {
 
 .record-list-renderer__filter-token {
   display: inline-flex;
-  max-width: min(320px, 52vw);
+  max-width: 100%;
   height: var(--studio-control-height-xs);
   min-width: 0;
   align-items: stretch;

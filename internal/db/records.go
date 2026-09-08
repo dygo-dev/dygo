@@ -52,12 +52,14 @@ type RecordQueryer interface {
 
 // RecordStore reads and mutates Records through persisted Entity metadata.
 type RecordStore struct {
-	queryer              RecordQueryer
-	logQueryer           RecordQueryer
-	metadata             MetadataReader
-	hooks                *RecordHookRegistry
-	allowSystemMutations bool
-	scope                *RecordScope
+	queryer               RecordQueryer
+	logQueryer            RecordQueryer
+	metadata              MetadataReader
+	hooks                 *RecordHookRegistry
+	allowSystemMutations  bool
+	scope                 *RecordScope
+	treeReadScope         *RecordScope
+	treeReadScopeResolver func(context.Context, RecordQueryer) (RecordScope, error)
 }
 
 // Record is one metadata-backed saved Entity instance.
@@ -445,6 +447,9 @@ func (s RecordStore) createRecordByIdentity(ctx context.Context, appName string,
 }
 
 func (s RecordStore) createRecordWithLayout(ctx context.Context, layout recordLayout, input RecordInput) (Record, error) {
+	if err := s.lockTree(ctx, layout); err != nil {
+		return nil, err
+	}
 	if layout.IsSingle {
 		return nil, singleRecordOperationError(layout, "create")
 	}
@@ -473,6 +478,9 @@ func (s RecordStore) createRecordWithLayout(ctx context.Context, layout recordLa
 		return nil, err
 	}
 
+	if err := s.validateTreeParent(ctx, layout, 0, input); err != nil {
+		return nil, err
+	}
 	record, err := s.insertRecordWithLayout(ctx, layout, input)
 	if err != nil {
 		return nil, err
@@ -599,6 +607,9 @@ func (s RecordStore) updateRecordByIdentity(ctx context.Context, appName string,
 }
 
 func (s RecordStore) updateRecordWithLayout(ctx context.Context, layout recordLayout, id int64, input RecordInput) (Record, error) {
+	if err := s.lockTree(ctx, layout); err != nil {
+		return nil, err
+	}
 	if err := s.rejectSystemMutation(layout, "update"); err != nil {
 		return nil, err
 	}
@@ -628,6 +639,9 @@ func (s RecordStore) updateRecordWithLayout(ctx context.Context, layout recordLa
 	beforeCtx.Input = input
 	beforeCtx.OldRecord = oldRecord
 	if err := s.runRecordHooks(ctx, beforeCtx); err != nil {
+		return nil, err
+	}
+	if err := s.validateTreeParent(ctx, layout, id, input); err != nil {
 		return nil, err
 	}
 	mutation, err := s.updateMutation(ctx, layout, input)
@@ -725,6 +739,9 @@ func (s RecordStore) deleteRecordByIdentity(ctx context.Context, appName string,
 }
 
 func (s RecordStore) deleteRecordWithLayout(ctx context.Context, layout recordLayout, entity string, id int64) error {
+	if err := s.lockTree(ctx, layout); err != nil {
+		return err
+	}
 	if layout.IsSingle {
 		return singleRecordOperationError(layout, "delete")
 	}
@@ -743,6 +760,9 @@ func (s RecordStore) deleteRecordWithLayout(ctx context.Context, layout recordLa
 	beforeCtx.RecordID = id
 	beforeCtx.OldRecord = oldRecord
 	if err := s.runRecordHooks(ctx, beforeCtx); err != nil {
+		return err
+	}
+	if err := s.restrictTreeDelete(ctx, layout, id); err != nil {
 		return err
 	}
 	if err := s.deleteRecordCollections(ctx, layout, id); err != nil {
@@ -834,7 +854,7 @@ func (s RecordStore) rejectSystemMutation(layout recordLayout, operation string)
 }
 
 func systemRecordOperationError(layout recordLayout, operation string) RecordError {
-	return recordError(RecordErrorInvalidRequest, "system Entity records are framework-owned", map[string]any{"entity": layout.Slug, "operation": operation}, nil)
+	return recordError(RecordErrorInvalidRequest, "system Entity records require a trusted system Record writer", map[string]any{"entity": layout.Slug, "operation": operation}, nil)
 }
 
 func (s RecordStore) queryReturningRecord(ctx context.Context, layout recordLayout, sql string, args []any, notFoundWhenEmpty bool) (Record, error) {
@@ -879,7 +899,7 @@ func (s RecordStore) recordLayout(ctx context.Context, entity string) (recordLay
 		}
 		return recordLayout{}, recordError(RecordErrorInternal, "load entity metadata failed", map[string]any{"entity": entity}, err)
 	}
-	return newRecordLayout(meta)
+	return privateRecordLayout(ctx, meta)
 }
 
 func (s RecordStore) recordLayoutByIdentity(ctx context.Context, appName string, entity string) (recordLayout, error) {
@@ -895,7 +915,7 @@ func (s RecordStore) recordLayoutByIdentity(ctx context.Context, appName string,
 		}
 		return recordLayout{}, recordError(RecordErrorInternal, "load entity metadata failed", map[string]any{"app": appName, "entity": entity}, err)
 	}
-	return newRecordLayout(meta)
+	return privateRecordLayout(ctx, meta)
 }
 
 func recordIdentityName(appName string, entity string) string {
@@ -930,19 +950,22 @@ func (s RecordStore) runRecordHooks(ctx context.Context, hookCtx RecordHookConte
 }
 
 type recordLayout struct {
-	EntityID     int64
-	AppName      string
-	Entity       string
-	Slug         string
-	Label        string
-	IsSingle     bool
-	IsSystem     bool
-	IsCollection bool
-	Table        string
-	Naming       schema.Naming
-	Fields       []recordField
-	FieldByName  map[string]recordField
-	Collections  map[string]recordCollection
+	EntityID          int64
+	AppName           string
+	Entity            string
+	Slug              string
+	Label             string
+	IsSingle          bool
+	IsSystem          bool
+	IsCollection      bool
+	IsPrivate         bool
+	PrivateOwnerField string
+	Table             string
+	Naming            schema.Naming
+	Tree              *schema.Tree
+	Fields            []recordField
+	FieldByName       map[string]recordField
+	Collections       map[string]recordCollection
 }
 
 type recordField struct {
@@ -1010,18 +1033,21 @@ func newRecordLayout(meta MetadataEntityMeta) (recordLayout, error) {
 		return recordLayout{}, recordError(RecordErrorInternal, "entity naming metadata is invalid", map[string]any{"entity": routeSlug}, err)
 	}
 	layout := recordLayout{
-		EntityID:     meta.ID,
-		AppName:      meta.App.Name,
-		Entity:       meta.Key,
-		Slug:         routeSlug,
-		Label:        meta.Label,
-		IsSingle:     meta.IsSingle,
-		IsSystem:     meta.IsSystem,
-		IsCollection: meta.IsCollection,
-		Table:        entityTableName(meta.App.Name, meta.Key),
-		Naming:       naming,
-		FieldByName:  map[string]recordField{},
-		Collections:  map[string]recordCollection{},
+		EntityID:          meta.ID,
+		AppName:           meta.App.Name,
+		Entity:            meta.Key,
+		Slug:              routeSlug,
+		Label:             meta.Label,
+		IsSingle:          meta.IsSingle,
+		IsSystem:          meta.IsSystem,
+		IsCollection:      meta.IsCollection,
+		IsPrivate:         meta.IsPrivate,
+		PrivateOwnerField: meta.PrivateOwnerField,
+		Table:             entityTableName(meta.App.Name, meta.Key),
+		Naming:            naming,
+		Tree:              meta.Tree,
+		FieldByName:       map[string]recordField{},
+		Collections:       map[string]recordCollection{},
 	}
 	if naming.Strategy == schema.NamingStrategyManual {
 		nameField, ok := systemRecordFieldByName(systemFieldName)

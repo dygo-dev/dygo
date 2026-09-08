@@ -1,5 +1,13 @@
 <script setup lang="ts">
 import { storeToRefs } from 'pinia'
+import { computed, onScopeDispose, watchEffect } from 'vue'
+import { useMediaQuery } from '@vueuse/core'
+import { useRouter } from 'vue-router'
+import { useBootStore } from '@/stores/boot.store'
+import { useAuthStore } from '@/stores/auth.store'
+import { globalCommands, runStudioCommand } from '@/features/commands/context'
+import { useShortcuts } from '@/features/commands/use-shortcuts'
+import KeyboardShortcuts from './KeyboardShortcuts.vue'
 
 import { useNavigationStore } from '@/stores/navigation.store'
 import type { ShellNavItem } from './types'
@@ -7,7 +15,7 @@ import PageSheet from './PageSheet.vue'
 import Sidebar from './Sidebar.vue'
 import TopBar from './TopBar.vue'
 
-withDefaults(defineProps<{
+const props = withDefaults(defineProps<{
   brandLabel?: string
   brandMark?: string
   userName?: string
@@ -24,10 +32,28 @@ withDefaults(defineProps<{
 
 const navigationStore = useNavigationStore()
 const { sidebarCollapsed } = storeToRefs(navigationStore)
+const router = useRouter()
+const boot = useBootStore()
+const auth = useAuthStore()
+const desktop = useMediaQuery('(min-width: 721px)')
+const commands = computed(() => auth.currentUser ? [
+  { id: 'app:palette', label: 'Open command palette', group: 'Studio', run: () => { navigationStore.commandMenuOpen = !navigationStore.commandMenuOpen } },
+  { id: 'app:shortcuts', label: 'Keyboard shortcuts', group: 'Studio', run: () => { navigationStore.shortcutsOpen = true } },
+  { id: 'records:search', label: 'Search Records', group: 'Studio', run: () => { navigationStore.openCommandMenu(); navigationStore.recordSearchRequested = true } },
+  { id: 'app:sidebar', label: 'Toggle sidebar', group: 'Studio', disabledReason: props.showSidebar && desktop.value ? undefined : 'Sidebar collapse is unavailable', run: () => navigationStore.toggleSidebar() },
+  { id: 'app:home', label: 'Go home', group: 'Studio', run: async () => {
+    const home = boot.defaults?.home
+    await router.push(typeof home === 'string' && home.startsWith('/') && !home.startsWith('//') ? home : '/')
+  } },
+] : [])
+watchEffect(() => { globalCommands.value = commands.value })
+onScopeDispose(() => { globalCommands.value = [] })
+useShortcuts()
 </script>
 
 <template>
   <div class="studio-shell" :class="{ 'studio-shell--sidebar-collapsed': sidebarCollapsed && showSidebar, 'studio-shell--no-sidebar': !showSidebar }">
+    <KeyboardShortcuts />
     <TopBar
       class="studio-shell__header"
       :brand-label="brandLabel"
@@ -42,7 +68,8 @@ const { sidebarCollapsed } = storeToRefs(navigationStore)
 
     <Sidebar
       v-if="showSidebar"
-      v-model:collapsed="sidebarCollapsed"
+      :collapsed="sidebarCollapsed"
+      @update:collapsed="runStudioCommand('app:sidebar')"
       class="studio-shell__sidebar"
       :items="navItems"
     >

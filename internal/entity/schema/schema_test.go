@@ -79,6 +79,62 @@ func TestLoadFile(t *testing.T) {
 	}
 }
 
+func TestDecodePrivateEntityRequiresLinkOwnerField(t *testing.T) {
+	t.Parallel()
+
+	valid := `
+label: Private State
+is-private: true
+private-owner-field: account
+name:
+  strategy: random
+fields:
+  - name: account
+    label: Account
+    type: link
+    options:
+      entity: user
+  - name: value
+    label: Value
+    type: json
+`
+	entity, err := Decode([]byte(valid), fieldtype.DefaultRegistry())
+	if err != nil {
+		t.Fatalf("Decode(private) error = %v, want nil", err)
+	}
+	if !entity.IsPrivate || entity.PrivateOwnerField != "account" {
+		t.Fatalf("Decode(private) = %+v, want private owner metadata", entity)
+	}
+
+	for name, body := range map[string]string{
+		"missing owner field": `
+label: Private State
+is-private: true
+fields:
+  - name: value
+    label: Value
+    type: json
+`,
+		"owner is not link": `
+label: Private State
+is-private: true
+private-owner-field: account
+name:
+  strategy: random
+fields:
+  - name: account
+    label: Account
+    type: text
+`,
+	} {
+		t.Run(name, func(t *testing.T) {
+			if _, err := Decode([]byte(body), fieldtype.DefaultRegistry()); err == nil {
+				t.Fatal("Decode() error = nil, want private owner validation error")
+			}
+		})
+	}
+}
+
 func TestLoadFileDerivesCanonicalBundleNameFromParentFolder(t *testing.T) {
 	t.Parallel()
 

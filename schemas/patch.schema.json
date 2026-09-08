@@ -27,6 +27,38 @@
       "items": { "$ref": "#/$defs/operation" }
     }
   },
+  "allOf": [
+    {
+      "if": {
+        "properties": {
+          "operations": {
+            "contains": {
+              "properties": {
+                "type": {
+                  "enum": [
+                    "system-record-create",
+                    "system-record-update",
+                    "system-record-delete",
+                    "system-record-upsert"
+                  ]
+                }
+              },
+              "required": [
+                "type"
+              ]
+            }
+          }
+        }
+      },
+      "then": {
+        "properties": {
+          "phase": {
+            "const": "post-sync"
+          }
+        }
+      }
+    }
+  ],
   "$defs": {
     "kebabName": {
       "type": "string",
@@ -41,6 +73,52 @@
     },
     "operation": {
       "oneOf": [
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["type", "entity", "reason", "values"],
+          "properties": {
+            "type": {"const": "system-record-create"},
+            "entity": {"$ref": "#/$defs/kebabName"},
+            "reason": {"type": "string", "pattern": "\\S"},
+            "values": {"type": "object"}
+          }
+        },
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["type", "entity", "reason", "id", "values"],
+          "properties": {
+            "type": {"const": "system-record-update"},
+            "entity": {"$ref": "#/$defs/kebabName"},
+            "reason": {"type": "string", "pattern": "\\S"},
+            "id": {"type": "integer", "minimum": 1},
+            "values": {"type": "object"}
+          }
+        },
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["type", "entity", "reason", "id"],
+          "properties": {
+            "type": {"const": "system-record-delete"},
+            "entity": {"$ref": "#/$defs/kebabName"},
+            "reason": {"type": "string", "pattern": "\\S"},
+            "id": {"type": "integer", "minimum": 1}
+          }
+        },
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["type", "entity", "reason", "match", "values"],
+          "properties": {
+            "type": {"const": "system-record-upsert"},
+            "entity": {"$ref": "#/$defs/kebabName"},
+            "reason": {"type": "string", "pattern": "\\S"},
+            "match": {"type": "object", "minProperties": 1},
+            "values": {"type": "object"}
+          }
+        },
         {
           "type": "object",
           "additionalProperties": false,

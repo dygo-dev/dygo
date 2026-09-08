@@ -136,6 +136,8 @@ func (s RecordStore) withRecordMutation(ctx context.Context, fn func(RecordStore
 	txStore.allowSystemMutations = s.allowSystemMutations
 	txStore.logQueryer = s.logQueryer
 	txStore.scope = s.scope
+	txStore.treeReadScope = s.treeReadScope
+	txStore.treeReadScopeResolver = s.treeReadScopeResolver
 	record, err := fn(txStore)
 	if err != nil {
 		_ = tx.Rollback(ctx)
@@ -149,6 +151,10 @@ func (s RecordStore) withRecordMutation(ctx context.Context, fn func(RecordStore
 }
 
 func recordActivityHook(ctx context.Context, hookCtx RecordHookContext) error {
+	// Private state must not be copied into the generic Activity feed.
+	if hookCtx.layout != nil && hookCtx.layout.IsPrivate {
+		return nil
+	}
 	if hookCtx.Entity == "activity" {
 		return nil
 	}

@@ -338,3 +338,46 @@ Implemented v1 slices:
 - add SQL escape hatch validation
 - fold patch planning and application into `dygo db migrate`
 - add docs and tests for pre-sync and post-sync workflows
+
+## Trusted system Record operations
+
+Apps can change their own `is-system: true` Entities in `post-sync` patches through the same scoped writer as `RecordData.System(reason)`:
+
+```yaml
+kind: patch
+version: 1
+id: 0003_initialize_service_state
+phase: post-sync
+description: Initialize the App service state.
+operations:
+  - type: system-record-create
+    entity: service-state
+    reason: Initialize the service state after schema sync.
+    values:
+      code: primary
+  - type: system-record-update
+    entity: service-state
+    reason: Repair an existing state.
+    id: 42
+    values:
+      status: ready
+  - type: system-record-upsert
+    entity: service-state
+    reason: Ensure the default state exists.
+    match:
+      code: default
+    values:
+      status: ready
+  - type: system-record-delete
+    entity: service-state
+    reason: Remove the obsolete state.
+    id: 43
+```
+
+Every operation requires `entity` and a non-empty `reason`. Create requires `values`; update requires a positive Record `id` and `values`; delete requires `id`; upsert requires `match` and `values`. Upsert matches must identify a metadata-defined unique key. Match values become create values; conflicting values are rejected, and concurrent uniqueness conflicts return the normal constraint error.
+
+Ownership comes from the patch's App. Operations cannot override it or target another App, including Core. Core-owned patches use this same primitive for Core Entities. These operations are rejected in `pre-sync` and for ordinary Entities.
+
+Writes use Record validation, naming, constraints, secret handling, and framework Activity hooks, with the reason and available actor attribution. Business App hooks do not run. Record changes, Activity, and the patch ledger commit or roll back in the existing patch transaction. Applied patches still skip on repeat runs and enforce checksums.
+
+Dry-run previews show operation targets, reasons, IDs, and Field names. Record match and value payloads are redacted, including nested values. Keep reasons descriptive and free of secrets. Normal CRUD, fixtures, imports, and Studio remain read-only for system Entities. `AsSystem` changes the actor and does not grant the trusted system Record write capability.

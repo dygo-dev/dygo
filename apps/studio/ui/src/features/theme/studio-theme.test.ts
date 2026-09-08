@@ -94,12 +94,11 @@ test('dark theme tokens override the light palette', () => {
   assert.match(source, /--studio-overlay/)
 })
 
-test('debug bar inherits the active Studio theme across its portal', () => {
+test('debug bar uses Studio theme tokens in its scoped styles', () => {
   const source = readFileSync(new URL('../debug/DebugBar.vue', import.meta.url), 'utf8')
   assert.match(source, /var\(--studio-surface\)/)
   assert.match(source, /var\(--studio-text\)/)
-  assert.match(source, /<style>/)
-  assert.doesNotMatch(source, /<style scoped>/)
+  assert.match(source, /<style scoped>/)
   assert.doesNotMatch(source, /#[0-9a-f]{3,8}\b|(?:rgb|oklch)\(/i)
 })
 

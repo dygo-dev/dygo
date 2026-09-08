@@ -88,6 +88,8 @@ type RecordListResult struct {
 // RecordData gives hooks transactional access to metadata-backed Records by app/entity identity.
 // Writes run dygo framework hooks, such as Activity, but do not re-enter app hooks.
 type RecordData interface {
+	System(reason string) SystemRecordWriter
+	Tree(appName string, entity string) TreeData
 	DecryptSecret(ctx context.Context, appName string, entity string, recordID int64, field string) (string, error)
 	SecretStatus(ctx context.Context, appName string, entity string, recordID int64) (SecretStatus, error)
 	List(ctx context.Context, appName string, entity string, params RecordListParams) (RecordListResult, error)
@@ -103,6 +105,10 @@ type RecordData interface {
 	Delete(ctx context.Context, appName string, entity string, id int64) error
 	Transaction(ctx context.Context, fn RecordTransactionFunc) error
 	AsActor(actor Actor) RecordData
+	// AsPrivate returns owner-scoped access to an Entity declared with
+	// is-private metadata. The owner field and row predicate are enforced by
+	// the framework for every read and mutation.
+	AsPrivate(actor Actor, reason string) RecordData
 	AsSystem(reason string) RecordData
 }
 

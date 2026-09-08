@@ -16,19 +16,28 @@ import (
 
 // Entity describes one dygo business object definition.
 type Entity struct {
-	Line         int          `yaml:"-"`
-	Name         string       `yaml:"-"`
-	Label        string       `yaml:"label"`
-	Description  string       `yaml:"description,omitempty"`
-	Icon         string       `yaml:"icon,omitempty"`
-	IsSingle     bool         `yaml:"is-single,omitempty"`
-	IsSystem     bool         `yaml:"is-system,omitempty"`
-	IsCollection bool         `yaml:"-"`
-	Route        Route        `yaml:"route,omitempty"`
-	Naming       Naming       `yaml:"name,omitempty"`
-	Fields       []Field      `yaml:"fields"`
-	Indexes      []Index      `yaml:"indexes,omitempty"`
-	Constraints  []Constraint `yaml:"constraints,omitempty"`
+	Line              int          `yaml:"-"`
+	Name              string       `yaml:"-"`
+	Label             string       `yaml:"label"`
+	Description       string       `yaml:"description,omitempty"`
+	Icon              string       `yaml:"icon,omitempty"`
+	IsSingle          bool         `yaml:"is-single,omitempty"`
+	IsSystem          bool         `yaml:"is-system,omitempty"`
+	IsCollection      bool         `yaml:"-"`
+	IsPrivate         bool         `yaml:"is-private,omitempty"`
+	PrivateOwnerField string       `yaml:"private-owner-field,omitempty"`
+	Route             Route        `yaml:"route,omitempty"`
+	Naming            Naming       `yaml:"name,omitempty"`
+	Tree              *Tree        `yaml:"tree,omitempty"`
+	Fields            []Field      `yaml:"fields"`
+	Indexes           []Index      `yaml:"indexes,omitempty"`
+	Constraints       []Constraint `yaml:"constraints,omitempty"`
+}
+
+// Tree declares the parent link and optional display field of a forest.
+type Tree struct {
+	ParentField string `yaml:"parent-field" json:"parent-field"`
+	LabelField  string `yaml:"label-field,omitempty" json:"label-field,omitempty"`
 }
 
 // Route describes the user-facing Studio route metadata for an Entity.
@@ -250,6 +259,12 @@ func (e Entity) Validate(registry fieldtype.Registry) error {
 	if len(e.Fields) == 0 {
 		problems = append(problems, withLine(e.Line, "at least one field is required"))
 	}
+	if e.IsPrivate {
+		ownerField := strings.TrimSpace(e.PrivateOwnerField)
+		if ownerField == "" {
+			problems = append(problems, withLine(e.Line, "private Entity must define private-owner-field"))
+		}
+	}
 
 	seenFields := map[string]struct{}{}
 	fields := map[string]Field{}
@@ -273,7 +288,16 @@ func (e Entity) Validate(registry fieldtype.Registry) error {
 			}
 		}
 	}
+	if e.IsPrivate && strings.TrimSpace(e.PrivateOwnerField) != "" {
+		ownerField, ok := fields[e.PrivateOwnerField]
+		if !ok {
+			problems = append(problems, withLine(e.Line, fmt.Sprintf("private owner field %q does not exist", e.PrivateOwnerField)))
+		} else if ownerField.Type != "link" {
+			problems = append(problems, withLine(ownerField.Line, fmt.Sprintf("private owner field %q must be a link field", e.PrivateOwnerField)))
+		}
+	}
 	validateIndexes(e, fields, fieldTypes, &problems)
+	validateTree(e, fields, &problems)
 	validateConstraints(e, fields, fieldTypes, &problems)
 	if e.IsCollection && hasExplicitNaming(e.Naming) {
 		line := e.Naming.Line

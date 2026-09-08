@@ -1,5 +1,7 @@
 <script setup lang="ts">
-import { ref } from 'vue'
+import { computed, nextTick, ref } from 'vue'
+import { runStudioCommand } from '@/features/commands/context'
+import { ariaShortcut, bindings, shortcutLabel } from '@/features/commands/shortcuts'
 import { Check, ChevronRight, LogOut, Palette, RefreshCw } from '@lucide/vue'
 import {
   DropdownMenuContent,
@@ -29,6 +31,7 @@ import {
 } from '@/features/theme'
 import { RouteName } from '@/router/routes'
 import { useAuthStore } from '@/stores/auth.store'
+import { usePreferencesStore } from '@/features/preferences/preferences.store'
 
 withDefaults(defineProps<{
   userName?: string
@@ -40,7 +43,17 @@ withDefaults(defineProps<{
 const router = useRouter()
 const authStore = useAuthStore()
 const reloading = ref(false)
-const themePreference = ref<StudioThemePreference>(getStudioThemePreference())
+const helpRequested = ref(false)
+const trigger = ref<HTMLButtonElement | null>(null)
+function menuClosed(event: Event) {
+  if (!helpRequested.value) return
+  event.preventDefault()
+  helpRequested.value = false
+  trigger.value?.focus()
+  void nextTick(() => runStudioCommand('app:shortcuts'))
+}
+const preferences = usePreferencesStore()
+const themePreference = computed<StudioThemePreference>(() => preferences.get('studio.theme', getStudioThemePreference()))
 
 async function reloadApp() {
   if (reloading.value) {
@@ -60,7 +73,6 @@ function onThemePreference(value: unknown) {
     return
   }
 
-  themePreference.value = value
   setStudioThemePreference(value)
 }
 
@@ -74,7 +86,7 @@ async function logout() {
 <template>
   <DropdownMenuRoot>
     <DropdownMenuTrigger as-child>
-      <button class="studio-user-menu__trigger" type="button" :aria-label="`${userName} menu`">
+      <button ref="trigger" class="studio-user-menu__trigger" type="button" :aria-label="`${userName} menu`">
         <Avatar :name="userName" :image-url="userAvatarUrl" />
       </button>
     </DropdownMenuTrigger>
@@ -84,7 +96,11 @@ async function logout() {
         class="studio-user-menu__content"
         align="end"
         :side-offset="8"
+        @close-auto-focus="menuClosed"
       >
+        <DropdownMenuItem class="studio-user-menu__item" :aria-keyshortcuts="ariaShortcut(bindings['app:shortcuts']?.shortcut)" @select="helpRequested = true">
+          <span>Keyboard shortcuts</span><kbd>{{ shortcutLabel(bindings['app:shortcuts']?.shortcut) }}</kbd>
+        </DropdownMenuItem>
         <DropdownMenuItem class="studio-user-menu__item" :disabled="reloading" @select="reloadApp">
           <RefreshCw :size="14" :stroke-width="1.8" aria-hidden="true" />
           <span>Reload</span>

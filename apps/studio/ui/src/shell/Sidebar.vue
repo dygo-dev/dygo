@@ -1,8 +1,10 @@
 <script setup lang="ts">
+import { ariaShortcut, bindings, shortcutLabel } from '@/features/commands/shortcuts'
 import { PanelLeftClose, PanelLeftOpen } from '@lucide/vue'
 import { RouterLink } from 'vue-router'
 
 import type { ShellNavItem } from './types'
+import PinnedNav from '@/features/pinned/PinnedNav.vue'
 
 withDefaults(defineProps<{
   ariaLabel?: string
@@ -21,6 +23,7 @@ const emit = defineEmits<{
 
 <template>
   <aside class="studio-sidebar" :class="{ 'studio-sidebar--collapsed': collapsed }" :aria-label="ariaLabel">
+    <PinnedNav :collapsed="collapsed" />
     <nav v-if="items.length > 0" class="studio-sidebar__nav">
       <RouterLink
         v-for="item in items"
@@ -48,7 +51,8 @@ const emit = defineEmits<{
       class="studio-sidebar__collapse"
       type="button"
       :aria-label="collapsed ? 'Expand sidebar' : 'Collapse sidebar'"
-      :title="collapsed ? 'Expand sidebar' : 'Collapse sidebar'"
+      :title="`${collapsed ? 'Expand sidebar' : 'Collapse sidebar'} (${shortcutLabel(bindings['app:sidebar']?.shortcut)})`"
+      :aria-keyshortcuts="ariaShortcut(bindings['app:sidebar']?.shortcut)"
       @click="emit('update:collapsed', !collapsed)"
     >
       <PanelLeftOpen v-if="collapsed" aria-hidden="true" :size="16" :stroke-width="1.8" />
@@ -64,13 +68,13 @@ const emit = defineEmits<{
   min-width: 0;
   flex-direction: column;
   overflow: hidden;
-  padding: 18px 14px 24px var(--studio-shell-gutter);
+  padding: 12px 14px 16px var(--studio-shell-gutter);
   transition: padding 160ms ease;
 }
 
 .studio-sidebar--collapsed {
   align-items: center;
-  padding: 18px 10px 24px;
+  padding: 12px 10px 16px;
 }
 
 .studio-sidebar__nav {
@@ -123,9 +127,8 @@ const emit = defineEmits<{
 }
 
 .studio-sidebar__item--current {
-  background: var(--studio-surface);
+  background: var(--studio-surface-raised);
   color: var(--studio-text);
-  box-shadow: var(--studio-shadow-control);
 }
 
 .studio-sidebar--collapsed .studio-sidebar__item {

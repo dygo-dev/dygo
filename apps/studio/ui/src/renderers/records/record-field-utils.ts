@@ -45,11 +45,11 @@ export function isTextareaField(field: MetadataField): boolean {
 
 export function selectOptions(field: MetadataField): FieldOption[] {
   const options = field.options
-  if (!options || typeof options !== 'object' || !('values' in options)) {
+  if (!options || typeof options !== 'object') {
     return []
   }
 
-  const values = (options as { values?: unknown }).values
+  const values = Array.isArray(options) ? options : (options as { values?: unknown }).values
   if (!Array.isArray(values)) {
     return []
   }

@@ -160,10 +160,11 @@ func TestInstallAppReplacesManagedBundle(t *testing.T) {
 	name, err := InstallApp(root, []AppSource{{
 		Name: "test Studio App",
 		FS: fstest.MapFS{
-			"app.yml":                         {Data: []byte("name: studio\n")},
-			"access/home.page.access.yml":     {Data: []byte("policy: []\n")},
-			"pages/home/home.page.yml":        {Data: []byte("renderer: entity-index\n")},
-			"ui/src/should-not-be-copied.txt": {Data: []byte("source")},
+			"app.yml": {Data: []byte("name: studio\n")},
+			"entities/preference/preference.entity.yml": {Data: []byte("label: Preference\n")},
+			"access/home.page.access.yml":               {Data: []byte("policy: []\n")},
+			"pages/home/home.page.yml":                  {Data: []byte("renderer: entity-index\n")},
+			"ui/src/should-not-be-copied.txt":           {Data: []byte("source")},
 		},
 	}}, []Source{{
 		Name: "test Studio assets",
@@ -182,6 +183,7 @@ func TestInstallAppReplacesManagedBundle(t *testing.T) {
 	appRoot := filepath.Join(root, filepath.FromSlash(projectAppDir))
 	for _, path := range []string{
 		"app.yml",
+		"entities/preference/preference.entity.yml",
 		"access/home.page.access.yml",
 		"pages/home/home.page.yml",
 		"ui/dist/index.html",

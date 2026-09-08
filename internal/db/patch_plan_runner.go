@@ -162,7 +162,7 @@ func applyOnePatch(ctx context.Context, beginner patchTransactionBeginner, patch
 	}()
 
 	for _, operation := range patch.Operations {
-		if _, err := tx.Exec(ctx, operation.SQL); err != nil {
+		if err := executePatchOperation(ctx, tx, patch, operation); err != nil {
 			return PatchRun{}, fmt.Errorf("apply patch %s/%s operation %d %s: %w", patch.AppName, patch.PatchID, operation.OperationIndex, operation.Type, err)
 		}
 	}

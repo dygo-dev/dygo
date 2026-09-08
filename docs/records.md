@@ -210,7 +210,7 @@ Administrator users are privileged through the permission engine.
 
 The permission engine applies row conditions, owner rules, and field read/write restrictions to Record access. Collection fields use the parent Record's field restrictions. See [Access](access.md) for policy metadata.
 
-Sharing, saved views, and richer Studio list UI remain separate follow-up work.
+Studio supports private saved filters. See [Studio](studio.md). Sharing and saved views remain separate follow-up work.
 
 ## Secret fields
 

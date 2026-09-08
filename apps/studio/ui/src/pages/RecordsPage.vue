@@ -11,16 +11,28 @@ import { RecordListRenderer } from '@/renderers/records'
 import { RouteName } from '@/router/routes'
 import { humanizeEntity } from '@/stores/metadata.identity'
 import { statusForError, storeError, type LoadStatus } from '@/stores/status'
+import type { PinnedItem } from '@/features/pinned/pinned'
 import RecordFormPage from './RecordFormPage.vue'
+import { recordViews } from '@/features/records/views'
+import { runStudioCommand } from '@/features/commands/context'
+import { bindings } from '@/features/commands/shortcuts'
+import { usePreferencesStore } from '@/features/preferences/preferences.store'
 
 const props = defineProps<{
   entity: string
 }>()
 
 const router = useRouter()
+const preferences = usePreferencesStore()
 const entityMetaQuery = useMetadataEntityMetaQuery(() => props.entity)
 
 const entityMeta = computed(() => entityMetaQuery.data.value ?? null)
+const views = computed(() => recordViews.filter((view) => !view.requiresTree || !!entityMeta.value?.tree))
+const viewKey = computed(() => `studio.records.${entityMeta.value?.app.name}.${entityMeta.value?.key}.view`)
+const selectedView = computed(() => views.value.find((view) => view.id === preferences.get(viewKey.value, 'list')) ?? recordViews[0])
+function selectView(value: string) {
+  if (views.value.some((view) => view.id === value)) preferences.set(viewKey.value, value)
+}
 const entityMetaError = computed(() => (
   entityMetaQuery.error.value
     ? storeError(entityMetaQuery.error.value, 'Studio could not load entity metadata.')
@@ -44,6 +56,10 @@ const canShowList = computed(() => entityMetaStatus.value === 'ready' && !isSing
 const entityLabel = computed(() => {
   return entityMeta.value?.label || humanizeEntity(props.entity)
 })
+const pinTarget = computed<PinnedItem | null>(() => entityMeta.value ? ({
+  type: 'entity', app: entityMeta.value.app.name, entity: entityMeta.value.key,
+  label: entityLabel.value, path: `/${props.entity}`,
+}) : null)
 
 function openNewRecord() {
   if (isSystem.value) {
@@ -69,7 +85,8 @@ const actions = computed<PageHeaderAction[]>(() => {
       icon: Plus,
       variant: 'primary',
       disabled: entityMetaStatus.value !== 'ready',
-      onSelect: openNewRecord,
+      shortcut: bindings['records-new']?.shortcut,
+      onSelect: () => { void runStudioCommand('records-new') },
     })
   }
 
@@ -90,6 +107,7 @@ const actions = computed<PageHeaderAction[]>(() => {
       :show-title="false"
       :system="isSystem"
       :actions="canShowList ? actions : []"
+      :pin-target="pinTarget"
     />
 
     <div v-if="entityMetaStatus === 'loading' || entityMetaStatus === 'idle'" class="studio-page-state">
@@ -113,13 +131,33 @@ const actions = computed<PageHeaderAction[]>(() => {
       :app-name="entityMeta?.app.name ?? ''"
       :entity-key="entityMeta?.key ?? ''"
       :read-only="isSystem"
+      :view-key="selectedView.id"
       @create-record="openNewRecord"
       @open-record="openRecord"
-    />
+    >
+      <template #view-selector>
+        <select class="records-page__view" aria-label="Record view" :value="selectedView.id" @change="selectView(($event.target as HTMLSelectElement).value)">
+          <option v-for="view in views" :key="view.id" :value="view.id">{{ view.label }}</option>
+        </select>
+      </template>
+      <template v-if="selectedView.renderer" #records="{ query, pageSize, revision }">
+        <component :is="selectedView.renderer" :key="`${entity}:${revision}`" :entity="entity" :tree="entityMeta!.tree!" :query="query" :page-size="pageSize" @open-record="openRecord" />
+      </template>
+    </RecordListRenderer>
   </section>
 </template>
 
 <style scoped>
+.records-page__view {
+  height: var(--studio-control-height-sm);
+  border: 1px solid var(--studio-border);
+  border-radius: var(--studio-radius-control);
+  background: var(--studio-surface);
+  color: var(--studio-text);
+  padding: 0 8px;
+  font: inherit;
+}
+
 .records-page {
   gap: 0;
   grid-template-rows: auto minmax(0, 1fr);

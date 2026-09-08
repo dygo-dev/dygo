@@ -7,6 +7,7 @@ import { RouteName } from '@/router/routes'
 import { useAuthStore } from '@/stores/auth.store'
 import { useBootStore } from '@/stores/boot.store'
 import { useNavigationStore } from '@/stores/navigation.store'
+import { usePreferencesStore } from '@/features/preferences/preferences.store'
 import { pinia } from '@/stores/pinia'
 
 export async function reloadStudioApp(router: Router): Promise<void> {
@@ -16,7 +17,8 @@ export async function reloadStudioApp(router: Router): Promise<void> {
   const bootStore = useBootStore(pinia)
   const navigationStore = useNavigationStore(pinia)
 
-  authStore.$reset()
+  await usePreferencesStore(pinia).flush()
+  authStore.clearSession()
   bootStore.$reset()
   navigationStore.$reset()
   queryClient.clear()
@@ -30,10 +32,9 @@ export async function reloadStudioApp(router: Router): Promise<void> {
   const boot = await bootStore.loadBoot({ force: true })
   await Promise.allSettled([
     queryClient.fetchQuery(platformConfigQueryOptions()),
-    queryClient.fetchQuery(metadataEntitiesQueryOptions()),
+    queryClient.fetchQuery(metadataEntitiesQueryOptions(authStore.currentUser?.id ?? null, authStore.sessionVersion)),
   ])
 
-  // TODO: include DB-backed preference caches here as boot grows beyond defaults.
   navigationStore.requestRouteReload()
 
   if (currentRoute.name === RouteName.Home) {

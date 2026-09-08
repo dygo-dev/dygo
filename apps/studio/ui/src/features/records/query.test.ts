@@ -5,10 +5,42 @@ import {
   buildRecordListRouteQuery,
   buildRecordListQuery,
   canonicalizeRecordListRouteQuery,
+  createRecordListRouteWriter,
   isAllowedRecordPageSize,
   parseRecordListRouteQuery,
   recordListRouteQueriesEqual,
 } from './query.ts'
+
+for (const action of ['clear', 'apply'] as const) {
+  test(`${action} preserves sort and prevents a delayed old filter from returning`, (context) => {
+    context.mock.timers.enable({ apis: ['setTimeout'] })
+    const writes: ReturnType<typeof buildRecordListRouteQuery>[] = []
+    const writer = createRecordListRouteWriter((filters, sort) => writes.push(buildRecordListRouteQuery({ filters, sort })), 250)
+    const sort = { key: 'created-at', direction: 'desc' as const }
+    writer.schedule([{ field: 'name', operator: 'contains', value: 'old search' }], sort, 500)
+    context.mock.timers.tick(100)
+    const filters = action === 'clear' ? [] : [{ field: 'enabled', operator: 'eq', value: 'true' }]
+    writer.apply(filters, sort)
+    context.mock.timers.tick(1000)
+    assert.deepEqual(writes, [action === 'clear' ? { sort: '-created-at' } : { sort: '-created-at', 'enabled:eq': 'true' }])
+  })
+}
+
+test('route writer debounces snapshots and cancels on disposal', (context) => {
+  context.mock.timers.enable({ apis: ['setTimeout'] })
+  const writes: ReturnType<typeof buildRecordListRouteQuery>[] = []
+  const writer = createRecordListRouteWriter((filters, sort) => writes.push(buildRecordListRouteQuery({ filters, sort })), 250)
+  writer.schedule([{ field: 'name', operator: 'contains', value: 'old' }], null)
+  const filters = [{ field: 'name', operator: 'contains', value: 'new' }]
+  writer.schedule(filters, null)
+  filters[0]!.value = 'later draft'
+  context.mock.timers.tick(250)
+  assert.deepEqual(writes, [{ 'name:contains': 'new' }])
+  writer.schedule(filters, null)
+  writer.cancel()
+  context.mock.timers.tick(250)
+  assert.equal(writes.length, 1)
+})
 
 test('buildRecordListQuery serializes pagination, sort, and filters', () => {
   const query = buildRecordListQuery({
