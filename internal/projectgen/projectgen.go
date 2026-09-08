@@ -393,7 +393,7 @@ func goModSource(modulePath string, dep dygoDependency) string {
 }
 
 func runnerSource() (string, error) {
-	formatted, err := runnergen.RenderSource(nil, nil)
+	formatted, err := runnergen.RenderSource(nil, nil, nil)
 	if err != nil {
 		return "", fmt.Errorf("format generated runner: %w", err)
 	}

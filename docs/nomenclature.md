@@ -36,6 +36,7 @@ Technical implementation details may still use words such as document when they 
 | User-facing access rule | Permission |
 | Internal permission rule logic | Policy |
 | Extension point | Hook |
+| Callable Entity operation | Entity action |
 | Seed/reference data | Fixture |
 | One-time data/schema operation | Patch |
 | Background execution | Job |

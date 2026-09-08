@@ -263,13 +263,17 @@ func checkHookWiring(root string) doctorResult {
 	if err != nil {
 		return doctorResult{Status: doctorFail, Name: "hook wiring", Detail: err.Error()}
 	}
+	actionFiles, err := runnergen.DiscoverActions(root)
+	if err != nil {
+		return doctorResult{Status: doctorFail, Name: "hook wiring", Detail: err.Error()}
+	}
 	jobFiles, err := runnergen.DiscoverJobs(root)
 	if err != nil {
 		return doctorResult{Status: doctorFail, Name: "hook wiring", Detail: err.Error()}
 	}
 	if _, err := os.Stat(filepath.Join(root, "cmd", "dygo", "main.go")); err != nil {
 		if os.IsNotExist(err) {
-			if len(hooks) == 0 && len(jobFiles) == 0 {
+			if len(hooks) == 0 && len(actionFiles) == 0 && len(jobFiles) == 0 {
 				return doctorResult{Status: doctorSkip, Name: "hook wiring", Detail: "generated runner not found"}
 			}
 			return doctorResult{Status: doctorFail, Name: "hook wiring", Detail: "cmd/dygo/main.go is missing; run dygo hook sync"}
@@ -283,7 +287,7 @@ func checkHookWiring(root string) doctorResult {
 	if len(problems) > 0 {
 		return doctorResult{Status: doctorFail, Name: "hook wiring", Detail: strings.Join(problems, "; ")}
 	}
-	return doctorResult{Status: doctorPass, Name: "hook wiring", Detail: fmt.Sprintf("%d hook files, %d jobs wired", len(hooks), len(jobFiles))}
+	return doctorResult{Status: doctorPass, Name: "hook wiring", Detail: fmt.Sprintf("%d hook files, %d actions, %d jobs wired", len(hooks), len(actionFiles), len(jobFiles))}
 }
 
 func checkSchemaSnapshot(root string) doctorResult {

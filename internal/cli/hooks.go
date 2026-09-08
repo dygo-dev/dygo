@@ -55,7 +55,7 @@ func newHookListCommand(stdout io.Writer) *cobra.Command {
 func newHookValidateCommand(stdout io.Writer) *cobra.Command {
 	return &cobra.Command{
 		Use:   "validate",
-		Short: "Validate Entity hook files and runner wiring",
+		Short: "Validate Entity hook, action, and Job files and runner wiring",
 		Args:  cobra.NoArgs,
 		RunE: func(_ *cobra.Command, _ []string) error {
 			root, err := workingRootPath()

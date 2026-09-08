@@ -43,6 +43,8 @@ const (
 	EntityAccessFileSuffix   = ".access.yml"
 	EntityFixturesFile       = "fixtures.yml"
 	EntityHooksFile          = "hooks.go"
+	EntityActionsDir         = "actions"
+	EntityActionsFile        = "actions.go"
 	EntityViewsFile          = "views.yml"
 
 	CollectionDir = "_collections"
@@ -167,6 +169,11 @@ func EntityFixturesPath(entity string) string {
 // EntityHooksPath returns the app-relative hook scaffold path for a normal Entity.
 func EntityHooksPath(entity string) string {
 	return filepath.ToSlash(filepath.Join(EntityDir(entity), EntityHooksFile))
+}
+
+// EntityActionsPath returns the app-relative Entity action registrar path.
+func EntityActionsPath(entity string) string {
+	return filepath.ToSlash(filepath.Join(EntityDir(entity), EntityActionsDir, EntityActionsFile))
 }
 
 // EntityViewsPath returns the app-relative view metadata path for a normal Entity.

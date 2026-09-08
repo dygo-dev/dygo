@@ -1698,6 +1698,63 @@ func Run(ctx context.Context, job dygo.JobExecution) error {
 	}
 }
 
+func TestDoctorCommandReportsMissingActionRunnerWiring(t *testing.T) {
+	withDoctorRuntimePool(t, &fakeDoctorRuntimePool{
+		roleCount:       2,
+		permissionCount: 19,
+		adminExists:     true,
+	})
+	withDoctorSchemaSnapshotCheck(t, func(context.Context, string, string) error {
+		return nil
+	})
+
+	root := t.TempDir()
+	writeCLIProjectRoot(t, root)
+	writeCLIGoModule(t, root, "example.com/acme")
+	writeCLIConfig(t, root)
+	writeCLIDatabaseSecret(t, root, secrets.EnvironmentDevelopment, "postgres://user:secret-password@localhost:5432/dygo")
+	writeCLIApp(t, filepath.Join(root, "apps", "sales"), "sales")
+	writeCLIEntity(t, cliEntityPath(root, "sales", "lead"), `
+label: Lead
+fields:
+  - name: title
+    label: Title
+    type: text
+`)
+	actionFile := filepath.Join(root, "apps", "sales", "entities", "lead", "actions", "actions.go")
+	if err := os.MkdirAll(filepath.Dir(actionFile), 0o755); err != nil {
+		t.Fatalf("MkdirAll(actions) error = %v", err)
+	}
+	if err := os.WriteFile(actionFile, []byte(`package actions
+
+import "github.com/hapyco/dygo/pkg/dygo"
+
+func Register(registry dygo.EntityActionRegistry) error {
+	return nil
+}
+`), 0o644); err != nil {
+		t.Fatalf("WriteFile(actions.go) error = %v", err)
+	}
+	t.Chdir(root)
+
+	var stdout bytes.Buffer
+	var stderr bytes.Buffer
+	err := Run(context.Background(), []string{"doctor"}, strings.NewReader(""), &stdout, &stderr)
+	if err == nil {
+		t.Fatal("Run(doctor) error = nil, want missing Entity action runner wiring diagnostic")
+	}
+
+	output := stdout.String()
+	for _, want := range []string{
+		"FAIL hook wiring: cmd/dygo/main.go is missing; run dygo hook sync",
+		"dygo doctor found 1 problem",
+	} {
+		if !strings.Contains(output, want) {
+			t.Fatalf("doctor stdout = %q, want substring %q", output, want)
+		}
+	}
+}
+
 func TestDoctorCommandReportsStaleSchemaSnapshot(t *testing.T) {
 	withDoctorRuntimePool(t, &fakeDoctorRuntimePool{
 		roleCount:       2,

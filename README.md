@@ -53,6 +53,7 @@ dygo dev
 ```sh
 dygo generate app crm
 dygo generate entity crm/contact
+dygo generate action crm/contact
 dygo generate job crm/send-welcome-email
 
 dygo app validate
