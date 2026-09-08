@@ -102,7 +102,10 @@ Hook Record writes run dygo framework hooks, such as Activity, but do not re-ent
 
 `RecordData` also provides permission-aware `Count`, `Exists`, `Aggregate`,
 `GroupBy`, relationship filters, ordered `Lock`, and `Transaction`. Use
-`AsActor` for user access. Use `AsSystem` only with a non-empty audit reason.
+`AsActor` for user access. Use `AsPrivate(actor, reason)` for an Entity whose
+metadata declares `is-private: true`; dygo reads `private-owner-field` and
+automatically constrains every operation to that actor's owner Record. Use
+`AsSystem` only for trusted system Entities and with a non-empty audit reason.
 
 Entity actions receive the actor and transaction-scoped Records, Jobs, Files,
 Timeline, and Notifications services. Register one action on one Entity with

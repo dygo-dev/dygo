@@ -23,6 +23,7 @@ type RecordData struct {
 	systemReason  string
 	lockAction    permissions.Action
 	systemMode    bool
+	privateMode   bool
 	appScope      string
 }
 
@@ -56,6 +57,12 @@ func (d RecordData) scopedStore(ctx context.Context, appName string, entity stri
 		return db.RecordStore{}, fmt.Errorf("system Record access reason is required")
 	}
 	store := d.store()
+	if d.privateMode {
+		if d.actor == nil || d.actor.UserID <= 0 {
+			return db.RecordStore{}, db.RecordError{Code: db.RecordErrorPermissionDenied, Message: "private Record access requires an authenticated owner"}
+		}
+		return store.WithPrivateOwnerScope(ctx, appName, entity, d.actor.UserID)
+	}
 	if d.actor == nil || d.actor.Administrator {
 		return store, nil
 	}
@@ -302,6 +309,17 @@ func (d RecordData) AsActor(actor dygo.Actor) dygo.RecordData {
 	d.activityActor = &actor
 	d.systemReason = ""
 	d.systemMode = false
+	d.privateMode = false
+	return d
+}
+
+// AsPrivate returns owner-scoped access to a metadata-declared private Entity.
+func (d RecordData) AsPrivate(actor dygo.Actor, reason string) dygo.RecordData {
+	d.actor = &actor
+	d.activityActor = &actor
+	d.systemReason = strings.TrimSpace(reason)
+	d.systemMode = true
+	d.privateMode = true
 	return d
 }
 
@@ -313,6 +331,7 @@ func (d RecordData) AsSystem(reason string) dygo.RecordData {
 	d.actor = nil
 	d.systemReason = strings.TrimSpace(reason)
 	d.systemMode = true
+	d.privateMode = false
 	return d
 }
 

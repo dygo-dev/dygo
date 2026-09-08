@@ -47,7 +47,8 @@ func (s RecordStore) DecryptSecret(ctx context.Context, appName, entity string, 
 	}
 	var ciphertext *string
 	// Collection rows are accessible here only through the explicit system SDK.
-	err = s.queryer.QueryRow(ctx, fmt.Sprintf("SELECT %s FROM %s WHERE id = $1", quoteIdent(field.Column), quoteIdent(layout.Table)), id).Scan(&ciphertext)
+	where, args := s.scopedWhere(quoteIdent(recordSelectSourceAlias)+"."+quoteIdent(systemColumnID)+" = $1", []any{id})
+	err = s.queryer.QueryRow(ctx, fmt.Sprintf("SELECT %s FROM %s AS %s WHERE %s", quoteIdent(field.Column), quoteIdent(layout.Table), quoteIdent(recordSelectSourceAlias), where), args...).Scan(&ciphertext)
 	if errors.Is(err, pgx.ErrNoRows) {
 		return "", recordError(RecordErrorNotFound, "record not found", nil, nil)
 	}

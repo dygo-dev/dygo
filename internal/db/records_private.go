@@ -2,6 +2,7 @@ package db
 
 import (
 	"context"
+	"fmt"
 	"strings"
 )
 
@@ -12,6 +13,27 @@ func privateRecordLayout(ctx context.Context, meta MetadataEntityMeta) (recordLa
 		}
 	}
 	return newRecordLayout(meta)
+}
+
+// WithPrivateOwnerScope returns a RecordStore constrained to one owner's
+// private Entity Records. The metadata contract supplies the owner Link field;
+// callers do not need to duplicate table or column naming rules.
+func (s RecordStore) WithPrivateOwnerScope(ctx context.Context, appName string, entity string, ownerID int64) (RecordStore, error) {
+	layout, err := s.recordLayoutByIdentity(ctx, appName, entity)
+	if err != nil {
+		return RecordStore{}, err
+	}
+	if !layout.IsPrivate || strings.TrimSpace(layout.PrivateOwnerField) == "" {
+		return RecordStore{}, recordError(RecordErrorPermissionDenied, "Entity is not configured for private owner access", map[string]any{"entity": entity}, nil)
+	}
+	ownerField, ok := layout.FieldByName[layout.PrivateOwnerField]
+	if !ok || ownerField.Type != "link" || ownerField.Column == "" {
+		return RecordStore{}, recordError(RecordErrorInternal, "private owner field metadata is invalid", map[string]any{"entity": entity, "field": layout.PrivateOwnerField}, nil)
+	}
+	return s.WithScope(RecordScope{
+		Where: fmt.Sprintf("%s = $1", quoteIdent(recordSelectSourceAlias)+"."+quoteIdent(ownerField.Column)),
+		Args:  []any{ownerID},
+	}), nil
 }
 
 // ValidateListByIdentity compiles a query without reading target Records. A

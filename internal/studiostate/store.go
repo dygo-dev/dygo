@@ -42,9 +42,7 @@ func invalid(message string) error {
 }
 
 func (s Store) records(actor dygo.Actor) dygo.RecordData {
-	// Only this service supplies owner predicates. System access avoids granting
-	// generic Record permissions to the private storage Entities.
-	return dygodata.NewRecordData(s.queryer, nil).WithActionActor(actor).AsSystem("manage authenticated user's private Studio state")
+	return dygodata.NewRecordData(s.queryer, nil).AsPrivate(actor, "manage authenticated user's private Studio state")
 }
 
 func input(values map[string]any) dygo.RecordInput {
@@ -86,7 +84,7 @@ func (s Store) ensureCapacity(ctx context.Context, actor dygo.Actor, entity stri
 }
 
 func (s Store) ownerName(ctx context.Context, actor dygo.Actor) (string, error) {
-	record, err := s.records(actor).Get(ctx, "core", "user", actor.UserID)
+	record, err := dygodata.NewRecordData(s.queryer, nil).WithActionActor(actor).AsSystem("resolve authenticated private-state owner").Get(ctx, "core", "user", actor.UserID)
 	if err != nil {
 		return "", err
 	}

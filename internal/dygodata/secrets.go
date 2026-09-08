@@ -16,7 +16,13 @@ func (d RecordData) DecryptSecret(ctx context.Context, appName, entity string, i
 	if !d.systemMode || d.systemReason == "" {
 		err = db.RecordError{Code: db.RecordErrorPermissionDenied, Message: "secret decryption requires explicit system access"}
 	} else {
-		value, err = d.store().DecryptSecret(ctx, appName, entity, id, field)
+		store := d.store()
+		if d.privateMode {
+			store, err = d.scopedStore(ctx, appName, entity, permissions.ActionRead)
+		}
+		if err == nil {
+			value, err = store.DecryptSecret(ctx, appName, entity, id, field)
+		}
 	}
 	outcome := "success"
 	if err != nil {
