@@ -233,8 +233,8 @@ const canSave = computed(() => showForm.value && dirty.value && !loading.value &
 const confirmDiscard = useDraftGuard(() => dirty.value, () => saving.value)
 const saveDisabledReason = computed(() => isSystem.value ? 'Read-only Record' : loading.value ? 'Loading Record' : saving.value ? 'Saving Record' : !showForm.value ? 'Record unavailable' : !dirty.value ? 'No changes' : undefined)
 usePageCommands(computed(() => [
-  { id: 'record:save', label: isNew.value ? 'Create Record' : 'Save Record', disabledReason: saveDisabledReason.value, run: saveRecord },
-  { id: 'record:reset', label: 'Reset changes', disabledReason: !dirty.value ? 'No changes' : loading.value || saving.value ? 'Record is busy' : isSystem.value ? 'Read-only Record' : undefined, run: resetDraft },
+  { id: 'record:save', label: isNew.value ? 'Create Record' : 'Save Record', disabledReason: entityActionMutation.isPending.value ? 'Action is running' : saveDisabledReason.value, run: saveRecord },
+  { id: 'record:reset', label: 'Reset changes', disabledReason: !dirty.value ? 'No changes' : loading.value || saving.value || entityActionMutation.isPending.value ? 'Record is busy' : isSystem.value ? 'Read-only Record' : undefined, run: resetDraft },
   ...(!isSingle.value ? [{ id: 'record:list', label: 'Go to Entity list', run: async () => { await router.push({ name: RouteName.EntityRecords, params: { entity: props.entity } }) } }] : []),
 ]))
 const entityActions = computed(() => recordEntityActions(entityMeta.value?.actions))

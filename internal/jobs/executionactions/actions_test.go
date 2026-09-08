@@ -62,7 +62,7 @@ func TestRetryFailedGeneratesIdempotencyKey(t *testing.T) {
 	if err != nil {
 		t.Fatalf("retryFailed() error = %v, want nil", err)
 	}
-	if jobs.retried != "19" || !strings.HasPrefix(jobs.retryKey, "manual-retry:19:") {
+	if jobs.retried != "19" || jobs.retryKey != "manual-retry:19" {
 		t.Fatalf("Retry call = %q %q, want generated key for 19", jobs.retried, jobs.retryKey)
 	}
 	got, _ := result.(map[string]any)
@@ -96,6 +96,12 @@ func TestRetryFailedMapsMissingExecution(t *testing.T) {
 	jobs := &fakeJobData{err: fmt.Errorf(`job execution "19" was not found`)}
 	_, err := retryFailed(context.Background(), dygo.EntityActionCall{RecordIDs: []int64{19}, Jobs: jobs})
 	assertActionError(t, err, "not_found", "was not found")
+}
+
+func TestRetryFailedHidesUnexpectedStoreError(t *testing.T) {
+	jobs := &fakeJobData{err: fmt.Errorf("load job execution: pq: permission denied for relation job_execution")}
+	_, err := retryFailed(context.Background(), dygo.EntityActionCall{RecordIDs: []int64{19}, Jobs: jobs})
+	assertActionError(t, err, "internal_error", "Job Execution action failed")
 }
 
 func assertActionError(t *testing.T, err error, code string, contains string) {

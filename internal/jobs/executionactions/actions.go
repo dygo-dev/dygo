@@ -4,10 +4,8 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
-	"fmt"
 	"strconv"
 	"strings"
-	"time"
 
 	"github.com/hapyco/dygo/pkg/dygo"
 )
@@ -67,7 +65,7 @@ func retryFailed(ctx context.Context, call dygo.EntityActionCall) (any, error) {
 	}
 	idempotencyKey := strings.TrimSpace(input.IdempotencyKey)
 	if idempotencyKey == "" {
-		idempotencyKey = fmt.Sprintf("manual-retry:%s:%d", executionReference(call), time.Now().UTC().UnixNano())
+		idempotencyKey = "manual-retry:" + executionReference(call)
 	}
 	execution, err := call.Jobs.Retry(ctx, executionReference(call), idempotencyKey)
 	if err != nil {
@@ -102,9 +100,14 @@ func mapJobStoreError(err error) error {
 		return actionErr
 	}
 	message := err.Error()
-	code := "invalid_request"
 	if strings.Contains(message, "was not found") {
-		code = "not_found"
+		return dygo.ActionError{Code: "not_found", Message: "Job Execution was not found"}
 	}
-	return dygo.ActionError{Code: code, Message: message}
+	if strings.Contains(message, "only queued executions can be cancelled") ||
+		strings.Contains(message, "only failed executions can be retried") ||
+		strings.Contains(message, "id or name is required") ||
+		strings.Contains(message, "requires an idempotency key") {
+		return dygo.ActionError{Code: "invalid_request", Message: message}
+	}
+	return dygo.ActionError{Code: "internal_error", Message: "Job Execution action failed"}
 }
